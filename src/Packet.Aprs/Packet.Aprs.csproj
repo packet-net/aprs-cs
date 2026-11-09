@@ -4,7 +4,7 @@
     <PackageId>Packet.Aprs</PackageId>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Title>Packet.Aprs - APRS packet encoder and decoder</Title>
-    <Description>APRS (Automatic Packet Reporting System) packet codec per APRS12c: encode and decode every APRS 1.2 data type (positions, compressed and Mic-E, objects, items, weather, telemetry, messages, status, and the rest) from AX.25 frames or TNC2 / APRS-IS text. Spec-strict with Strict / Lenient parse-option presets and a named flag for each real-world deviation. Source: github.com/packet-net/packet.net.</Description>
+    <Description>APRS (Automatic Packet Reporting System) packet codec per APRS12c: encode and decode every APRS 1.2 data type (positions, compressed and Mic-E, objects, items, weather, telemetry, messages, status, and the rest) from AX.25 frames or TNC2 / APRS-IS text. Spec-strict with Strict / Lenient parse-option presets and a named flag for each real-world deviation. Source: github.com/packet-net/aprs-cs.</Description>
     <PackageTags>aprs;ax25;aprs-is;mic-e;amateur-radio;packet-radio;codec</PackageTags>
     <!-- CA2208: encoders validate the properties of the record being encoded, and name the
          offending property in the exception, which is more useful than a method parameter. -->
@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Packet.Core\Packet.Core.csproj" />
+    <PackageReference Include="Packet.Core" />
   </ItemGroup>
 
   <ItemGroup>

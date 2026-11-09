@@ -1,0 +1,42 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Test method names use Snake_Case_Like_This to read as sentences.
+         CA1806 ("construct-and-discard") fires legitimately on negative
+         constructor tests (`act = () => new Foo(badInput)`), which is the
+         exact pattern we use to assert "this throws". -->
+    <NoWarn>$(NoWarn);CA1707;CA1861;CA1806</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <!-- AwesomeAssertions: license-friendly FluentAssertions fork. See §2.8. -->
+    <PackageReference Include="AwesomeAssertions" />
+    <!-- Xunit.SkippableFact: xUnit 2 has no native Skip API, and a test that cannot run
+         must report Skipped, never a silent green Pass (#700 C028). Referenced for every
+         test project so any suite can gate on a missing tool, OS or device. -->
+    <PackageReference Include="Xunit.SkippableFact" />
+    <!-- Banned-symbol analyzer: BannedSymbols.txt bans Xunit.Assert, so 2.8's
+         "AwesomeAssertions is the sole assertion library" is a build error (RS0030, and
+         warnings are errors here) rather than an aspiration. 718 Assert.* calls had drifted
+         back into 35 files with nothing enforcing it (#700 C012). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers"
+                      PrivateAssets="all"
+                      IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="AwesomeAssertions" />
+  </ItemGroup>
+
+</Project>

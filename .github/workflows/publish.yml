@@ -1,0 +1,51 @@
+name: publish
+
+# Publishes Packet.Aprs to nuget.org when a v<MAJOR>.<MINOR>.<PATCH> tag is pushed; the version
+# is the tag. Uses nuget.org Trusted Publishing (OIDC), so no API key is stored: the policy on
+# nuget.org is matched against this workflow file, publish.yml. The nuget.org profile name is
+# the NUGET_USER repo variable.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Build and test
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          dotnet build Packet.Aprs.slnx -c Release -p:Version="$version"
+          dotnet test Packet.Aprs.slnx -c Release --no-build
+          dotnet pack src/Packet.Aprs/Packet.Aprs.csproj -c Release --no-build -p:Version="$version" -o artifacts
+
+      - name: NuGet login (OIDC to temporary API key)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push to nuget.org
+        run: |
+          set -euo pipefail
+          key='${{ steps.nuget-login.outputs.NUGET_API_KEY }}'
+          dotnet nuget push "artifacts/*.nupkg" --api-key "$key" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push "artifacts/*.snupkg" --api-key "$key" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/*.nupkg --title "$GITHUB_REF_NAME" --generate-notes
