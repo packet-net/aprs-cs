@@ -142,7 +142,10 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
     internal AprsTelemetryBuilder(AprsStation station, int sequence)
         : base(station)
     {
+        // 0-999 in the spec's three digits (APRS12c ch. 13 sss); a larger one is refused, not
+        // wrapped (vectors rulings B6, B8).
         ArgumentOutOfRangeException.ThrowIfNegative(sequence);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(sequence, 999);
         this.sequence = sequence.ToString("000", System.Globalization.CultureInfo.InvariantCulture);
     }
 

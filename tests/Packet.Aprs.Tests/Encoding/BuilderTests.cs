@@ -241,6 +241,97 @@ public class BuilderTests
         FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6)).Should().Throw<ArgumentException>();
     }
 
+    // ------------------------------------------------------------ builder rules (vectors rulings B1-B8)
+
+    [Fact]
+    public void A_course_of_0_is_unknown()
+    {
+        // 000 uncompressed, no course in Mic-E, and refused compressed, which has no unknown course (B1).
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).Course(0).Speed(36).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W>000/036");
+        ((AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Course(0).Speed(9).Build())).Data)
+            .CourseDegrees.Should().BeNull();
+        FluentActions.Invoking(() => Me.Position(49.5, -72.75).Symbol(AprsSymbol.Car).Compressed().Course(0).Speed(36).Build()).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Other_units_are_converted_and_rounded_once()
+    {
+        // 100 km/h is 53.996 knots, written 054; 100.5 feet rounds away from zero to 101 (B2, F2).
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).Course(90).SpeedKmh(100).Altitude(100.5).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W>090/054/A=000101");
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).AltitudeMetres(-3.81).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W>/A=-00013");
+        Sent(Me.Weather().At(49.0583333, -72.0291667).Wind(220, 4).Gust(5).TemperatureCelsius(25.25).RainMillimetres(lastHour: 1.27).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W_220/004g005t077r005");
+    }
+
+    [Fact]
+    public void A_mic_e_altitude_in_metres_goes_in_the_altitude_bytes_and_one_in_feet_in_a_slash_a()
+    {
+        var metres = (AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(100.4).Build())).Data;
+        metres.AltitudeFeet.Should().BeApproximately(100 / 0.3048, 1e-9);
+        metres.Comment.Should().BeEmpty();
+
+        string feet = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Altitude(0).Build());
+        feet.Should().EndWith("/A=000000");
+    }
+
+    [Fact]
+    public void Ambiguity_cuts_the_position_into_the_box_that_holds_it()
+    {
+        // 49 deg 03.596 min with one level is the box 03.5x, not 03.6x (B3); 132.89 degrees is
+        // 53.40 minutes, its box 53.4x, though 132.89 x 6000 is just under 797340 in binary.
+        Sent(Me.Position(49 + (3.596 / 60), 132.89).Ambiguity(1).Symbol(AprsSymbol.House).Build())
+            .Should().Be("M0LTE>APZ001:!4903.5 N/13253.4 E-");
+        Sent(Me.Position(89.99999, -179.99999).Ambiguity(4).Symbol(AprsSymbol.House).Build())
+            .Should().Be("M0LTE>APZ001:!89  .  N/179  .  W-");
+    }
+
+    [Fact]
+    public void A_mic_e_type_code_says_whether_the_station_can_message()
+    {
+        // ` it can, ' it cannot (B7).
+        ((AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Messaging().Build())).Data).TypeCode.Should().Be('`');
+        ((AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Build())).Data).TypeCode.Should().Be('\'');
+    }
+
+    [Fact]
+    public void A_timestamp_is_cut_to_its_resolution()
+    {
+        // 09:23:59 is 0923, the minute a clock shows (B5).
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.House).Timestamp(new DateTime(2026, 11, 10, 9, 23, 59, DateTimeKind.Utc)).Build())
+            .Should().Be("M0LTE>APZ001:/100923z4903.50N/07201.75W-");
+    }
+
+    [Fact]
+    public void A_telemetry_sequence_is_0_to_999_in_three_digits()
+    {
+        // B6, B8: refused past 999, never wrapped; values follow F11.
+        Sent(Me.Telemetry(7).Analog(5m, 190.0m, 1.5m, 0m, 1000m).Digital("10101010").Build())
+            .Should().Be("M0LTE>APZ001:T#007,005,190,1.5,000,1000,10101010");
+        FluentActions.Invoking(() => Me.Telemetry(1000)).Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Out_of_range_is_refused_not_clamped()
+    {
+        // B8: an item name outside 3-9, a message ID that is empty or over 5 characters.
+        FluentActions.Invoking(() => Me.Item("AB").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build()).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => Me.Item("TENLETTERS").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build()).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => Me.Message("G3NRW", "Hi").WithId("").Build()).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void A_device_lookup_is_case_sensitive()
+    {
+        // aprs-deviceid lists tocalls in upper case, and its wildcard n is a digit (A1).
+        AprsDeviceIdentification.FromTocall("APNL02").Should().NotBeNull();
+        AprsDeviceIdentification.FromTocall("APNl02").Should().BeNull();
+        AprsDeviceIdentification.FromTocall("APDR16").Should().NotBeNull();
+        AprsDeviceIdentification.FromTocall("APdR16").Should().BeNull();
+    }
+
     /// <summary>The packet as TNC2 text, after checking it reads back under strict parsing with no
     /// warning or error (a positionless weather report still gets its "not recommended" note).</summary>
     private static string Sent(AprsPacket packet)

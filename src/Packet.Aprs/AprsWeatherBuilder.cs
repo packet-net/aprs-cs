@@ -108,7 +108,7 @@ public sealed class AprsWeatherBuilder : AprsBuilder
 
     /// <summary>Temperature in degrees Celsius, sent to the nearest degree Fahrenheit.</summary>
     public AprsWeatherBuilder TemperatureCelsius(double celsius) =>
-        Temperature((int)Math.Round((celsius * 9 / 5) + 32, MidpointRounding.AwayFromZero));
+        Temperature((int)Internal.Steps.Whole((celsius * 9 / 5) + 32));
 
     /// <summary>Relative humidity, 1-100 percent.</summary>
     public AprsWeatherBuilder Humidity(int percent)

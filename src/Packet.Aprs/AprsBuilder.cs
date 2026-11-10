@@ -65,6 +65,7 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     private int? course;
     private double? speedKnots;
     private double? altitudeFeet;
+    private double? altitudeMetres;
     private AprsPhg? phg;
     private double? rangeMiles;
     private AprsVoiceFrequency? frequency;
@@ -95,7 +96,8 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
         return Self;
     }
 
-    /// <summary>Course over ground in degrees clockwise from north, 1-360 (360 is north).</summary>
+    /// <summary>Course over ground in degrees clockwise from north, 1-360 (360 is north); 0 is the
+    /// spec's unknown course (APRS12c ch. 7, 10), which a compressed report cannot send.</summary>
     public TSelf Course(int degrees)
     {
         course = degrees;
@@ -116,11 +118,21 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     public TSelf Altitude(double feet)
     {
         altitudeFeet = feet;
+        altitudeMetres = null;
         return Self;
     }
 
-    /// <summary>Altitude above mean sea level in metres, sent in feet.</summary>
-    public TSelf AltitudeMetres(double metres) => Altitude(metres * Units.FeetPerMetre);
+    /// <summary>Altitude above mean sea level in metres, sent in feet (<c>/A=</c>, rounded once to
+    /// the foot), or in a Mic-E report in its altitude bytes, rounded to the metre (APRS12c ch. 10).</summary>
+    public TSelf AltitudeMetres(double metres)
+    {
+        altitudeFeet = metres * Units.FeetPerMetre;
+        altitudeMetres = metres;
+        return Self;
+    }
+
+    /// <summary>The altitude given in metres, or null when none was or it was given in feet.</summary>
+    private protected double? AltitudeInMetres => altitudeMetres;
 
     /// <summary>Free text after the structured parts. May contain UTF-8.</summary>
     public TSelf Comment(string text)
@@ -376,7 +388,7 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
         return this;
     }
 
-    /// <summary>Says the station can receive APRS messages (the <c>`</c> type code, APRS 1.2).</summary>
+    /// <summary>Says the station can receive APRS messages: the <c>`</c> type code rather than <c>'</c> (APRS 1.2).</summary>
     public AprsMicEBuilder Messaging(bool capable = true)
     {
         messaging = capable;
@@ -384,13 +396,29 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
     }
 
     /// <inheritdoc/>
-    public override AprsMicEReport ToData() => Apply(new AprsMicEReport
+    public override AprsMicEReport ToData()
     {
-        Position = RequirePosition("a Mic-E report"),
-        Symbol = RequireSymbol("a Mic-E report"),
-        Message = message,
-        TypeCode = messaging ? '`' : null,
-    });
+        // The type code says whether the station can message: ` it can, ' it cannot (APRS 1.2
+        // Mic-E type codes, vectors ruling B7).
+        AprsMicEReport report = Apply(new AprsMicEReport
+        {
+            Position = RequirePosition("a Mic-E report"),
+            Symbol = RequireSymbol("a Mic-E report"),
+            Message = message,
+            TypeCode = messaging ? '`' : '\'',
+        });
+
+        // A course of 0 is unknown, which Mic-E writes as 0, no course (APRS12c ch. 10, ruling B1).
+        if (report.CourseDegrees == 0)
+        {
+            report = report with { CourseDegrees = null };
+        }
+
+        // An altitude in metres goes in the Mic-E altitude bytes, whose unit is the metre, rounded
+        // to the metre (ruling B2); one in feet goes in a /A=.
+        return AltitudeInMetres is { } metres ? report with { AltitudeFeet = Steps.Whole(metres) * Units.FeetPerMetre }
+            : report with { AltitudeInFeet = report.AltitudeFeet is not null };
+    }
 
     /// <inheritdoc/>
     public override AprsPacket Build() => AprsPacket.CreateMicE(Station.Source, ToData(), Station.Path);
