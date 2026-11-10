@@ -224,6 +224,17 @@ public class EncodingTests : AprsSpec
         ThenEncodingFailed();
     }
 
+    [Fact]
+    public void A_dao_that_would_join_the_bytes_either_side_of_a_later_mic_e_altitude_is_not_one()
+    {
+        // Taking "4`} out leaves !k/` and ! side by side; they were never a !DAO! (vectors README, Mic-E).
+        GivenPacket("WC4J-14>S8ST7T:`iAao6!iAao6!k/`\"4`}!k/`\"4`}_4");
+        WhenDecoded();
+        var report = ThenDataIs<AprsMicEReport>();
+        report.Dao.Should().BeNull();
+        report.Comment.Should().Be("ao6!k/`!k/`\"4`}_4");
+    }
+
     // ------------------------------------------------------------ exact bytes (vectors rulings E1-E12)
 
     [Theory]

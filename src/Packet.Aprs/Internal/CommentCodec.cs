@@ -164,7 +164,8 @@ internal static class CommentCodec
         Span<byte> window = stackalloc byte[5];
         for (int i = c.Count - 5; i >= 0; i--)
         {
-            if (c[i] != (byte)'!' || c[i + 4] != (byte)'!' || (skipFrom >= 0 && i + 4 >= skipFrom && i <= skipTo))
+            if (c[i] != (byte)'!' || c[i + 4] != (byte)'!' || (skipFrom >= 0 && i + 4 >= skipFrom && i <= skipTo)
+                || (f.DaoBarrier > 0 && i < f.DaoBarrier && i + 4 >= f.DaoBarrier))
             {
                 continue;
             }

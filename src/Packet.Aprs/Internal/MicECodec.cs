@@ -254,8 +254,8 @@ internal static class MicECodec
         // PHG3330PH} is not an altitude (vectors interpretations.md, "A packet is read in order").
         // It is looked for before telemetry and a !DAO! are lifted, so bytes either side of a !DAO!
         // never join into one, and a !DAO! sharing a byte with it is not one (vectors README,
-        // Mic-E). Strictly it is text, unless a !DAO! would then take one of its bytes: that
-        // reading is not the packet's, so it is rejected.
+        // Mic-E). Strictly it is text and the !DAO! is lifted as usual, unless lifting it would
+        // join the bytes either side into an altitude that is not in the packet: that is rejected.
         if (!altitudeFirst)
         {
             for (int i = 0; i + 4 <= text.Count; i++)
@@ -266,10 +266,11 @@ internal static class MicECodec
                     {
                         ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
                         ReadAltitude(text, i, fields);
+                        fields.DaoBarrier = i;
                     }
-                    else if (CommentCodec.DaoIndex(text) is var dao and >= 0 && dao <= i + 3 && dao + 4 >= i)
+                    else if (DaoLiftJoinsAltitude(text))
                     {
-                        ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "a Mic-E altitude xxx} after other status text shares a byte with a !DAO! (APRS12c ch. 10)", offset + i);
+                        ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "lifting the !DAO! would join the bytes either side of it into a Mic-E altitude xxx} (APRS12c ch. 10)", offset + i);
                         return false;
                     }
 
@@ -279,6 +280,28 @@ internal static class MicECodec
         }
 
         return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
+    }
+
+    /// <summary>True when taking the <c>!DAO!</c> out of the text joins the bytes either side of it into an altitude <c>xxx}</c>.</summary>
+    private static bool DaoLiftJoinsAltitude(List<byte> text)
+    {
+        int dao = CommentCodec.DaoIndex(text);
+        if (dao < 0)
+        {
+            return false;
+        }
+
+        var lifted = new List<byte>(text);
+        lifted.RemoveRange(dao, 5);
+        for (int j = Math.Max(0, dao - 3); j < dao; j++)
+        {
+            if (IsAltitudeAt(lifted, j))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>True when the text is only base-91 telemetry and a <c>!DAO!</c>, as a decoder lifts them.</summary>
