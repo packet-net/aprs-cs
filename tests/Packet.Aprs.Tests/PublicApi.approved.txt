@@ -2,7 +2,7 @@ namespace Packet.Aprs
 {
     public sealed class AprsAckBuilder : Packet.Aprs.AprsBuilder
     {
-        public Packet.Aprs.AprsAckBuilder ReplyAck(string theirAck) { }
+        public Packet.Aprs.AprsAckBuilder ReplyAck(string replyAck) { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
         public new virtual Packet.Aprs.AprsMessage ToData() { }
     }
@@ -382,7 +382,7 @@ namespace Packet.Aprs
     public sealed class AprsMessageBuilder : Packet.Aprs.AprsBuilder
     {
         public Packet.Aprs.AprsMessageBuilder MessageId(string id) { }
-        public Packet.Aprs.AprsMessageBuilder ReplyAck(string theirId = "") { }
+        public Packet.Aprs.AprsMessageBuilder ReplyAck(string replyAck = "") { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
         public new virtual Packet.Aprs.AprsTextMessage ToData() { }
     }

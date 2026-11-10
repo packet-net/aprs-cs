@@ -27,13 +27,13 @@ public sealed class AprsMessageBuilder : AprsBuilder
 
     /// <summary>
     /// Uses the reply-ack format (APRS12c §14 New Message Number Format), which needs
-    /// <see cref="MessageId"/>: acknowledges the other station's message <paramref name="theirId"/> in
+    /// <see cref="MessageId"/>: acknowledges the other station's message <paramref name="replyAck"/> in
     /// the same packet, or with none just says this station understands reply-acks.
     /// </summary>
-    public AprsMessageBuilder ReplyAck(string theirId = "")
+    public AprsMessageBuilder ReplyAck(string replyAck = "")
     {
-        ArgumentNullException.ThrowIfNull(theirId);
-        replyAck = theirId;
+        ArgumentNullException.ThrowIfNull(replyAck);
+        this.replyAck = replyAck;
         return this;
     }
 
@@ -61,10 +61,10 @@ public sealed class AprsAckBuilder : AprsBuilder
     }
 
     /// <summary>For a message that came in reply-ack format (<c>{MM}AA</c>), echoes back its <c>AA</c> part.</summary>
-    public AprsAckBuilder ReplyAck(string theirAck)
+    public AprsAckBuilder ReplyAck(string replyAck)
     {
-        ArgumentNullException.ThrowIfNull(theirAck);
-        replyAck = theirAck;
+        ArgumentNullException.ThrowIfNull(replyAck);
+        this.replyAck = replyAck;
         return this;
     }
 

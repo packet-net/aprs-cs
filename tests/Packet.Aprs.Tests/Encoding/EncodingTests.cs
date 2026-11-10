@@ -274,8 +274,13 @@ public class EncodingTests : AprsSpec
         // E3: the frequency is in the first 10 bytes of the comment (APRS12c ch. 18).
         var report = new AprsPositionReport
         {
-            Position = Somewhere, Symbol = AprsSymbol.Parse("/j"), CourseDegrees = 6, SpeedKnots = 58,
-            Frequency = new AprsVoiceFrequency { FrequencyMHz = 146.520 }, AltitudeFeet = 889, Comment = "Dayton Bound",
+            Position = Somewhere,
+            Symbol = AprsSymbol.Parse("/j"),
+            CourseDegrees = 6,
+            SpeedKnots = 58,
+            Frequency = new AprsVoiceFrequency { FrequencyMHz = 146.520 },
+            AltitudeFeet = 889,
+            Comment = "Dayton Bound",
         };
         WhenEncoded(report);
         ThenEncodedIs("!4903.50N/07201.75Wj006/058/146.520MHz/A=000889 Dayton Bound");
@@ -305,8 +310,12 @@ public class EncodingTests : AprsSpec
         // E4, in Mic-E status text.
         var report = new AprsMicEReport
         {
-            Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), TypeCode = '`', Phg = new AprsPhg(7, 5, 3, 0),
-            Frequency = new AprsVoiceFrequency { FrequencyMHz = 145.425 }, Comment = "Club",
+            Position = Somewhere,
+            Symbol = AprsSymbol.Parse("/>"),
+            TypeCode = '`',
+            Phg = new AprsPhg(7, 5, 3, 0),
+            Frequency = new AprsVoiceFrequency { FrequencyMHz = 145.425 },
+            Comment = "Club",
         };
         AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), report);
         Show(created.Information.Span).Should().EndWith("`PHG7530/145.425MHz Club");

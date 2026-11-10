@@ -62,7 +62,7 @@ docker/linbpq/MHSave.txt
 docker/linbpq/logs/
 docker/linbpq/*.log
 
-# Secrets — never commit
+# Secrets: never commit
 *.pem
 !installers/sigstore-pubkey.pem
 *.pfx

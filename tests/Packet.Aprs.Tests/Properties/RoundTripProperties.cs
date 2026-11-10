@@ -63,7 +63,10 @@ public class RoundTripProperties
     private static readonly Gen<(int? Course, double? Speed, AprsPhg? Phg, double? Range)> Extension = Gen.OneOf(
         Gen.Constant<(int?, double?, AprsPhg?, double?)>((null, null, null, null)),
         from course in Gen.Choose(1, 360) from speed in Gen.Choose(0, 999) select ((int?)course, (double?)speed, (AprsPhg?)null, (double?)null),
-        from p in Gen.Choose(0, 9) from h in Gen.Choose(0, 12) from g in Gen.Choose(0, 9) from d in Gen.Choose(0, 8)
+        from p in Gen.Choose(0, 9)
+        from h in Gen.Choose(0, 12)
+        from g in Gen.Choose(0, 9)
+        from d in Gen.Choose(0, 8)
         from rate in Gen.Elements<int?>(null, null, 4, 12)
         select ((int?)null, (double?)null, (AprsPhg?)new AprsPhg(p, h, g, d, rate), (double?)null),
         from r in Gen.Choose(0, 9999) select ((int?)null, (double?)null, (AprsPhg?)null, (double?)r));

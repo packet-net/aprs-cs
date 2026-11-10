@@ -18,5 +18,6 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - run: dotnet format Packet.Aprs.slnx --verify-no-changes
       - run: dotnet build Packet.Aprs.slnx -c Release
       - run: dotnet test Packet.Aprs.slnx -c Release --no-build
