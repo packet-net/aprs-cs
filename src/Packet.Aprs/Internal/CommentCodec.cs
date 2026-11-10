@@ -84,9 +84,9 @@ internal static class CommentCodec
     /// mistaken for another: DAO and telemetry from the end, then altitude, braces, a late data
     /// extension, and finally a voice frequency at the start.
     /// </summary>
-    internal static bool TryExtract(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart, bool trailerLifted = false)
+    internal static bool TryExtract(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
     {
-        if (!trailerLifted && !TryExtractTrailer(c, offset, ctx, f))
+        if (!TryExtractTrailer(c, offset, ctx, f))
         {
             return false;
         }
@@ -149,6 +149,13 @@ internal static class CommentCodec
 
         f.Comment = text;
         return true;
+    }
+
+    /// <summary>Where the <c>!DAO!</c> a decoder would lift from <paramref name="c"/> starts, or -1.</summary>
+    internal static int DaoIndex(List<byte> c)
+    {
+        (int tStart, int tEnd) = FindTelemetry(c);
+        return ExtractDao([.. c], 0, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields(), tStart, tEnd, out _);
     }
 
     private static int ExtractDao(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, int skipFrom, int skipTo, out bool ok)
@@ -363,6 +370,7 @@ internal static class CommentCodec
             if (tag[0] == (byte)'R')
             {
                 f.RadioRangeMiles = Text.ParseDigits(ext[3..]);
+                f.RangeFromComment = true;
             }
             else if (tag[0] == (byte)'D')
             {

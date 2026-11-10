@@ -788,7 +788,7 @@ internal static class PositionCodec
             int c = (int)(Steps.Count(wx.WindDirectionDegrees.Value / 4.0) % 90);
             int s = SpeedCode(Units.MphToKnots(wx.WindSpeedMph.Value));
             w.Byte((byte)(c + 33)).Byte((byte)(s + 33));
-            WriteType(w, type ?? AprsCompressionType.Default);
+            WriteType(w, RequireType(type));
         }
         else if (type?.Source == AprsNmeaSource.Gga && d.AltitudeFeet is { } alt)
         {
@@ -832,7 +832,7 @@ internal static class PositionCodec
             // Rounded to the nearest 4 degrees, halves away from zero; a course that rounds to 360
             // is north, c = 0 (vectors ruling E9).
             w.Byte((byte)((int)(Steps.Count(course / 4.0) % 90) + 33)).Byte((byte)(SpeedCode(d.SpeedKnots.Value) + 33));
-            WriteType(w, type ?? AprsCompressionType.Default);
+            WriteType(w, RequireType(type));
         }
         else if (d.RadioRangeMiles is { } range)
         {
@@ -846,7 +846,7 @@ internal static class PositionCodec
             }
 
             w.Char('{').Byte((byte)(s + 33));
-            WriteType(w, type ?? AprsCompressionType.Default);
+            WriteType(w, type ?? (d.RangeFromComment ? AprsCompressionType.Default : RequireType(type)));
         }
         else if (type is not null)
         {
@@ -863,6 +863,14 @@ internal static class PositionCodec
     }
 
     private static void WriteType(InfoWriter w, AprsCompressionType type) => w.Byte((byte)(type.Bits + 33));
+
+    /// <summary>
+    /// The T byte that goes with cs values is read back as a compression type, so data with cs
+    /// values and none is refused rather than given a default it does not have (vectors README,
+    /// Encoding).
+    /// </summary>
+    private static AprsCompressionType RequireType(AprsCompressionType? type) =>
+        type ?? throw new ArgumentException("compressed cs values (course and speed, a range or wind) need a compression type, which the T byte after them carries (APRS12c ch. 9)", "CompressionType");
 
     /// <summary>
     /// The s byte's value for a speed of 1.08^s - 1 knots, rounded to the nearest step, halves away

@@ -141,7 +141,7 @@ internal static class NeutralReader
             CompressionType = d["compression"] is JsonObject ct
                 ? new AprsCompressionType(Enum<AprsGpsFix>(Str(ct, "fix")), Enum<AprsNmeaSource>(Str(ct, "source")), Enum<AprsCompressionOrigin>(Str(ct, "origin")))
                 : null,
-            CourseDegrees = Whole(d["course_degrees"]),
+            CourseDegrees = Whole(d["course_degrees"], coarser: Flag(d, "compressed")),
             SpeedKnots = (double?)d["speed_knots"],
             AltitudeFeet = (double?)d["altitude_feet"],
             Phg = d["phg"] is JsonObject phg ? new AprsPhg((int)phg["power"]!, (int)phg["height"]!, (int)phg["gain"]!, (int)phg["directivity"]!, (int?)phg["beacons_per_hour"]) : null,
@@ -180,15 +180,15 @@ internal static class NeutralReader
                     TenKilohertzResolution = Flag(f, "ten_khz_resolution"),
                 }
                 : null,
-            Weather = d["weather"] is JsonObject w ? Weather(w) : null,
+            Weather = d["weather"] is JsonObject w ? Weather(w, compressed: Flag(d, "compressed")) : null,
             SignpostText = OptStr(d, "signpost"),
             Comment = OptStr(d, "comment") ?? "",
         };
     }
 
-    private static AprsWeather Weather(JsonObject w) => new()
+    private static AprsWeather Weather(JsonObject w, bool compressed = false) => new()
     {
-        WindDirectionDegrees = Whole(w["wind_direction_degrees"]),
+        WindDirectionDegrees = Whole(w["wind_direction_degrees"], coarser: compressed),
         WindSpeedMph = (double?)w["wind_speed_mph"],
         WindGustMph = Whole(w["wind_gust_mph"]),
         TemperatureFahrenheit = Whole(w["temperature_f"]),
@@ -245,13 +245,20 @@ internal static class NeutralReader
     /// footprint radius). Neutral data can give one between the steps; it is taken as the encoder
     /// takes any such value, rounded to the nearest whole unit with halves away from zero (vectors
     /// ruling F2), and every check on it (a course of 0, a humidity of 0, a gust over 999) is then
-    /// the encoder's own.
+    /// the encoder's own. Where the field's step is coarser than a whole unit (a compressed
+    /// course or wind direction, in 4-degree steps), rounding here and again in the encoder would
+    /// round twice (41.6 would be 42, then 44, not 40), so a fraction there cannot be held.
     /// </summary>
-    private static int? Whole(JsonNode? node)
+    private static int? Whole(JsonNode? node, bool coarser = false)
     {
         if (node is null)
         {
             return null;
+        }
+
+        if (coarser && (double)node != Math.Floor((double)node))
+        {
+            throw new NotSupportedException($"{node.ToJsonString()}: Packet.Aprs holds this value in whole degrees, and its field's steps are coarser, so rounding it here would round twice");
         }
 
         double rounded = Packet.Aprs.Internal.Steps.Nearest((double)node);

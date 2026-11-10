@@ -206,13 +206,6 @@ internal static class MicECodec
             ReadAltitude(text, 0, fields);
         }
 
-        // Base-91 telemetry and a !DAO! are lifted before the locator is read, so a locator followed
-        // straight by either has nothing after it (vectors ruling F16, README Comments order).
-        if (!CommentCodec.TryExtractTrailer(text, offset, ctx, fields))
-        {
-            return false;
-        }
-
         // A Maidenhead locator with the /G grid symbol, then a space before any text (APRS12c §10).
         // It is read only here, at the start or straight after an altitude (vectors ruling F17).
         int locatorLength = LocatorLengthAt(text);
@@ -220,7 +213,10 @@ internal static class MicECodec
         {
             report = report with { MaidenheadLocator = Text.Latin1(text.GetRange(0, locatorLength).ToArray()).ToUpperInvariant() };
             text.RemoveRange(0, locatorLength + 2);
-            if (text.Count > 0)
+            // Base-91 telemetry and a !DAO! count as lifted before the locator is read, so a
+            // locator followed straight by either has nothing after it (vectors ruling F16). They
+            // are only lifted later, once a later altitude has been looked for (README Mic-E).
+            if (text.Count > 0 && !NothingButTrailer(text))
             {
                 if (text[0] == (byte)' ')
                 {
@@ -256,20 +252,41 @@ internal static class MicECodec
         // An altitude later in the text (tolerated) is looked for only once what comes first has
         // been lifted: bytes belong to the element that reaches them first, so 0PH} inside
         // PHG3330PH} is not an altitude (vectors interpretations.md, "A packet is read in order").
-        if (!altitudeFirst && ctx.Options.AllowMicEAltitudeAnywhere)
+        // It is looked for before telemetry and a !DAO! are lifted, so bytes either side of a !DAO!
+        // never join into one, and a !DAO! sharing a byte with it is not one (vectors README,
+        // Mic-E). Strictly it is text, unless a !DAO! would then take one of its bytes: that
+        // reading is not the packet's, so it is rejected.
+        if (!altitudeFirst)
         {
             for (int i = 0; i + 4 <= text.Count; i++)
             {
                 if (IsAltitudeAt(text, i))
                 {
-                    ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
-                    ReadAltitude(text, i, fields);
+                    if (ctx.Options.AllowMicEAltitudeAnywhere)
+                    {
+                        ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
+                        ReadAltitude(text, i, fields);
+                    }
+                    else if (CommentCodec.DaoIndex(text) is var dao and >= 0 && dao <= i + 3 && dao + 4 >= i)
+                    {
+                        ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "a Mic-E altitude xxx} after other status text shares a byte with a !DAO! (APRS12c ch. 10)", offset + i);
+                        return false;
+                    }
+
                     break;
                 }
             }
         }
 
-        return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true, trailerLifted: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
+        return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
+    }
+
+    /// <summary>True when the text is only base-91 telemetry and a <c>!DAO!</c>, as a decoder lifts them.</summary>
+    private static bool NothingButTrailer(List<byte> text)
+    {
+        var copy = new List<byte>(text);
+        var probe = new PositionedFields();
+        return CommentCodec.TryExtractTrailer(copy, 0, new DecodeContext(AprsParseOptions.Lenient), probe) && copy.Count == 0;
     }
 
     private static void ReadAltitude(List<byte> text, int at, PositionedFields fields)
@@ -772,7 +789,12 @@ internal static class MicECodec
             && commentBytes.Length > 0 && (commentBytes[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']' || (commentBytes[0] == 0x1d && r.LegacyTelemetry is null));
         if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode))
         {
-            w.Char('/');
+            // After /A= digits a '/' delimiter can itself start a Mic-E altitude run (//{} or
+            // /x}AB); a space delimiter, which a decoder drops as well, cannot (vectors ruling E12).
+            var afterDigits = new List<byte> { (byte)'0', (byte)'/' };
+            afterDigits.AddRange(commentBytes.Take(3));
+            bool slashJoins = altitudeAsFeet && (IsAltitudeAt(afterDigits, 0) || IsAltitudeAt(afterDigits, 1));
+            w.Char(slashJoins ? ' ' : '/');
         }
         else if (r.Frequency is null && altitudeAsFeet && JoinsAltitudeDigits(commentBytes))
         {

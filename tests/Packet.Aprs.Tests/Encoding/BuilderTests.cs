@@ -322,6 +322,24 @@ public class BuilderTests
         FluentActions.Invoking(() => Me.Message("G3NRW", "Hi").WithId("").Build()).Should().Throw<ArgumentException>();
     }
 
+    [Theory]
+    [InlineData("/{}")]
+    [InlineData("/x}AB")]
+    public void A_mic_e_comment_after_a_slash_a_takes_a_space_where_a_slash_would_join_an_altitude(string comment)
+    {
+        // After /A=000000 a '/' delimiter would start //{} or 0/x} (ruling E12).
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Altitude(0).Comment(comment).Build());
+        sent.Should().EndWith("/A=000000 " + comment);
+        ((AprsMicEReport)AprsPacket.Decode(sent).Data).Comment.Should().Be(comment);
+    }
+
+    [Fact]
+    public void A_compressed_course_and_speed_gets_the_default_compression_type()
+    {
+        var heard = (AprsPositionReport)AprsPacket.Decode(Sent(Me.Position(49.5, -72.75).Symbol(AprsSymbol.Car).Compressed().Course(88).Speed(36).Build())).Data;
+        heard.CompressionType.Should().Be(AprsCompressionType.Default);
+    }
+
     [Fact]
     public void A_device_lookup_is_case_sensitive()
     {

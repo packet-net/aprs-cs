@@ -181,10 +181,18 @@ public class EncodingTests : AprsSpec
     public void A_compressed_speed_whose_nearest_step_is_0_is_written_and_one_below_is_refused()
     {
         // -0.03 knots is nearest s = 0; -0.3 is nearest s = -5, outside the byte (ruling G3).
-        var report = new AprsPositionReport { Position = new AprsPosition(49.5, -72.75), Symbol = AprsSymbol.Car, IsCompressed = true, CourseDegrees = 88, SpeedKnots = -0.03 };
+        var report = new AprsPositionReport { Position = new AprsPosition(49.5, -72.75), Symbol = AprsSymbol.Car, IsCompressed = true, CompressionType = AprsCompressionType.Default, CourseDegrees = 88, SpeedKnots = -0.03 };
         WhenEncoded(report);
         Show(Encoded).Should().StartWith("!/5L!!<*e8>7!");
         WhenEncodingIsAttempted(report with { SpeedKnots = -0.3 });
+        ThenEncodingFailed();
+    }
+
+    [Fact]
+    public void Compressed_cs_values_without_a_compression_type_are_refused()
+    {
+        // The T byte that goes with them reads back as a type the data does not have.
+        WhenEncodingIsAttempted(new AprsPositionReport { Position = new AprsPosition(49.5, -72.75), Symbol = AprsSymbol.Car, IsCompressed = true, CourseDegrees = 88, SpeedKnots = 36 });
         ThenEncodingFailed();
     }
 
@@ -352,7 +360,7 @@ public class EncodingTests : AprsSpec
     public void A_compressed_course_rounds_to_the_nearest_step_halves_away_from_zero(int course, char c)
     {
         // E9: rounding is not optional; 358 rounds to 360, written as north (c = 0).
-        WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), IsCompressed = true, CourseDegrees = course, SpeedKnots = 10 });
+        WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), IsCompressed = true, CompressionType = AprsCompressionType.Default, CourseDegrees = course, SpeedKnots = 10 });
         Encoded[11].Should().Be((byte)c);
     }
 
@@ -361,7 +369,7 @@ public class EncodingTests : AprsSpec
     {
         // E9 for wind: c = 0, which a compressed wind reads back as 0.
         var weather = new AprsWeather { WindDirectionDegrees = 358, WindSpeedMph = 10, TemperatureFahrenheit = 50 };
-        WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.WeatherStation, IsCompressed = true, Weather = weather });
+        WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.WeatherStation, IsCompressed = true, CompressionType = AprsCompressionType.Default, Weather = weather });
         Encoded[11].Should().Be((byte)'!');
     }
 
