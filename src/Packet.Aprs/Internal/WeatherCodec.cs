@@ -378,13 +378,13 @@ internal static class WeatherCodec
         int start = w.Length;
         if (positionless)
         {
-            Field(w, 'c', weather.WindDirectionDegrees, 3, always: true);
+            Field(w, 'c', Whole(weather.WindDirectionDegrees), 3, always: true);
             Field(w, 's', weather.WindSpeedMph is { } s ? (int)Steps.Whole(s) : null, 3, always: true);
         }
 
-        Field(w, 'g', weather.WindGustMph, 3, always: true);
+        Field(w, 'g', Whole(weather.WindGustMph), 3, always: true);
         w.Char('t');
-        if (weather.TemperatureFahrenheit is { } t)
+        if (Whole(weather.TemperatureFahrenheit) is { } t)
         {
             _ = t < 0 ? w.Char('-').Digits(-t, 2) : w.Digits(t, 3);
         }
@@ -396,9 +396,9 @@ internal static class WeatherCodec
         Field(w, 'r', Hundredths(weather.RainLastHourInches), 3);
         Field(w, 'p', Hundredths(weather.RainLast24HoursInches), 3);
         Field(w, 'P', Hundredths(weather.RainSinceMidnightInches), 3);
-        Field(w, 'h', weather.HumidityPercent is { } h ? h % 100 : null, 2);
+        Field(w, 'h', Whole(weather.HumidityPercent) is { } h ? h % 100 : null, 2);
         Field(w, 'b', weather.PressureMillibars is { } b ? (int)Steps.Count(b, 10) : null, 5);
-        if (weather.LuminosityWattsPerSquareMetre is { } lum)
+        if (Whole(weather.LuminosityWattsPerSquareMetre) is { } lum)
         {
             _ = lum < 1000 ? w.Char('L').Digits(lum, 3) : w.Char('l').Digits(lum - 1000, 3);
         }
@@ -434,6 +434,9 @@ internal static class WeatherCodec
             }
         }
     }
+
+    /// <summary>A value rounded once to the whole unit its field holds (already checked in range by <c>Validate</c>).</summary>
+    private static int? Whole(double? value) => value is { } v ? (int)Steps.Whole(v) : null;
 
     private static int? Hundredths(double? inches) => inches is { } i ? (int)Steps.Count(i, 100) : null;
 

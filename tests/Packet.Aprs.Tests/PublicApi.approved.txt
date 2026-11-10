@@ -625,7 +625,7 @@ namespace Packet.Aprs
         public TSelf At(double latitude, double longitude) { }
         public TSelf Comment(string text) { }
         public TSelf Compressed(bool compressed = true) { }
-        public TSelf Course(int degrees) { }
+        public TSelf Course(double degrees) { }
         public TSelf Dao(Packet.Aprs.AprsDao? dao = default) { }
         public TSelf Frequency(Packet.Aprs.AprsVoiceFrequency frequency) { }
         public TSelf Frequency(double mhz, double? tone = default, int? offsetKHz = default) { }
@@ -647,7 +647,7 @@ namespace Packet.Aprs
         public Packet.Aprs.AprsAreaObject? AreaObject { get; init; }
         public string Comment { get; init; }
         public Packet.Aprs.AprsCompressionType? CompressionType { get; init; }
-        public int? CourseDegrees { get; init; }
+        public double? CourseDegrees { get; init; }
         public Packet.Aprs.AprsDao? Dao { get; init; }
         public Packet.Aprs.AprsDfBearing? DfBearing { get; init; }
         public Packet.Aprs.AprsDfSignalStrength? DfSignalStrength { get; init; }
@@ -1145,8 +1145,8 @@ namespace Packet.Aprs
     {
         public AprsWeather() { }
         public System.Collections.Generic.IReadOnlyList<Packet.Aprs.AprsWeatherField> AdditionalFields { get; init; }
-        public int? HumidityPercent { get; init; }
-        public int? LuminosityWattsPerSquareMetre { get; init; }
+        public double? HumidityPercent { get; init; }
+        public double? LuminosityWattsPerSquareMetre { get; init; }
         public double? PressureMillibars { get; init; }
         public double? RainLast24HoursInches { get; init; }
         public double? RainLastHourInches { get; init; }
@@ -1154,10 +1154,10 @@ namespace Packet.Aprs
         public double? RainSinceMidnightInches { get; init; }
         public decimal? SnowfallLast24HoursInches { get; init; }
         public char? SoftwareType { get; init; }
-        public int? TemperatureFahrenheit { get; init; }
+        public double? TemperatureFahrenheit { get; init; }
         public string? UnitType { get; init; }
-        public int? WindDirectionDegrees { get; init; }
-        public int? WindGustMph { get; init; }
+        public double? WindDirectionDegrees { get; init; }
+        public double? WindGustMph { get; init; }
         public double? WindSpeedMph { get; init; }
     }
     public sealed class AprsWeatherBuilder : Packet.Aprs.AprsBuilder
@@ -1166,9 +1166,9 @@ namespace Packet.Aprs
         public Packet.Aprs.AprsWeatherBuilder At(double latitude, double longitude) { }
         public Packet.Aprs.AprsWeatherBuilder Compressed(bool compressed = true) { }
         public Packet.Aprs.AprsWeatherBuilder Dao(Packet.Aprs.AprsDao? dao = default) { }
-        public Packet.Aprs.AprsWeatherBuilder Gust(int mph) { }
-        public Packet.Aprs.AprsWeatherBuilder Humidity(int percent) { }
-        public Packet.Aprs.AprsWeatherBuilder Luminosity(int wattsPerSquareMetre) { }
+        public Packet.Aprs.AprsWeatherBuilder Gust(double mph) { }
+        public Packet.Aprs.AprsWeatherBuilder Humidity(double percent) { }
+        public Packet.Aprs.AprsWeatherBuilder Luminosity(double wattsPerSquareMetre) { }
         public Packet.Aprs.AprsWeatherBuilder Messaging(bool capable = true) { }
         public Packet.Aprs.AprsWeatherBuilder Observations(Packet.Aprs.AprsWeather weather) { }
         public Packet.Aprs.AprsWeatherBuilder Pressure(double millibars) { }
@@ -1176,12 +1176,12 @@ namespace Packet.Aprs
         public Packet.Aprs.AprsWeatherBuilder RainMillimetres(double? lastHour = default, double? last24Hours = default, double? sinceMidnight = default) { }
         public Packet.Aprs.AprsWeatherBuilder Snowfall(decimal inches) { }
         public Packet.Aprs.AprsWeatherBuilder Symbol(Packet.Aprs.AprsSymbol symbol) { }
-        public Packet.Aprs.AprsWeatherBuilder Temperature(int fahrenheit) { }
+        public Packet.Aprs.AprsWeatherBuilder Temperature(double fahrenheit) { }
         public Packet.Aprs.AprsWeatherBuilder TemperatureCelsius(double celsius) { }
         public Packet.Aprs.AprsWeatherBuilder Timestamp(Packet.Aprs.AprsTimestamp timestamp) { }
         public Packet.Aprs.AprsWeatherBuilder Timestamp(System.DateTime utc) { }
         public override Packet.Aprs.AprsData ToData() { }
-        public Packet.Aprs.AprsWeatherBuilder Wind(int directionDegrees, double speedMph, int? gust = default) { }
+        public Packet.Aprs.AprsWeatherBuilder Wind(double directionDegrees, double speedMph, double? gust = default) { }
     }
     public readonly struct AprsWeatherField : System.IEquatable<Packet.Aprs.AprsWeatherField>
     {

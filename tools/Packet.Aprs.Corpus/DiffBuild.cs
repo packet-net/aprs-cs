@@ -163,7 +163,7 @@ internal static class DiffBuild
             b.Symbol(Symbol(symbol));
         }
 
-        if (a.Int("course_degrees", "the builder takes a course in whole degrees") is { } course)
+        if (a.Double("course_degrees") is { } course)
         {
             b.Course(course);
         }
@@ -275,7 +275,7 @@ internal static class DiffBuild
         }
 
         // Wind(direction, speed) takes both; one alone is given as the observations it starts from.
-        int? direction = a.Int("wind_direction_degrees", "the builder takes a wind direction in whole degrees");
+        double? direction = a.Double("wind_direction_degrees");
         double? speed = a.Double("wind_speed_mph");
         if (direction is { } d && speed is { } v)
         {
@@ -286,12 +286,12 @@ internal static class DiffBuild
             b.Observations(new AprsWeather { WindDirectionDegrees = direction, WindSpeedMph = speed });
         }
 
-        if (a.Int("wind_gust_mph", "the builder takes a gust in whole mph") is { } gust)
+        if (a.Double("wind_gust_mph") is { } gust)
         {
             b.Gust(gust);
         }
 
-        if (a.Int("temperature_f", "the builder takes a temperature in whole degrees F") is { } fahrenheit)
+        if (a.Double("temperature_f") is { } fahrenheit)
         {
             b.Temperature(fahrenheit);
         }
@@ -313,7 +313,7 @@ internal static class DiffBuild
             b.RainMillimetres(m1, m24, mm);
         }
 
-        if (a.Int("humidity_percent", "the builder takes a humidity in whole percent") is { } humidity)
+        if (a.Double("humidity_percent") is { } humidity)
         {
             b.Humidity(humidity);
         }
@@ -323,7 +323,7 @@ internal static class DiffBuild
             b.Pressure(pressure);
         }
 
-        if (a.Int("luminosity_w_m2", "the builder takes a luminosity in whole W/m2") is { } luminosity)
+        if (a.Double("luminosity_w_m2") is { } luminosity)
         {
             b.Luminosity(luminosity);
         }

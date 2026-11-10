@@ -117,11 +117,17 @@ internal static class NeutralReader
     {
         IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
         AprsAddress source = AprsAddress.Parse(Str(p, "source"));
-        AprsAddress destination = AprsAddress.Parse(Str(p, "destination"));
+        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw new ArgumentException("the third-party packet has no destination, which an inner header needs"));
         JsonObject data = p["data"]!.AsObject();
 
         // An empty inner information field is data too: it is written back as it came, empty
-        // (vectors README, Encoding). Other unrecognized data carries no bytes to write.
+        // (vectors README, Encoding). Other unrecognized data carries no bytes to write, so the
+        // encoder declines it.
+        if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") != "empty")
+        {
+            throw new ArgumentException("an unrecognized inner packet has nothing to encode");
+        }
+
         AprsPacket inner = Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"
             ? AprsPacket.Decode(source, destination, path, [])
             : AprsPacket.Create(source, destination, Data(data), path);
@@ -141,7 +147,7 @@ internal static class NeutralReader
             CompressionType = d["compression"] is JsonObject ct
                 ? new AprsCompressionType(Enum<AprsGpsFix>(Str(ct, "fix")), Enum<AprsNmeaSource>(Str(ct, "source")), Enum<AprsCompressionOrigin>(Str(ct, "origin")))
                 : null,
-            CourseDegrees = Whole(d["course_degrees"], coarser: Flag(d, "compressed")),
+            CourseDegrees = (double?)d["course_degrees"],
             SpeedKnots = (double?)d["speed_knots"],
             AltitudeFeet = (double?)d["altitude_feet"],
             Phg = d["phg"] is JsonObject phg ? new AprsPhg((int)phg["power"]!, (int)phg["height"]!, (int)phg["gain"]!, (int)phg["directivity"]!, (int?)phg["beacons_per_hour"]) : null,
@@ -180,25 +186,25 @@ internal static class NeutralReader
                     TenKilohertzResolution = Flag(f, "ten_khz_resolution"),
                 }
                 : null,
-            Weather = d["weather"] is JsonObject w ? Weather(w, compressed: Flag(d, "compressed")) : null,
+            Weather = d["weather"] is JsonObject w ? Weather(w) : null,
             SignpostText = OptStr(d, "signpost"),
             Comment = OptStr(d, "comment") ?? "",
         };
     }
 
-    private static AprsWeather Weather(JsonObject w, bool compressed = false) => new()
+    private static AprsWeather Weather(JsonObject w) => new()
     {
-        WindDirectionDegrees = Whole(w["wind_direction_degrees"], coarser: compressed),
+        WindDirectionDegrees = (double?)w["wind_direction_degrees"],
         WindSpeedMph = (double?)w["wind_speed_mph"],
-        WindGustMph = Whole(w["wind_gust_mph"]),
-        TemperatureFahrenheit = Whole(w["temperature_f"]),
+        WindGustMph = (double?)w["wind_gust_mph"],
+        TemperatureFahrenheit = (double?)w["temperature_f"],
         RainLastHourInches = (double?)w["rain_1h_in"],
         RainLast24HoursInches = (double?)w["rain_24h_in"],
         RainSinceMidnightInches = (double?)w["rain_midnight_in"],
         RainRawCounter = Whole(w["rain_raw"]),
-        HumidityPercent = Whole(w["humidity_percent"]),
+        HumidityPercent = (double?)w["humidity_percent"],
         PressureMillibars = (double?)w["pressure_mbar"],
-        LuminosityWattsPerSquareMetre = Whole(w["luminosity_w_m2"]),
+        LuminosityWattsPerSquareMetre = (double?)w["luminosity_w_m2"],
         SnowfallLast24HoursInches = (decimal?)w["snow_24h_in"],
         SoftwareType = OptChar(w, "software"),
         UnitType = OptStr(w, "unit"),
@@ -241,24 +247,17 @@ internal static class NeutralReader
     }
 
     /// <summary>
-    /// A number for a field Packet.Aprs holds in whole units (a course, a weather value, a
-    /// footprint radius). Neutral data can give one between the steps; it is taken as the encoder
+    /// A number for a field Packet.Aprs holds in whole units (a footprint radius, a storm value, a
+    /// raw rain counter). Neutral data can give one between the steps; it is taken as the encoder
     /// takes any such value, rounded to the nearest whole unit with halves away from zero (vectors
-    /// ruling F2), and every check on it (a course of 0, a humidity of 0, a gust over 999) is then
-    /// the encoder's own. Where the field's step is coarser than a whole unit (a compressed
-    /// course or wind direction, in 4-degree steps), rounding here and again in the encoder would
-    /// round twice (41.6 would be 42, then 44, not 40), so a fraction there cannot be held.
+    /// ruling F2), and every check on it is then the encoder's own. These fields have no coarser
+    /// step, so this rounds once.
     /// </summary>
-    private static int? Whole(JsonNode? node, bool coarser = false)
+    private static int? Whole(JsonNode? node)
     {
         if (node is null)
         {
             return null;
-        }
-
-        if (coarser && (double)node != Math.Floor((double)node))
-        {
-            throw new NotSupportedException($"{node.ToJsonString()}: Packet.Aprs holds this value in whole degrees, and its field's steps are coarser, so rounding it here would round twice");
         }
 
         double rounded = Packet.Aprs.Internal.Steps.Nearest((double)node);

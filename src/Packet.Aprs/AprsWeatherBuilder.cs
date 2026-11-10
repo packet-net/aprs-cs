@@ -4,7 +4,9 @@ namespace Packet.Aprs;
 /// A weather report, from <see cref="AprsStation.Weather()"/> (APRS12c §12). With a position it is
 /// a position report with the weather station symbol, as APRS12c recommends; without, a
 /// positionless weather report. Values are in the units APRS sends (mph, Fahrenheit, inches,
-/// millibars); the <c>Celsius</c>, <c>Metres</c> and similar methods convert.
+/// millibars); the <c>Celsius</c>, <c>Metres</c> and similar methods convert. A value between the
+/// steps its field holds, a fractional wind direction or humidity say, is rounded once from the
+/// value given when the report is encoded.
 /// </summary>
 public sealed class AprsWeatherBuilder : AprsBuilder
 {
@@ -86,21 +88,21 @@ public sealed class AprsWeatherBuilder : AprsBuilder
 
     /// <summary>Wind direction in degrees clockwise from north, sustained one-minute speed in mph,
     /// and optionally the peak gust in the last five minutes in mph.</summary>
-    public AprsWeatherBuilder Wind(int directionDegrees, double speedMph, int? gust = null)
+    public AprsWeatherBuilder Wind(double directionDegrees, double speedMph, double? gust = null)
     {
         weather = weather with { WindDirectionDegrees = directionDegrees, WindSpeedMph = speedMph, WindGustMph = gust ?? weather.WindGustMph };
         return this;
     }
 
     /// <summary>The peak wind gust in the last five minutes, in mph.</summary>
-    public AprsWeatherBuilder Gust(int mph)
+    public AprsWeatherBuilder Gust(double mph)
     {
         weather = weather with { WindGustMph = mph };
         return this;
     }
 
     /// <summary>Temperature in degrees Fahrenheit.</summary>
-    public AprsWeatherBuilder Temperature(int fahrenheit)
+    public AprsWeatherBuilder Temperature(double fahrenheit)
     {
         weather = weather with { TemperatureFahrenheit = fahrenheit };
         return this;
@@ -108,10 +110,10 @@ public sealed class AprsWeatherBuilder : AprsBuilder
 
     /// <summary>Temperature in degrees Celsius, sent to the nearest degree Fahrenheit.</summary>
     public AprsWeatherBuilder TemperatureCelsius(double celsius) =>
-        Temperature((int)Internal.Steps.Whole((celsius * 9 / 5) + 32));
+        Temperature((celsius * 9 / 5) + 32);
 
     /// <summary>Relative humidity, 1-100 percent.</summary>
-    public AprsWeatherBuilder Humidity(int percent)
+    public AprsWeatherBuilder Humidity(double percent)
     {
         weather = weather with { HumidityPercent = percent };
         return this;
@@ -141,7 +143,7 @@ public sealed class AprsWeatherBuilder : AprsBuilder
         Rain(lastHour / 25.4, last24Hours / 25.4, sinceMidnight / 25.4);
 
     /// <summary>Luminosity in watts per square metre, 0-1999.</summary>
-    public AprsWeatherBuilder Luminosity(int wattsPerSquareMetre)
+    public AprsWeatherBuilder Luminosity(double wattsPerSquareMetre)
     {
         weather = weather with { LuminosityWattsPerSquareMetre = wattsPerSquareMetre };
         return this;

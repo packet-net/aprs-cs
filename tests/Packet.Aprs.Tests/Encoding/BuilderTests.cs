@@ -255,6 +255,26 @@ public class BuilderTests
     }
 
     [Fact]
+    public void A_fractional_value_is_rounded_once_to_the_step_its_field_holds()
+    {
+        // A GPS heading is fractional. Uncompressed it is whole degrees; compressed it is 4-degree
+        // steps, and 301.7 is the step nearest 301.7 (300), not nearest 302 (F2).
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).Course(301.7).Speed(36).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W>302/036");
+        ((AprsPositionReport)AprsPacket.Decode(Sent(Me.Position(49.5, -72.75).Symbol(AprsSymbol.Car).Compressed().Course(301.7).Speed(36).Build())).Data)
+            .CourseDegrees.Should().Be(300);
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).Course(0.3).Speed(36).Build())
+            .Should().Contain(">000/036");
+
+        // Weather: a half rounds away from zero; a compressed wind direction is a 4-degree step.
+        Sent(Me.Weather().At(49.0583333, -72.0291667).Wind(220.4, 4).Gust(5.5).Temperature(76.5).Humidity(54.5).Luminosity(1000.5).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W_220/004g006t077h55l001");
+        ((AprsPositionReport)AprsPacket.Decode(Sent(Me.Weather().At(49.0583333, -72.0291667).Compressed().Wind(41.6, 4).Build())).Data)
+            .Weather!.WindDirectionDegrees.Should().Be(40);
+        FluentActions.Invoking(() => Me.Weather().At(49.0583333, -72.0291667).Wind(220, 4).Humidity(0.4).Build()).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void Other_units_are_converted_and_rounded_once()
     {
         // 100 km/h is 53.996 knots, written 054; 100.5 feet rounds away from zero to 101 (B2, F2).
