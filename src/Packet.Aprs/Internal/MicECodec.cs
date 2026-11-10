@@ -254,8 +254,8 @@ internal static class MicECodec
         // PHG3330PH} is not an altitude (vectors interpretations.md, "A packet is read in order").
         // It is looked for before telemetry and a !DAO! are lifted, so bytes either side of a !DAO!
         // never join into one, and a !DAO! sharing a byte with it is not one (vectors README,
-        // Mic-E). Strictly it is text and the !DAO! is lifted as usual, unless lifting it would
-        // join the bytes either side into an altitude that is not in the packet: that is rejected.
+        // Mic-E). Strictly it is text and telemetry and the !DAO! are lifted as usual, unless the
+        // text left would join bytes either side of them into an altitude: that is rejected.
         if (!altitudeFirst)
         {
             for (int i = 0; i + 4 <= text.Count; i++)
@@ -268,9 +268,9 @@ internal static class MicECodec
                         ReadAltitude(text, i, fields);
                         fields.DaoBarrier = i;
                     }
-                    else if (DaoLiftJoinsAltitude(text))
+                    else if (TrailerLiftJoinsAltitude(text))
                     {
-                        ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "lifting the !DAO! would join the bytes either side of it into a Mic-E altitude xxx} (APRS12c ch. 10)", offset + i);
+                        ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "lifting telemetry and the !DAO! would join the bytes either side into a Mic-E altitude xxx} (APRS12c ch. 10)", offset + i);
                         return false;
                     }
 
@@ -282,20 +282,36 @@ internal static class MicECodec
         return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
     }
 
-    /// <summary>True when taking the <c>!DAO!</c> out of the text joins the bytes either side of it into an altitude <c>xxx}</c>.</summary>
-    private static bool DaoLiftJoinsAltitude(List<byte> text)
+    /// <summary>
+    /// True when the text left once base-91 telemetry and the <c>!DAO!</c> are both lifted has an
+    /// altitude <c>xxx}</c> made of bytes from either side of a lifted one (vectors README, Mic-E).
+    /// </summary>
+    private static bool TrailerLiftJoinsAltitude(List<byte> text)
     {
-        int dao = CommentCodec.DaoIndex(text);
-        if (dao < 0)
+        List<(int Start, int Length)> spans = CommentCodec.TrailerSpans(text);
+        var lifted = new List<byte>();
+        var joins = new List<int>();
+        bool removed = false;
+        for (int k = 0; k < text.Count; k++)
         {
-            return false;
+            if (spans.Any(sp => k >= sp.Start && k < sp.Start + sp.Length))
+            {
+                removed = true;
+                continue;
+            }
+
+            if (removed && lifted.Count > 0)
+            {
+                joins.Add(lifted.Count);
+            }
+
+            removed = false;
+            lifted.Add(text[k]);
         }
 
-        var lifted = new List<byte>(text);
-        lifted.RemoveRange(dao, 5);
-        for (int j = Math.Max(0, dao - 3); j < dao; j++)
+        for (int j = 0; j + 4 <= lifted.Count; j++)
         {
-            if (IsAltitudeAt(lifted, j))
+            if (IsAltitudeAt(lifted, j) && joins.Any(p => p > j && p <= j + 3))
             {
                 return true;
             }
@@ -816,7 +832,9 @@ internal static class MicECodec
             // digits); a space delimiter, which a decoder drops as well, cannot (vectors ruling E12).
             var after = new List<byte> { (byte)'0', (byte)'/' };
             after.AddRange(commentBytes.Take(3));
-            bool slashJoins = (altitudeAsFeet && IsAltitudeAt(after, 0)) || IsAltitudeAt(after, 1);
+            // Only where a later altitude is looked for: after one in the altitude bytes, none is.
+            bool laterAltitudeRead = r.AltitudeFeet is null || altitudeAsFeet;
+            bool slashJoins = laterAltitudeRead && ((altitudeAsFeet && IsAltitudeAt(after, 0)) || IsAltitudeAt(after, 1));
             w.Char(slashJoins ? ' ' : '/');
         }
         else if (r.Frequency is null && altitudeAsFeet && JoinsAltitudeDigits(commentBytes))

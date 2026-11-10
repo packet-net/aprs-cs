@@ -151,6 +151,25 @@ internal static class CommentCodec
         return true;
     }
 
+    /// <summary>The byte ranges a decoder lifts from <paramref name="c"/> as base-91 telemetry and the <c>!DAO!</c>, in its own positions.</summary>
+    internal static List<(int Start, int Length)> TrailerSpans(List<byte> c)
+    {
+        (int tStart, int tEnd) = FindTelemetry(c);
+        var spans = new List<(int, int)>();
+        int dao = ExtractDao([.. c], 0, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields(), tStart, tEnd, out _);
+        if (dao >= 0)
+        {
+            spans.Add((dao, 5));
+        }
+
+        if (tStart >= 0)
+        {
+            spans.Add((tStart, tEnd - tStart + 1));
+        }
+
+        return spans;
+    }
+
     /// <summary>Where the <c>!DAO!</c> a decoder would lift from <paramref name="c"/> starts, or -1.</summary>
     internal static int DaoIndex(List<byte> c)
     {

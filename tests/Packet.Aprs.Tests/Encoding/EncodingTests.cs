@@ -235,6 +235,14 @@ public class EncodingTests : AprsSpec
         report.Comment.Should().Be("ao6!k/`!k/`\"4`}_4");
     }
 
+    [Fact]
+    public void Mic_e_legacy_telemetry_ending_in_a_carriage_return_is_refused()
+    {
+        // The 13 would read back as a trailing line break, stripped with a warning.
+        var report = new AprsMicEReport { Position = new AprsPosition(33.427333, -112.129), Symbol = new AprsSymbol('/', 'j'), LegacyTelemetry = [203, 184, 177, 127, 13] };
+        FluentActions.Invoking(() => AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report)).Should().Throw<ArgumentException>();
+    }
+
     // ------------------------------------------------------------ exact bytes (vectors rulings E1-E12)
 
     [Theory]

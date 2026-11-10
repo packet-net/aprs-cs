@@ -362,6 +362,14 @@ public class BuilderTests
     }
 
     [Fact]
+    public void A_slash_delimiter_is_kept_after_an_altitude_in_the_mic_e_bytes()
+    {
+        // With the altitude first in its bytes no later one is looked for, so //x} is text (E12).
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(100).Comment("/x}Hello").Build());
+        sent.Should().EndWith("}//x}Hello");
+    }
+
+    [Fact]
     public void A_device_lookup_is_case_sensitive()
     {
         // aprs-deviceid lists tocalls in upper case, and its wildcard n is a digit (A1).
