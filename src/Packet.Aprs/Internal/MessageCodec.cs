@@ -460,7 +460,9 @@ internal static class MessageCodec
         Text.RequireNoLineBreaks(text, paramName);
         RequireNoBrace(text, paramName);
 
-        if (text.Length > MaxTextLength)
+        // Characters are Unicode code points, not UTF-16 units (APRS12c ch. 14: "printable ASCII
+        // or UTF-8 characters"), so a character outside the BMP counts once.
+        if (text.EnumerateRunes().Count() > MaxTextLength)
         {
             throw new ArgumentException($"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)", paramName);
         }

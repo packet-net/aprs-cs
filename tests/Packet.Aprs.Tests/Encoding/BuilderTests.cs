@@ -370,6 +370,16 @@ public class BuilderTests
     }
 
     [Fact]
+    public void The_67_character_limit_counts_code_points()
+    {
+        // 67 code points, 68 UTF-16 units: the satellite emoji is one character.
+        string text = "  ADRAD Bastel Owend al \U0001F4E1Donneschden um 17h Rue du Couvent n\u00b04,Digi";
+        text.Length.Should().Be(68);
+        Sent(Me.Bulletin('0', text).Build()).Should().EndWith(text);
+        FluentActions.Invoking(() => Me.Bulletin('0', text + "x").Build()).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void A_device_lookup_is_case_sensitive()
     {
         // aprs-deviceid lists tocalls in upper case, and its wildcard n is a digit (A1).
