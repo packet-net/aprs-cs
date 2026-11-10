@@ -67,7 +67,7 @@ public sealed record AprsTelemetryCoefficients : AprsMessage
         }
 
         IReadOnlyList<string>? sent = (Coefficients as EquatableList<double>)?.Text;
-        MessageCodec.WriteList(writer, "EQNS.", sent ?? Coefficients.Select(c => c.ToString("R", CultureInfo.InvariantCulture)).ToList(), this);
+        MessageCodec.WriteList(writer, "EQNS.", sent ?? Coefficients.Select(Internal.PlainNumber.Format).ToList(), this);
     }
 }
 

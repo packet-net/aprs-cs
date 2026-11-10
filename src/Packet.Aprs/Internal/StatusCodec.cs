@@ -313,6 +313,13 @@ internal static class TelemetryCodec
 
         Text.RequireNoLineBreaks(r.Comment, nameof(r.Comment));
         IReadOnlyList<string>? sent = (r.Analog as EquatableList<decimal?>)?.Text;
+        if (r.Sequence == "MIC" && (sent is not null ? sent[0].Length == 0 : r.Analog[0] is null))
+        {
+            // No form reads back with the first channel empty after MIC: T#MIC,,033 is read
+            // otherwise (vectors ruling F12).
+            throw new ArgumentException("a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)", nameof(r));
+        }
+
         w.Ascii("T#");
         w.Ascii(r.Sequence);
         for (int i = 0; i < r.Analog.Count; i++)
@@ -333,9 +340,11 @@ internal static class TelemetryCodec
             }
             else if (v is { } value)
             {
-                // Built in code: a whole number 0-999 in the spec's three digits (APRS12c ch. 13).
-                bool canonical = value == decimal.Truncate(value) && value is >= 0 and <= 999 && value.Scale == 0;
-                w.Ascii(canonical ? ((int)value).ToString("000", CultureInfo.InvariantCulture) : value.ToString(CultureInfo.InvariantCulture));
+                // Built in code: a whole number 0-999 in the spec's three digits (APRS12c ch. 13,
+                // whose aaa field and examples write it so), however it is scaled (190.0 is 190),
+                // and any other number the plain shortest decimal (vectors ruling F11).
+                bool canonical = value == decimal.Truncate(value) && value is >= 0 and <= 999;
+                w.Ascii(canonical ? ((int)value).ToString("000", CultureInfo.InvariantCulture) : PlainNumber.Format(value));
             }
         }
 

@@ -117,6 +117,12 @@ public sealed record AprsMicEReport : AprsPositionedData
     public AprsDevice? Device => AprsDeviceIdentification.FromMicE(TypeCode, DeviceSuffix);
 
     /// <inheritdoc/>
+    /// <summary>
+    /// The altitude was given in feet by a builder, so it goes in a <c>/A=</c> even when it is a
+    /// whole number of metres the Mic-E altitude bytes could hold (vectors ruling B2).
+    /// </summary>
+    internal bool AltitudeInFeet { get; init; }
+
     public override char DataTypeIdentifier => IsCurrent ? '`' : '\'';
 
     internal override void Encode(Internal.InfoWriter writer) => Internal.MicECodec.WriteInformation(writer, this);

@@ -113,13 +113,11 @@ public class EncodingTests : AprsSpec
     }
 
     [Fact]
-    public void Mic_telemetry_with_an_empty_first_channel_keeps_its_comma()
+    public void Mic_telemetry_with_an_empty_first_channel_is_refused()
     {
-        var report = new AprsTelemetryReport { Sequence = "MIC", Analog = [null, 119m, 62.66m, 175m, 999m], Digital = 0b1001_0110 };
-
-        WhenEncoded(report);
-        ThenEncodedIs("T#MIC,,119,62.66,175,999,01101001");
-        ThenEncodedDecodesBackTo(report);
+        // T#MIC,,119 reads back otherwise, so no form holds it (vectors ruling F12).
+        WhenEncodingIsAttempted(new AprsTelemetryReport { Sequence = "MIC", Analog = [null, 119m, 62.66m, 175m, 999m], Digital = 0b1001_0110 });
+        ThenEncodingFailed();
     }
 
     [Fact]
@@ -129,10 +127,25 @@ public class EncodingTests : AprsSpec
         ThenEncodingFailed();
     }
 
-    [Fact]
-    public void Snowfall_its_three_characters_cannot_hold_is_refused()
+    [Theory]
+    [InlineData("12.5", "s013")]
+    [InlineData("0.995", "s001")]
+    [InlineData("9.96", "s010")]
+    [InlineData("0.125", "s.13")]
+    [InlineData("2.96", "s003")]
+    [InlineData("0", "s000")]
+    public void Snowfall_is_rounded_to_its_three_characters(string inches, string written)
     {
-        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = 12.5m };
+        // Hundredths under 1, tenths under 10, else whole; a whole result in three digits (ruling F3).
+        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = decimal.Parse(inches, System.Globalization.CultureInfo.InvariantCulture) };
+        WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.WeatherStation, Weather = weather });
+        Show(Encoded).Should().EndWith(written);
+    }
+
+    [Fact]
+    public void Snowfall_that_rounds_past_999_is_refused()
+    {
+        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = 999.5m };
         WhenEncodingIsAttempted(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.WeatherStation, Weather = weather });
         ThenEncodingFailed();
     }
@@ -150,6 +163,64 @@ public class EncodingTests : AprsSpec
 
         WhenEncoded(query with { Footprint = new AprsQueryFootprint(34.36m, -0.1715m, 200) });
         ThenEncodedIs("?APRS? 34.36,-0.1715,0200");
+    }
+
+    // ------------------------------------------------------------ values between steps (vectors rulings F2, F3, F11)
+
+    [Theory]
+    [InlineData(0.5, "!4903.50N/07201.75W>090/001")]
+    [InlineData(29.75, "!4903.50N/07201.75W>090/030")]
+    [InlineData(-0.3, "!4903.50N/07201.75W>090/000")]
+    public void A_speed_between_knots_is_rounded_halves_away_from_zero(double knots, string written)
+    {
+        WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.Car, CourseDegrees = 90, SpeedKnots = knots });
+        ThenEncodedIs(written);
+    }
+
+    [Fact]
+    public void A_compressed_speed_that_rounds_to_0_is_written_and_one_below_is_refused()
+    {
+        var report = new AprsPositionReport { Position = new AprsPosition(49.5, -72.75), Symbol = AprsSymbol.Car, IsCompressed = true, CourseDegrees = 88, SpeedKnots = -0.3 };
+        WhenEncoded(report);
+        Show(Encoded).Should().StartWith("!/5L!!<*e8>7!");
+        WhenEncodingIsAttempted(report with { SpeedKnots = -0.5 });
+        ThenEncodingFailed();
+    }
+
+    [Theory]
+    [InlineData(10.5, "/A=000011")]
+    [InlineData(-0.5, "/A=-00001")]
+    [InlineData(-0.4, "/A=000000")]
+    public void An_altitude_is_rounded_to_whole_feet(double feet, string written)
+    {
+        WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.Car, AltitudeFeet = feet });
+        Show(Encoded).Should().EndWith(written);
+    }
+
+    [Fact]
+    public void A_mic_e_range_and_speed_are_rounded()
+    {
+        var report = new AprsMicEReport { Position = new AprsPosition(33.427333, -112.129), Symbol = new AprsSymbol('/', 'j'), SpeedKnots = 0.5, RadioRangeMiles = 4362.7, TypeCode = '`' };
+        string info = Show(AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report).Information.ToArray());
+        info.Should().EndWith("RNG4363");
+        ((AprsMicEReport)AprsPacket.Decode(AprsAddress.Parse("N0CALL"), global::Packet.Aprs.Internal.MicECodec.EncodeDestination(report), [], AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report).Information.ToArray()).Data)
+            .SpeedKnots.Should().Be(1);
+    }
+
+    [Fact]
+    public void Numbers_given_as_data_are_plain_decimals()
+    {
+        WhenEncoded(new AprsTelemetryCoefficients { Addressee = "N0CALL", Coefficients = [0.53, 190.0, 1e61, 1e-7, -94.0] });
+        ThenEncodedIs(":N0CALL   :EQNS.0.53,190,1" + new string('0', 61) + ",0.0000001,-94");
+        WhenEncoded(new AprsGeneralQuery { QueryType = "APRS", Footprint = new AprsQueryFootprint(0m, 34.0m, 200) });
+        ThenEncodedIs("?APRS? 0, 34,0200");
+    }
+
+    [Fact]
+    public void A_dao_on_an_ambiguous_position_is_refused_whatever_its_precision()
+    {
+        WhenEncodingIsAttempted(new AprsPositionReport { Position = Somewhere with { Ambiguity = 1 }, Symbol = AprsSymbol.Car, Dao = new AprsDao('W', AprsDaoPrecision.None) });
+        ThenEncodingFailed();
     }
 
     // ------------------------------------------------------------ exact bytes (vectors rulings E1-E12)

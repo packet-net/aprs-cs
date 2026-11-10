@@ -362,13 +362,14 @@ internal static class QueryCodec
             }
 
             // A decoded coordinate is written as sent, a number being free-form (vectors ruling E1);
-            // one built in code carries a leading space in place of a plus sign (APRS12c §15).
+            // one built in code carries a leading space in place of a plus sign (APRS12c §15), 0 too
+            // (vectors ruling F15), and is the plain shortest decimal (ruling F11).
             w.Ascii(Written(f.LatitudeText, f.Latitude)).Char(',').Ascii(Written(f.LongitudeText, f.Longitude)).Char(',').Digits(f.RadiusMiles, 4);
         }
 
         static string Written(string? sent, decimal v) =>
             sent is not null && Coordinate(sent, 180) == v ? sent
-                : v < 0 ? v.ToString(CultureInfo.InvariantCulture) : " " + v.ToString(CultureInfo.InvariantCulture);
+                : v < 0 ? PlainNumber.Format(v) : " " + PlainNumber.Format(v);
     }
 }
 

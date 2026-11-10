@@ -66,30 +66,32 @@ internal static class DaoCodec
         {
             case AprsDaoPrecision.Thousandths:
             {
-                long thousandths = (long)Math.Round(absDegrees * 60 * 1000);
+                long thousandths = Steps.Count(absDegrees, 60 * 1000);
                 extra = (int)(thousandths % 10);
                 return thousandths / 10;
             }
 
             case AprsDaoPrecision.Base91:
             {
-                long units = (long)Math.Round(absDegrees * 60 * 100 * 91);
+                long units = Steps.Count(absDegrees, 60 * 100 * 91);
                 extra = (int)(units % 91);
                 return units / 91;
             }
 
             default:
                 extra = 0;
-                return (long)Math.Round(absDegrees * 60 * 100);
+                return Steps.Count(absDegrees, 60 * 100);
         }
     }
 
     public static void Write(InfoWriter w, AprsPosition position, AprsDao dao)
     {
         dao.Validate(nameof(dao));
-        if (position.Ambiguity != 0 && dao.Precision != AprsDaoPrecision.None)
+        if (position.Ambiguity != 0)
         {
-            throw new ArgumentException("extra DAO precision contradicts position ambiguity");
+            // Even !W  ! reads back with dao-with-ambiguity: a DAO adds precision to an ambiguous
+            // position, which contradicts it, so no clean form exists (vectors ruling F4).
+            throw new ArgumentException("a DAO contradicts position ambiguity, whatever its precision");
         }
 
         SplitForDao(Math.Abs(position.Latitude), dao, out int lat);

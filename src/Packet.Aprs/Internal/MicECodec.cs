@@ -206,7 +206,15 @@ internal static class MicECodec
             ReadAltitude(text, 0, fields);
         }
 
+        // Base-91 telemetry and a !DAO! are lifted before the locator is read, so a locator followed
+        // straight by either has nothing after it (vectors ruling F16, README Comments order).
+        if (!CommentCodec.TryExtractTrailer(text, offset, ctx, fields))
+        {
+            return false;
+        }
+
         // A Maidenhead locator with the /G grid symbol, then a space before any text (APRS12c §10).
+        // It is read only here, at the start or straight after an altitude (vectors ruling F17).
         int locatorLength = LocatorLengthAt(text);
         if (locatorLength > 0)
         {
@@ -261,7 +269,7 @@ internal static class MicECodec
             }
         }
 
-        return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
+        return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true, trailerLifted: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
     }
 
     private static void ReadAltitude(List<byte> text, int at, PositionedFields fields)
@@ -484,14 +492,14 @@ internal static class MicECodec
             throw new ArgumentOutOfRangeException(nameof(r), "Mic-E destination SSID must be 0-15");
         }
 
-        string lat = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao).Replace(".", "", StringComparison.Ordinal);
+        string lat = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao, r.Position.Ambiguity).Replace(".", "", StringComparison.Ordinal);
         if (r.Position.Ambiguity > 0 && lat.StartsWith("90", StringComparison.Ordinal))
         {
             throw new ArgumentOutOfRangeException(nameof(r), "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
         }
 
         (int[] bits, bool custom) = MessageBits(r.Message);
-        int lonDegrees = int.Parse(PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao)[..3], System.Globalization.CultureInfo.InvariantCulture);
+        int lonDegrees = int.Parse(PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity)[..3], System.Globalization.CultureInfo.InvariantCulture);
         bool[] flags =
         [
             bits[0] == 1, bits[1] == 1, bits[2] == 1,
@@ -550,7 +558,7 @@ internal static class MicECodec
             throw new ArgumentException("a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
         }
 
-        string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao);
+        string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity);
         int deg = int.Parse(lon[..3], System.Globalization.CultureInfo.InvariantCulture);
         int min = int.Parse(lon.AsSpan(3, 2), System.Globalization.CultureInfo.InvariantCulture);
         int hun = int.Parse(lon.AsSpan(6, 2), System.Globalization.CultureInfo.InvariantCulture);
@@ -580,7 +588,9 @@ internal static class MicECodec
             throw new ArgumentOutOfRangeException(nameof(r), "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
         }
 
-        int speed = r.SpeedKnots is { } s ? (int)Math.Round(s) : 0;
+        // Rounded to whole knots, then checked (vectors ruling F2).
+        double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
+        int speed = double.IsNaN(speedKnots) || speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
         int course = r.CourseDegrees ?? 0;
         if (speed is < 0 or > 799 || course is < 0 or > 360)
         {
@@ -662,9 +672,9 @@ internal static class MicECodec
         bool altitudeAsFeet = false;
         if (r.AltitudeFeet is { } feet)
         {
-            long metres = (long)Math.Round(feet / Units.FeetPerMetre);
+            long metres = Steps.Count(feet / Units.FeetPerMetre);
             long value = metres + 10000;
-            altitudeAsFeet = Math.Abs((metres * Units.FeetPerMetre) - feet) > 1e-6;
+            altitudeAsFeet = r.AltitudeInFeet || Math.Abs((metres * Units.FeetPerMetre) - feet) > 1e-6;
             if (!altitudeAsFeet)
             {
                 if (value is < 0 or > (91 * 91 * 91) - 1)
@@ -692,8 +702,10 @@ internal static class MicECodec
             }
 
             w.Ascii(locator.ToUpperInvariant()).Ascii("/G");
+            // Telemetry and a !DAO! are lifted before the locator is read, so they follow it
+            // straight on (vectors ruling F16).
             bool more = altitudeAsFeet || r.Phg is not null || r.RadioRangeMiles is not null || r.DfSignalStrength is not null
-                || r.Frequency is not null || r.Comment.Length > 0 || r.Telemetry is not null || r.Dao is not null;
+                || r.Frequency is not null || r.Comment.Length > 0;
             if (more)
             {
                 w.Char(' ');
@@ -713,7 +725,14 @@ internal static class MicECodec
         }
         else if (r.RadioRangeMiles is { } range)
         {
-            w.Ascii("RNG").Digits((int)range, 4);
+            // Rounded to whole miles, then checked (vectors ruling F2).
+            double miles = Steps.Whole(range);
+            if (double.IsNaN(miles) || miles is < 0 or > 9999)
+            {
+                throw new ArgumentOutOfRangeException(nameof(r), "RNG carries whole miles 0-9999");
+            }
+
+            w.Ascii("RNG").Digits((int)miles, 4);
         }
         else if (r.DfSignalStrength is { } dfs)
         {

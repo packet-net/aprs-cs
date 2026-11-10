@@ -676,7 +676,7 @@ internal static class PositionCodec
             return false;
         }
 
-        long cs = (long)Math.Round(Math.Log(alt) / Math.Log(1.002), MidpointRounding.AwayFromZero);
+        long cs = Steps.Count(Math.Log(alt) / Math.Log(1.002));
         return Math.Abs(Math.Pow(1.002, cs) - alt) <= 1e-9 * alt;
     }
 
@@ -690,8 +690,8 @@ internal static class PositionCodec
     /// rounded to the DAO's finer unit first so the DAO digits and these digits stay consistent.</summary>
     internal static (string Latitude, string Longitude) FormatUncompressed(AprsPosition position, AprsDao? dao)
     {
-        string lat = FormatCoordinate(Math.Abs(position.Latitude), 2, dao) + (double.IsNegative(position.Latitude) ? "S" : "N");
-        string lon = FormatCoordinate(Math.Abs(position.Longitude), 3, dao) + (double.IsNegative(position.Longitude) ? "W" : "E");
+        string lat = FormatCoordinate(Math.Abs(position.Latitude), 2, dao, position.Ambiguity) + (double.IsNegative(position.Latitude) ? "S" : "N");
+        string lon = FormatCoordinate(Math.Abs(position.Longitude), 3, dao, position.Ambiguity) + (double.IsNegative(position.Longitude) ? "W" : "E");
         if (position.Ambiguity > 0 && (lat.StartsWith("90", StringComparison.Ordinal) || lon.StartsWith("180", StringComparison.Ordinal)))
         {
             // A decoder reports the centre of the blanked box, which from 90 or 180 degrees lies past
@@ -715,9 +715,16 @@ internal static class PositionCodec
         }
     }
 
-    internal static string FormatCoordinate(double degrees, int degreeDigits, AprsDao? dao)
+    /// <summary>
+    /// DDMM.hh or DDDMM.hh for an absolute coordinate. On an ambiguous position the digits are cut,
+    /// not rounded, so the box they leave is the one that holds the position (vectors ruling B3:
+    /// 03.596 minutes with one level is the box 03.5x); a decoder's centre cuts to its own box. As
+    /// for a half, a value within the tolerance of a step counts as that step (132.89 degrees is
+    /// 53.40 minutes, though 132.89 x 6000 is 797339.99999 in binary).
+    /// </summary>
+    internal static string FormatCoordinate(double degrees, int degreeDigits, AprsDao? dao, int ambiguity = 0)
     {
-        long hundredths = DaoCodec.SplitForDao(degrees, dao, out _);
+        long hundredths = ambiguity > 0 ? Steps.Cut(degrees, 6000) : DaoCodec.SplitForDao(degrees, dao, out _);
         long whole = hundredths / 6000;
         long rem = hundredths % 6000;
         return whole.ToString(CultureInfo.InvariantCulture).PadLeft(degreeDigits, '0')
@@ -731,8 +738,8 @@ internal static class PositionCodec
     /// </summary>
     internal static AprsPosition CompressedReported(AprsPosition position)
     {
-        long y = Math.Min((long)Math.Round((90 - position.Latitude) * LatitudeScale), Base91.MaxValue(4));
-        long x = Math.Min((long)Math.Round((180 + position.Longitude) * LongitudeScale), Base91.MaxValue(4));
+        long y = Math.Min(Steps.Count(90 - position.Latitude, LatitudeScale), Base91.MaxValue(4));
+        long x = Math.Min(Steps.Count(180 + position.Longitude, LongitudeScale), Base91.MaxValue(4));
         return new AprsPosition(90 - (y / LatitudeScale), -180 + (x / LongitudeScale));
     }
 
@@ -744,8 +751,8 @@ internal static class PositionCodec
         }
 
         char table = d.Symbol.Table is >= '0' and <= '9' ? (char)('a' + (d.Symbol.Table - '0')) : d.Symbol.Table;
-        long y = (long)Math.Round((90 - d.Position.Latitude) * LatitudeScale);
-        long x = (long)Math.Round((180 + d.Position.Longitude) * LongitudeScale);
+        long y = Steps.Count(90 - d.Position.Latitude, LatitudeScale);
+        long x = Steps.Count(180 + d.Position.Longitude, LongitudeScale);
         w.Char(table).Base91(Math.Min(y, Base91.MaxValue(4)), 4).Base91(Math.Min(x, Base91.MaxValue(4)), 4).Char(d.Symbol.Code);
 
         if (d.Phg is not null || d.DfSignalStrength is not null || d.AreaObject is not null || d.DfBearing is not null || d.Storm is not null)
@@ -778,7 +785,7 @@ internal static class PositionCodec
 
             // Rounded to the nearest 4 degrees, halves away from zero; 360 is written as north,
             // c = 0 (vectors ruling E9).
-            int c = (int)Math.Round(wx.WindDirectionDegrees.Value / 4.0, MidpointRounding.AwayFromZero) % 90;
+            int c = (int)(Steps.Count(wx.WindDirectionDegrees.Value / 4.0) % 90);
             int s = SpeedCode(Units.MphToKnots(wx.WindSpeedMph.Value));
             w.Byte((byte)(c + 33)).Byte((byte)(s + 33));
             WriteType(w, type ?? AprsCompressionType.Default);
@@ -790,7 +797,7 @@ internal static class PositionCodec
                 throw new ArgumentException("with a GGA compression type the cs bytes carry altitude, so course/speed and range cannot also be sent");
             }
 
-            long cs = alt <= 1 ? 0 : (long)Math.Round(Math.Log(alt) / Math.Log(1.002), MidpointRounding.AwayFromZero);
+            long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
             if (cs > (91 * 91) - 1)
             {
                 throw new ArgumentOutOfRangeException(nameof(d.AltitudeFeet), "altitude too high for compressed form");
@@ -815,9 +822,16 @@ internal static class PositionCodec
                 throw new ArgumentOutOfRangeException(nameof(d.CourseDegrees), "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
             }
 
+            if (d.SpeedKnots is null)
+            {
+                // The cs bytes hold a course and a speed together, so a course alone would add a
+                // speed the data does not have (vectors ruling F5).
+                throw new ArgumentException("the cs bytes of a compressed position hold a course and a speed together; a course without a speed cannot be written (APRS12c ch. 9)", nameof(d.SpeedKnots));
+            }
+
             // Rounded to the nearest 4 degrees, halves away from zero; a course that rounds to 360
             // is north, c = 0 (vectors ruling E9).
-            w.Byte((byte)(((int)Math.Round(course / 4.0, MidpointRounding.AwayFromZero) % 90) + 33)).Byte((byte)(SpeedCode(d.SpeedKnots ?? 0) + 33));
+            w.Byte((byte)((int)(Steps.Count(course / 4.0) % 90) + 33)).Byte((byte)(SpeedCode(d.SpeedKnots.Value) + 33));
             WriteType(w, type ?? AprsCompressionType.Default);
         }
         else if (d.RadioRangeMiles is { } range)
@@ -825,7 +839,7 @@ internal static class PositionCodec
             // 2 x 1.08^s miles (APRS12c ch. 9): a range is rounded to the nearest step, but one
             // outside the format is refused, not moved to its edge (vectors interpretations.md,
             // "Re-encoding into compressed bytes rounds").
-            int s = range < 2 ? -1 : (int)Math.Round(Math.Log(range / 2) / Math.Log(1.08), MidpointRounding.AwayFromZero);
+            int s = range <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
             if (s is < 0 or > 90)
             {
                 throw new ArgumentOutOfRangeException(nameof(d.RadioRangeMiles), "a compressed range is 2 to 2 x 1.08^90 miles (APRS12c ch. 9)");
@@ -857,12 +871,13 @@ internal static class PositionCodec
     /// </summary>
     private static int SpeedCode(double knots)
     {
-        if (knots < 0 || double.IsNaN(knots))
+        // A negative speed that rounds to 0 knots (-0.3) is 0, the lowest step (vectors ruling F2).
+        if (Steps.Whole(knots) < 0 || double.IsNaN(knots))
         {
             throw new ArgumentOutOfRangeException(nameof(knots), knots, "a speed is not negative");
         }
 
-        int s = knots == 0 ? 0 : (int)Math.Round(Math.Log(knots + 1) / Math.Log(1.08), MidpointRounding.AwayFromZero);
+        int s = knots <= 0 ? 0 : (int)Steps.Count(Math.Log(knots + 1) / Math.Log(1.08));
         return s > 90 ? throw new ArgumentOutOfRangeException(nameof(knots), "speed too high for compressed form") : s;
     }
 
@@ -936,12 +951,14 @@ internal static class PositionCodec
         }
         else if (d.RadioRangeMiles is { } range)
         {
-            if (range != Math.Floor(range) || range is < 0 or > 9999)
+            // Rounded to whole miles, then checked (vectors ruling F2).
+            double miles = Steps.Whole(range);
+            if (miles is < 0 or > 9999)
             {
                 throw new ArgumentOutOfRangeException(nameof(d.RadioRangeMiles), "RNG carries whole miles 0-9999");
             }
 
-            w.Ascii("RNG").Digits((int)range, 4);
+            w.Ascii("RNG").Digits((int)miles, 4);
         }
         else if (d.DfSignalStrength is { } dfs)
         {
@@ -967,13 +984,15 @@ internal static class PositionCodec
             throw new ArgumentOutOfRangeException(nameof(course), "course must be 0-360");
         }
 
-        if (speed is { } s && (s < 0 || s > 999 || s != Math.Floor(s)))
+        // Rounded to whole knots, then checked (vectors ruling F2).
+        double? knots = speed is { } s ? Steps.Whole(s) : null;
+        if (knots is < 0 or > 999 || (knots is { } k && double.IsNaN(k)))
         {
             throw new ArgumentOutOfRangeException(nameof(speed), "an uncompressed speed is whole knots 0-999");
         }
 
         _ = course is { } c ? w.Digits(c, 3) : w.Ascii("...");
         w.Char('/');
-        _ = speed is { } v ? w.Digits((int)v, 3) : w.Ascii("...");
+        _ = knots is { } v ? w.Digits((int)v, 3) : w.Ascii("...");
     }
 }

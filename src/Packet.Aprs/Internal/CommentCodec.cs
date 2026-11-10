@@ -84,9 +84,9 @@ internal static class CommentCodec
     /// mistaken for another: DAO and telemetry from the end, then altitude, braces, a late data
     /// extension, and finally a voice frequency at the start.
     /// </summary>
-    internal static bool TryExtract(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
+    internal static bool TryExtract(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart, bool trailerLifted = false)
     {
-        if (!TryExtractTrailer(c, offset, ctx, f))
+        if (!trailerLifted && !TryExtractTrailer(c, offset, ctx, f))
         {
             return false;
         }
@@ -432,9 +432,12 @@ internal static class CommentCodec
         {
             // Straight after a 7-byte extension the frequency follows a '/', the first form the
             // spec lists ("$PHGphgd/FFF.FFFMHz", APRS12c §18); a PHGR extension already ends in '/'.
+            // A DF bearing or storm data extends the course/speed, so one follows a '/' too
+            // (vectors ruling F9).
             bool afterExtension = !d.IsCompressed && d.Weather is null
                 && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RadioRangeMiles is not null
-                    || d.DfSignalStrength is not null || d.AreaObject is not null || d.Phg is { BeaconsPerHour: null });
+                    || d.DfSignalStrength is not null || d.AreaObject is not null || d.Phg is { BeaconsPerHour: null }
+                    || d.DfBearing is not null || d.Storm is not null);
             if (afterExtension)
             {
                 w.Char('/');
@@ -479,8 +482,10 @@ internal static class CommentCodec
     private static void WriteTrailer(InfoWriter w, AprsPositionedData d, bool includeWeatherSoftware)
     {
         if (includeWeatherSoftware && (d.Telemetry is not null || d.Frequency is not null || d.SignpostText is not null
-            || (d.AltitudeFeet is not null && !PositionCodec.AltitudeFitsInCs(d))))
+            || (d.AltitudeFeet is not null && !(d.IsCompressed && d.CompressionType?.Source == AprsNmeaSource.Gga))))
         {
+            // A compressed weather report's GGA altitude goes in the cs bytes as the nearest step,
+            // with no /A= beside it (vectors ruling F14).
             throw new ArgumentException("a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
@@ -520,12 +525,14 @@ internal static class CommentCodec
 
     internal static void WriteAltitude(InfoWriter w, double feet)
     {
-        int alt = (int)Math.Round(feet);
-        if (alt is < -99999 or > 999999)
+        // Rounded to whole feet, halves away from zero, then checked (vectors ruling F2).
+        double rounded = Steps.Whole(feet);
+        if (double.IsNaN(rounded) || rounded is < -99999 or > 999999)
         {
             throw new ArgumentOutOfRangeException(nameof(feet), "/A= altitude must fit in 6 digits (or - and 5 digits)");
         }
 
+        int alt = (int)rounded;
         w.Ascii("/A=");
         _ = alt < 0 ? w.Char('-').Digits(-alt, 5) : w.Digits(alt, 6);
     }

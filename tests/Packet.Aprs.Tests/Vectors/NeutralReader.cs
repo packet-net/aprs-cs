@@ -94,7 +94,7 @@ internal static class NeutralReader
             "query" => Only(d, new AprsGeneralQuery
             {
                 QueryType = Str(d, "query_type"),
-                Footprint = d["footprint"] is JsonObject f ? new AprsQueryFootprint((decimal)f["latitude"]!, (decimal)f["longitude"]!, (int)f["radius_miles"]!) : null,
+                Footprint = d["footprint"] is JsonObject f ? new AprsQueryFootprint((decimal)f["latitude"]!, (decimal)f["longitude"]!, Whole(f["radius_miles"])!.Value) : null,
             }, "query_type", "footprint"),
             "capabilities" => Only(d, new AprsStationCapabilities
             {
@@ -141,7 +141,7 @@ internal static class NeutralReader
             CompressionType = d["compression"] is JsonObject ct
                 ? new AprsCompressionType(Enum<AprsGpsFix>(Str(ct, "fix")), Enum<AprsNmeaSource>(Str(ct, "source")), Enum<AprsCompressionOrigin>(Str(ct, "origin")))
                 : null,
-            CourseDegrees = (int?)d["course_degrees"],
+            CourseDegrees = Whole(d["course_degrees"]),
             SpeedKnots = (double?)d["speed_knots"],
             AltitudeFeet = (double?)d["altitude_feet"],
             Phg = d["phg"] is JsonObject phg ? new AprsPhg((int)phg["power"]!, (int)phg["height"]!, (int)phg["gain"]!, (int)phg["directivity"]!, (int?)phg["beacons_per_hour"]) : null,
@@ -155,12 +155,12 @@ internal static class NeutralReader
                 ? new AprsStorm
                 {
                     Type = Enum<AprsStormType>(Str(s, "type")),
-                    SustainedWindKnots = (int?)s["sustained_wind_knots"],
-                    GustKnots = (int?)s["gust_knots"],
-                    CentralPressureMillibars = (int?)s["central_pressure_mbar"],
-                    HurricaneWindRadiusNauticalMiles = (int?)s["hurricane_radius_nm"],
-                    TropicalStormWindRadiusNauticalMiles = (int?)s["tropical_storm_radius_nm"],
-                    WholeGaleRadiusNauticalMiles = (int?)s["whole_gale_radius_nm"],
+                    SustainedWindKnots = Whole(s["sustained_wind_knots"]),
+                    GustKnots = Whole(s["gust_knots"]),
+                    CentralPressureMillibars = Whole(s["central_pressure_mbar"]),
+                    HurricaneWindRadiusNauticalMiles = Whole(s["hurricane_radius_nm"]),
+                    TropicalStormWindRadiusNauticalMiles = Whole(s["tropical_storm_radius_nm"]),
+                    WholeGaleRadiusNauticalMiles = Whole(s["whole_gale_radius_nm"]),
                 }
                 : null,
             Dao = d["dao"] is JsonObject dao ? new AprsDao(Str(dao, "datum")[0], Enum<AprsDaoPrecision>(Str(dao, "precision"))) : null,
@@ -188,17 +188,17 @@ internal static class NeutralReader
 
     private static AprsWeather Weather(JsonObject w) => new()
     {
-        WindDirectionDegrees = (int?)w["wind_direction_degrees"],
+        WindDirectionDegrees = Whole(w["wind_direction_degrees"]),
         WindSpeedMph = (double?)w["wind_speed_mph"],
-        WindGustMph = (int?)w["wind_gust_mph"],
-        TemperatureFahrenheit = (int?)w["temperature_f"],
+        WindGustMph = Whole(w["wind_gust_mph"]),
+        TemperatureFahrenheit = Whole(w["temperature_f"]),
         RainLastHourInches = (double?)w["rain_1h_in"],
         RainLast24HoursInches = (double?)w["rain_24h_in"],
         RainSinceMidnightInches = (double?)w["rain_midnight_in"],
-        RainRawCounter = (int?)w["rain_raw"],
-        HumidityPercent = (int?)w["humidity_percent"],
+        RainRawCounter = Whole(w["rain_raw"]),
+        HumidityPercent = Whole(w["humidity_percent"]),
         PressureMillibars = (double?)w["pressure_mbar"],
-        LuminosityWattsPerSquareMetre = (int?)w["luminosity_w_m2"],
+        LuminosityWattsPerSquareMetre = Whole(w["luminosity_w_m2"]),
         SnowfallLast24HoursInches = (decimal?)w["snow_24h_in"],
         SoftwareType = OptChar(w, "software"),
         UnitType = OptStr(w, "unit"),
@@ -238,6 +238,24 @@ internal static class NeutralReader
         }
 
         return b;
+    }
+
+    /// <summary>
+    /// A number for a field Packet.Aprs holds in whole units (a course, a weather value, a
+    /// footprint radius). Neutral data can give one between the steps; it is taken as the encoder
+    /// takes any such value, rounded to the nearest whole unit with halves away from zero (vectors
+    /// ruling F2), and every check on it (a course of 0, a humidity of 0, a gust over 999) is then
+    /// the encoder's own.
+    /// </summary>
+    private static int? Whole(JsonNode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        double rounded = Packet.Aprs.Internal.Steps.Nearest((double)node);
+        return rounded is >= int.MinValue and <= int.MaxValue ? (int)rounded : throw new OverflowException($"{node.ToJsonString()} is outside a 32-bit whole number");
     }
 
     private static AprsSymbol Symbol(string s) => new(s[0], s[1]);
