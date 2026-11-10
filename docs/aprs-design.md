@@ -15,7 +15,7 @@ direwolf (`decode_aprs`) and Ham::APRS::FAP (the parser behind aprs.fi) are **re
 
 ## Philosophy (the Packet.NET one)
 
-- **Encoding is strict.** The encoder never produces anything APRS12c forbids. Invalid input throws `ArgumentException` at encode time.
+- **Encoding is strict.** The encoder never produces anything APRS12c forbids. Invalid input throws `AprsEncodeException` (an `ArgumentException`) at encode time.
 - **Decoding never throws.** It returns an `AprsPacket` whose `Data` is always set. If the information field can't be decoded, `Data` is `AprsUnrecognizedData` with a reason.
 - **Every deviation is reported.** Decoding collects `AprsDiagnostic`s (stable code, severity, message, offset). Tolerating a real-world defect is a **named flag** on `AprsParseOptions`. The flag is on in `Lenient` (the default) and off in `Strict`, and each one has a paired test: strict rejects the input, lenient accepts it and warns. The flag inventory is in [`strict-vs-pragmatic-audit.md`](strict-vs-pragmatic-audit.md#packetaprs).
 - **Spec-sanctioned receive rules are not leniency.** When APRS12c itself tells receivers to accept something (longer message text, variable-width telemetry, ignoring the AX.25 C bits), it is accepted in every mode.
@@ -60,7 +60,7 @@ AX.25 UI frame ───┘                                                     
 
 Position, object, item and Mic-E share a base, `AprsPositionedData`, carrying `Position`, `Symbol`, and everything that can ride in the data extension or comment. That covers course/speed, PHG (+PHGR), RNG, DFS, area object, DF bearing/NRQ, altitude, DAO, base-91 comment telemetry, voice frequency, weather, storm data, and signpost / corridor braces. `Comment` is whatever free text is left once those are extracted.
 
-Values are held in the units APRS uses on air, with the unit in the property name (`SpeedKnots`, `AltitudeFeet`, `TemperatureFahrenheit`). Telemetry values are `decimal`, so their scale survives a round trip. Equation coefficients are `double`, since a coefficient may carry an exponent (`10E60`), and a decoded one is written back in the form it was sent.
+Values are held in the units APRS uses on air, with the unit in the property name (`SpeedKnots`, `AltitudeFeet`, `TemperatureFahrenheit`). Telemetry values, equation coefficients and query coordinates are `double`, each with the text it was decoded from beside it (`AnalogText`, `CoefficientsText`, `LatitudeText`), which the encoder writes back while it still means the same number, so a decoded `.53` or `10E60` survives a round trip. The text is not part of equality.
 
 ## Values between steps
 
