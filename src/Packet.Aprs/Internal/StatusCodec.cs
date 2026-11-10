@@ -223,6 +223,7 @@ internal static class TelemetryCodec
         }
 
         var analog = new List<decimal?>(5);
+        var sent = new List<string>(5);
         while (analog.Count < 5)
         {
             int end = pos;
@@ -232,6 +233,7 @@ internal static class TelemetryCodec
             }
 
             ReadOnlySpan<byte> field = info[pos..end];
+            sent.Add(Text.Latin1(field));
             if (field.Length == 0)
             {
                 analog.Add(null);
@@ -292,7 +294,9 @@ internal static class TelemetryCodec
             return null;
         }
 
-        return new AprsTelemetryReport { Sequence = sequence, Analog = analog, Digital = digital, Comment = comment };
+        // Each value keeps its text as sent (073, 190.0, .53), so it re-encodes identical (vectors
+        // README, "Numbers as sent").
+        return new AprsTelemetryReport { Sequence = sequence, Analog = EquatableList<decimal?>.WithText(analog, sent), Digital = digital, Comment = comment };
     }
 
     public static void Write(InfoWriter w, AprsTelemetryReport r)
@@ -308,22 +312,39 @@ internal static class TelemetryCodec
         }
 
         Text.RequireNoLineBreaks(r.Comment, nameof(r.Comment));
+        IReadOnlyList<string>? sent = (r.Analog as EquatableList<decimal?>)?.Text;
+        if (r.Sequence == "MIC" && (sent is not null ? sent[0].Length == 0 : r.Analog[0] is null))
+        {
+            // No form reads back with the first channel empty after MIC: T#MIC,,033 is read
+            // otherwise (vectors ruling F12).
+            throw new ArgumentException("a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)", nameof(r));
+        }
+
         w.Ascii("T#");
         w.Ascii(r.Sequence);
         for (int i = 0; i < r.Analog.Count; i++)
         {
             decimal? v = r.Analog[i];
 
-            // "MIC may or may not be followed by a comma" (APRS12c §13); the spec's example has none.
-            if (i > 0 || r.Sequence != "MIC")
+            // "MIC may or may not be followed by a comma" (APRS12c §13); the spec's example has none,
+            // but an empty first value needs it, or the second would be read in its place.
+            if (i > 0 || r.Sequence != "MIC" || (sent is not null ? sent[0].Length == 0 : v is null))
             {
                 w.Char(',');
             }
 
-            if (v is { } value)
+            if (sent is not null)
             {
-                bool canonical = value == decimal.Truncate(value) && value is >= 0 and <= 999 && value.Scale == 0;
-                w.Ascii(canonical ? ((int)value).ToString("000", CultureInfo.InvariantCulture) : value.ToString(CultureInfo.InvariantCulture));
+                // A decoded value is written as sent: a number is free-form (vectors ruling E1).
+                w.Ascii(sent[i]);
+            }
+            else if (v is { } value)
+            {
+                // Built in code: a whole number 0-999 in the spec's three digits (APRS12c ch. 13,
+                // whose aaa field and examples write it so), however it is scaled (190.0 is 190),
+                // and any other number the plain shortest decimal (vectors ruling F11).
+                bool canonical = value == decimal.Truncate(value) && value is >= 0 and <= 999;
+                w.Ascii(canonical ? ((int)value).ToString("000", CultureInfo.InvariantCulture) : PlainNumber.Format(value));
             }
         }
 

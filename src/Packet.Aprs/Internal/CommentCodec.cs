@@ -151,13 +151,40 @@ internal static class CommentCodec
         return true;
     }
 
+    /// <summary>The byte ranges a decoder lifts from <paramref name="c"/> as base-91 telemetry and the <c>!DAO!</c>, in its own positions.</summary>
+    internal static List<(int Start, int Length)> TrailerSpans(List<byte> c)
+    {
+        (int tStart, int tEnd) = FindTelemetry(c);
+        var spans = new List<(int, int)>();
+        int dao = ExtractDao([.. c], 0, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields(), tStart, tEnd, out _);
+        if (dao >= 0)
+        {
+            spans.Add((dao, 5));
+        }
+
+        if (tStart >= 0)
+        {
+            spans.Add((tStart, tEnd - tStart + 1));
+        }
+
+        return spans;
+    }
+
+    /// <summary>Where the <c>!DAO!</c> a decoder would lift from <paramref name="c"/> starts, or -1.</summary>
+    internal static int DaoIndex(List<byte> c)
+    {
+        (int tStart, int tEnd) = FindTelemetry(c);
+        return ExtractDao([.. c], 0, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields(), tStart, tEnd, out _);
+    }
+
     private static int ExtractDao(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, int skipFrom, int skipTo, out bool ok)
     {
         ok = true;
         Span<byte> window = stackalloc byte[5];
         for (int i = c.Count - 5; i >= 0; i--)
         {
-            if (c[i] != (byte)'!' || c[i + 4] != (byte)'!' || (skipFrom >= 0 && i + 4 >= skipFrom && i <= skipTo))
+            if (c[i] != (byte)'!' || c[i + 4] != (byte)'!' || (skipFrom >= 0 && i + 4 >= skipFrom && i <= skipTo)
+                || (f.DaoBarrier > 0 && i < f.DaoBarrier && i + 4 >= f.DaoBarrier))
             {
                 continue;
             }
@@ -414,46 +441,48 @@ internal static class CommentCodec
 
     // ---------------------------------------------------------------- encoding
 
-    /// <summary>Writes altitude, frequency, free text, braces, telemetry and DAO in canonical order.</summary>
+    /// <summary>
+    /// Writes the comment of a position, object or item report after its data extension, in the
+    /// one order the vectors' Encoding rule names (interpretations.md, "Where a voice frequency
+    /// goes"): the voice frequency and its fields, the signpost or corridor braces, the <c>/A=</c>
+    /// altitude, the free text (after a space when a frequency comes before it), base-91 telemetry
+    /// and the <c>!DAO!</c>. The frequency is in the first 10 bytes, where radios read it
+    /// (APRS12c ch. 18), and the braces come before any the text holds, so they are the first
+    /// well-formed ones a decoder finds.
+    /// </summary>
     public static void Write(InfoWriter w, AprsPositionedData d, bool altitudeInCs)
     {
         CheckComment(w, d);
-        if (d.AltitudeFeet is { } alt && !altitudeInCs)
-        {
-            WriteAltitude(w, alt);
-        }
-
+        bool altitude = d.AltitudeFeet is not null && !altitudeInCs;
+        bool braces = d.SignpostText is not null || d.AreaObject is { CorridorWidthMiles: not null };
         if (d.Frequency is { } freq)
         {
-            // Straight after a 7-byte extension, separate the frequency with '/' as the spec's first
-            // form does ("$PHGphgd/FFF.FFFMHz", APRS12c §18); a PHGR extension already ends in '/'.
-            bool afterExtension = !d.IsCompressed && d.AltitudeFeet is null && d.Weather is null
+            // Straight after a 7-byte extension the frequency follows a '/', the first form the
+            // spec lists ("$PHGphgd/FFF.FFFMHz", APRS12c §18); a PHGR extension already ends in '/'.
+            // A DF bearing or storm data extends the course/speed, so one follows a '/' too
+            // (vectors ruling F9).
+            bool afterExtension = !d.IsCompressed && d.Weather is null
                 && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RadioRangeMiles is not null
-                    || d.DfSignalStrength is not null || d.AreaObject is not null || d.Phg is { BeaconsPerHour: null });
+                    || d.DfSignalStrength is not null || d.AreaObject is not null || d.Phg is { BeaconsPerHour: null }
+                    || d.DfBearing is not null || d.Storm is not null);
             if (afterExtension)
             {
                 w.Char('/');
             }
 
-            FrequencyCodec.WriteWithComment(w, freq, d.Comment);
+            FrequencyCodec.WriteWithComment(w, freq, d.Comment, w => WriteBracesAndAltitude(w, d, altitude));
         }
-
-        // The signpost or corridor is the first well-formed braces in the comment, so when the
-        // comment holds braces of its own they go first; the finished field is then decoded to
-        // confirm it reads back (CheckComment has set the check for those braces).
-        bool bracesFirst = d.Frequency is null && (d.SignpostText is not null || d.AreaObject is { CorridorWidthMiles: not null })
-            && d.Comment.Contains('{', StringComparison.Ordinal);
-        if (bracesFirst)
+        else
         {
-            WriteBraces(w, d);
-        }
+            WriteBracesAndAltitude(w, d, altitude);
 
-        if (d.Frequency is null)
-        {
-            bool extensionJustWritten = !bracesFirst && !d.IsCompressed && d.AltitudeFeet is null
+            // A delimiter only where the text would not read back as itself without one: it starts
+            // with a space or '/', or straight after the symbol or extension it would read as an
+            // extension (interpretations.md, "Delimiters at the start of free text").
+            bool extensionJustWritten = !braces && !altitude && !d.IsCompressed
                 && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RadioRangeMiles is not null || d.DfSignalStrength is not null
                     || d.AreaObject is not null || d.DfBearing is not null || d.Storm is not null || d.Phg is not null);
-            bool nothingBefore = d.AltitudeFeet is null && !extensionJustWritten && !bracesFirst;
+            bool nothingBefore = !braces && !altitude && !extensionJustWritten;
             if (NeedsDelimiter(d.Comment, extensionJustWritten ? d.Phg : null) || (nothingBefore && !d.IsCompressed && LooksLikeExtension(d.Comment, d)))
             {
                 w.Char('/');
@@ -462,12 +491,16 @@ internal static class CommentCodec
             w.Utf8(d.Comment);
         }
 
-        if (!bracesFirst)
-        {
-            WriteBraces(w, d);
-        }
-
         WriteTrailer(w, d, includeWeatherSoftware: false);
+    }
+
+    private static void WriteBracesAndAltitude(InfoWriter w, AprsPositionedData d, bool altitude)
+    {
+        WriteBraces(w, d);
+        if (altitude)
+        {
+            WriteAltitude(w, d.AltitudeFeet!.Value);
+        }
     }
 
     /// <summary>The end of a report: weather software/unit (weather reports), telemetry, DAO.</summary>
@@ -476,8 +509,10 @@ internal static class CommentCodec
     private static void WriteTrailer(InfoWriter w, AprsPositionedData d, bool includeWeatherSoftware)
     {
         if (includeWeatherSoftware && (d.Telemetry is not null || d.Frequency is not null || d.SignpostText is not null
-            || (d.AltitudeFeet is not null && !PositionCodec.AltitudeFitsInCs(d))))
+            || (d.AltitudeFeet is not null && !(d.IsCompressed && d.CompressionType?.Source == AprsNmeaSource.Gga))))
         {
+            // A compressed weather report's GGA altitude goes in the cs bytes as the nearest step,
+            // with no /A= beside it (vectors ruling F14).
             throw new ArgumentException("a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
@@ -500,7 +535,9 @@ internal static class CommentCodec
 
         if (d.Dao is { } dao)
         {
-            DaoCodec.Write(w, d.Position, dao);
+            // On a compressed position the digits are not applied, so they are written to agree
+            // with the position the compressed bytes report (vectors ruling E2).
+            DaoCodec.Write(w, d.IsCompressed ? PositionCodec.CompressedReported(d.Position) : d.Position, dao);
         }
     }
 
@@ -515,12 +552,14 @@ internal static class CommentCodec
 
     internal static void WriteAltitude(InfoWriter w, double feet)
     {
-        int alt = (int)Math.Round(feet);
-        if (alt is < -99999 or > 999999)
+        // Rounded to whole feet, halves away from zero, then checked (vectors ruling F2).
+        double rounded = Steps.Whole(feet);
+        if (double.IsNaN(rounded) || rounded is < -99999 or > 999999)
         {
             throw new ArgumentOutOfRangeException(nameof(feet), "/A= altitude must fit in 6 digits (or - and 5 digits)");
         }
 
+        int alt = (int)rounded;
         w.Ascii("/A=");
         _ = alt < 0 ? w.Char('-').Digits(-alt, 5) : w.Digits(alt, 6);
     }

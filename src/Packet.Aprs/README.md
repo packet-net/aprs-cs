@@ -168,7 +168,7 @@ Console.WriteLine(repeater.Build());
 AprsPacket kill = repeater.Kill().Build();
 ```
 
-Positions go out to the hundredth of a minute the format allows (about 18 m), so what decodes back is the rounded position. Add `.Compressed()` for the shorter base-91 form, which is also more precise. `.Permanent()` marks an object only you may change.
+Positions go out to the hundredth of a minute the format allows (about 18 m), so what decodes back is the rounded position; every value between the steps its field holds (a speed of 29.75 knots, 100.5 feet) is rounded to the nearest step, halves away from zero, and an ambiguous position is cut to the box that holds it. A Mic-E report's type code says whether the station can message: `` ` `` with `.Messaging()`, `'` without. Add `.Compressed()` for the shorter base-91 form, which is also more precise. `.Permanent()` marks an object only you may change.
 
 ### 6. Turn telemetry into real values
 

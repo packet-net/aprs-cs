@@ -33,7 +33,7 @@ What the vectors deliberately leave out is checked in C#: values the library wor
 | spec-clean packets whose sender was already byte-canonical | 65.7% |
 | spec-clean packets the encoder refuses | 2,905 (0.11%): all but one are message or bulletin text over 67 characters, which APRS12c tells receivers to accept and senders not to write |
 
-The byte-canonical figure is about senders, not the library. Non-canonical but legal choices are normalised on re-encode: filler bytes in compressed positions, delimiters, weather field order, telemetry padding, and the Mic-E speed encoding. The exact received bytes are always in `AprsPacket.Information`.
+The byte-canonical figure is about senders, not the library. Non-canonical but legal choices are normalised on re-encode: filler bytes in compressed positions, delimiters, weather field order and the Mic-E speed encoding (numbers in telemetry, `EQNS.` and query footprints are kept as sent). The exact received bytes are always in `AprsPacket.Information`.
 
 The first run (508,679 packets, 2026-09-25) found one bug, an object with a garbled timestamp read as a made-up position. The ten-hour run found no crash and no clean packet that failed to round-trip, but it did show where "decodes cleanly" and "can be written back" disagreed:
 
@@ -79,3 +79,22 @@ dotnet run --project tools/Packet.Aprs.Corpus -c Release -- dump lines.bin ours.
 FAP_LIB=path/to/perl-aprs-fap-lib perl tools/Packet.Aprs.Corpus/fap/fap-decode.pl < lines.bin > fap.jsonl
 python3 tools/Packet.Aprs.Corpus/fap/compare-fap.py lines.bin ours.jsonl fap.jsonl
 ```
+
+## 6. Against the other implementations
+
+The vectors' [differential comparison](https://github.com/packet-net/aprs-vectors#comparing-implementations) runs every implementation over the same inputs and compares what each makes of them. `aprs-corpus diff` is this library's dump tool, in the three modes the vectors describe:
+
+```sh
+dotnet build -c Release
+dotnet run -c Release --no-build --project tools/Packet.Aprs.Corpus -- diff dump lines.hex.gz cs.jsonl.gz      # decode
+dotnet run -c Release --no-build --project tools/Packet.Aprs.Corpus -- diff encode data.jsonl.gz cs.jsonl.gz   # neutral data
+dotnet run -c Release --no-build --project tools/Packet.Aprs.Corpus -- diff build recipes.jsonl.gz cs.jsonl.gz # builder recipes
+```
+
+- `dump` decodes each hex TNC2 line, leniently and strictly, and records the bytes re-encoding writes (`written`, and `written_destination` for Mic-E) and the API view: what the public API offers beyond the neutral form (addresses, path, q-construct, diagnostics flags, TNC2 and AX.25 forms, device, symbol description, PHG figures, and the same for a third-party packet's inner packet).
+- `encode` reads neutral data as the vectors' encode cases are read, encodes it and decodes the bytes again; `unsupported` means `Packet.Aprs` data cannot hold the value (a third-party packet with no inner destination, say). A number between steps for a field `Packet.Aprs` holds in whole units (a course of 360.4, a humidity of 99.7) is read rounded to the nearest whole unit, halves away from zero, as the encoder rounds any value (vectors ruling F2), so the encoder's own checks then decide it.
+- `build` builds each recipe with the fluent builders; a recipe key the builders cannot express is reported `unsupported`, naming it. The builders take a course, a wind direction or gust, a temperature in Fahrenheit, a humidity and a luminosity as whole numbers, so a fractional one is `unsupported`.
+
+`--limit <n>` takes only the first n input lines. Compare the dumps with the vectors' `tools/compare.py`.
+
+The encoder writes exactly the bytes the vectors' Encoding rule names: the vectors runner compares every `equivalent` or `rounded` re-encoding with the case's `canonical_info` byte for byte.

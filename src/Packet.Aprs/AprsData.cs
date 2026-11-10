@@ -33,9 +33,21 @@ public abstract record AprsData
         var writer = new InfoWriter();
         Encode(writer);
         byte[] info = writer.ToArray();
+        if (info.Length > 0 && info[^1] is (byte)'\r' or (byte)'\n')
+        {
+            // A field ending in CR or LF reads back with trailing-line-break, a warning, and
+            // without the byte (Mic-E telemetry ending 13, say), so no clean form exists.
+            throw new ArgumentException("the information field would end with a line break, which a decoder strips with a warning", nameof(writer));
+        }
+
         if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)
         {
             CommentCodec.VerifyReadsBack(positioned, info, problem);
+        }
+
+        if (this is AprsMessage message)
+        {
+            MessageCodec.VerifyReadsBack(message, info);
         }
 
         return info;

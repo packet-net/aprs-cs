@@ -131,8 +131,8 @@ public sealed class AprsStation
     /// <summary>A status report (APRS12c §16).</summary>
     public AprsStatusBuilder Status(string text = "") => new(this, text);
 
-    /// <summary>A telemetry report with sequence number <paramref name="sequence"/>, sent as three
-    /// digits when it is 0-999 (APRS12c §13).</summary>
+    /// <summary>A telemetry report with sequence number <paramref name="sequence"/>, 0-999, sent as
+    /// three digits (APRS12c §13); a larger one is refused, not wrapped.</summary>
     public AprsTelemetryBuilder Telemetry(int sequence) => new(this, sequence);
 
     /// <summary>The names of this station's telemetry channels, A1-A5 then B1-B8 (<c>PARM.</c>, APRS12c §13).</summary>

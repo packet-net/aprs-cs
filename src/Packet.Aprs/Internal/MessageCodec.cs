@@ -249,7 +249,7 @@ internal static class MessageCodec
                     }
 
                     values.Add(v);
-                    written.Add(CanonicalCoefficient(number));
+                    written.Add(number);
                 }
 
                 if (values.Count > MaxCoefficients)
@@ -323,15 +323,6 @@ internal static class MessageCodec
             && double.TryParse(s, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent, CultureInfo.InvariantCulture, out value)
             && double.IsFinite(value);
     }
-
-    /// <summary>
-    /// How a decoded coefficient is written back: as a decimal would write it when it fits one
-    /// (<c>.53</c> as <c>0.53</c>, <c>0.0</c> kept), otherwise as sent (<c>10E60</c>).
-    /// </summary>
-    private static string CanonicalCoefficient(string s) =>
-        s.IndexOfAny(['e', 'E']) < 0 && decimal.TryParse(s, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal d)
-            ? d.ToString(CultureInfo.InvariantCulture)
-            : s;
 
     private static bool TryDirectedQuery(string addressee, ReadOnlySpan<byte> text, int offset, DecodeContext ctx, out AprsDirectedQuery? query)
     {
@@ -446,13 +437,32 @@ internal static class MessageCodec
         }
     }
 
+    /// <summary>
+    /// A message-format report must read back as the same kind of report, cleanly: a text message
+    /// addressed <c>BLN1</c> would be a bulletin, and one whose text is <c>?WX</c> a directed query
+    /// (vectors README, Messages and queries). Decodes the finished field to find out.
+    /// </summary>
+    internal static void VerifyReadsBack(AprsMessage sent, byte[] info)
+    {
+        AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], info);
+        if (back.Data.GetType() != sent.GetType() || back.HasWarnings || back.HasErrors)
+        {
+            string problem = back.Data.GetType() != sent.GetType()
+                ? $"would read back as {back.Data.GetType().Name}"
+                : $"would read back with {string.Join(", ", back.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => d.Code))}";
+            throw new ArgumentException($"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}", nameof(sent));
+        }
+    }
+
     public static void ValidateText(string text, string paramName)
     {
         ArgumentNullException.ThrowIfNull(text, paramName);
         Text.RequireNoLineBreaks(text, paramName);
         RequireNoBrace(text, paramName);
 
-        if (text.Length > MaxTextLength)
+        // Characters are Unicode code points, not UTF-16 units (APRS12c ch. 14: "printable ASCII
+        // or UTF-8 characters"), so a character outside the BMP counts once.
+        if (text.EnumerateRunes().Count() > MaxTextLength)
         {
             throw new ArgumentException($"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)", paramName);
         }

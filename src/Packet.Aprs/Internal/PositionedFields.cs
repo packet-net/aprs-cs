@@ -3,6 +3,13 @@ namespace Packet.Aprs.Internal;
 /// <summary>Mutable accumulator for the fields shared by every <see cref="AprsPositionedData"/> while decoding.</summary>
 internal sealed class PositionedFields
 {
+    /// <summary>
+    /// Where bytes were taken out of the text before the trailer is lifted (a later Mic-E
+    /// altitude), or -1: a <c>!DAO!</c> that spans it would join the bytes either side, so it is
+    /// not one (vectors README, Mic-E).
+    /// </summary>
+    public int DaoBarrier { get; set; } = -1;
+
     public AprsPosition Position { get; set; }
 
     public AprsSymbol Symbol { get; set; }

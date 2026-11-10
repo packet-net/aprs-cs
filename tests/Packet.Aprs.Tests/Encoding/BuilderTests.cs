@@ -187,6 +187,7 @@ public class BuilderTests
         Sent(wx.Telemetry(123).Analog(172, 123, 150, 50, 113).Digital("10100000").Build())
             .Should().Be("M0LTE-11>APZ001:T#123,172,123,150,050,113,10100000");
         Sent(wx.Telemetry(7).Analog(1.5m).Build()).Should().Be("M0LTE-11>APZ001:T#007,1.5,,,,,00000000");
+        Sent(wx.Telemetry(8).Analog(null, 2.5m).Build()).Should().Be("M0LTE-11>APZ001:T#008,,2.5,,,,00000000");
         Sent(wx.TelemetryNames("Battery", "Temp").Build()).Should().Be("M0LTE-11>APZ001::M0LTE-11 :PARM.Battery,Temp");
         Sent(wx.TelemetryUnits("V", "degC").Build()).Should().Be("M0LTE-11>APZ001::M0LTE-11 :UNIT.V,degC");
         Sent(wx.TelemetryCoefficients(0, 0.075, 0, 0, 0.5, -40).Build()).Should().Be("M0LTE-11>APZ001::M0LTE-11 :EQNS.0,0.075,0,0,0.5,-40");
@@ -238,6 +239,154 @@ public class BuilderTests
         FluentActions.Invoking(() => Me.Object("NAMEISTOOLONG").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build()).Should().Throw<ArgumentException>();
         FluentActions.Invoking(() => Me.Position(51.4543, -0.9781).Symbol(AprsSymbol.Car).Compressed().Phg(new AprsPhg(5, 3, 6, 0)).Build()).Should().Throw<ArgumentException>();
         FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6)).Should().Throw<ArgumentException>();
+    }
+
+    // ------------------------------------------------------------ builder rules (vectors rulings B1-B8)
+
+    [Fact]
+    public void A_course_of_0_is_unknown()
+    {
+        // 000 uncompressed, no course in Mic-E, and refused compressed, which has no unknown course (B1).
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).Course(0).Speed(36).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W>000/036");
+        ((AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Course(0).Speed(9).Build())).Data)
+            .CourseDegrees.Should().BeNull();
+        FluentActions.Invoking(() => Me.Position(49.5, -72.75).Symbol(AprsSymbol.Car).Compressed().Course(0).Speed(36).Build()).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Other_units_are_converted_and_rounded_once()
+    {
+        // 100 km/h is 53.996 knots, written 054; 100.5 feet rounds away from zero to 101 (B2, F2).
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).Course(90).SpeedKmh(100).Altitude(100.5).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W>090/054/A=000101");
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.Car).AltitudeMetres(-3.81).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W>/A=-00013");
+        Sent(Me.Weather().At(49.0583333, -72.0291667).Wind(220, 4).Gust(5).TemperatureCelsius(25.25).RainMillimetres(lastHour: 1.27).Build())
+            .Should().Be("M0LTE>APZ001:!4903.50N/07201.75W_220/004g005t077r005");
+    }
+
+    [Fact]
+    public void A_mic_e_altitude_in_metres_goes_in_the_altitude_bytes_and_one_in_feet_in_a_slash_a()
+    {
+        var metres = (AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(100.4).Build())).Data;
+        metres.AltitudeFeet.Should().BeApproximately(100 / 0.3048, 1e-9);
+        metres.Comment.Should().BeEmpty();
+
+        string feet = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Altitude(0).Build());
+        feet.Should().EndWith("/A=000000");
+    }
+
+    [Fact]
+    public void Ambiguity_cuts_the_position_into_the_box_that_holds_it()
+    {
+        // 49 deg 03.596 min with one level is the box 03.5x, not 03.6x (B3); 132.89 degrees is
+        // 53.40 minutes, its box 53.4x, though 132.89 x 6000 is just under 797340 in binary.
+        Sent(Me.Position(49 + (3.596 / 60), 132.89).Ambiguity(1).Symbol(AprsSymbol.House).Build())
+            .Should().Be("M0LTE>APZ001:!4903.5 N/13253.4 E-");
+        Sent(Me.Position(89.99999, -179.99999).Ambiguity(4).Symbol(AprsSymbol.House).Build())
+            .Should().Be("M0LTE>APZ001:!89  .  N/179  .  W-");
+    }
+
+    [Fact]
+    public void A_mic_e_type_code_says_whether_the_station_can_message()
+    {
+        // ` it can, ' it cannot (B7).
+        ((AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Messaging().Build())).Data).TypeCode.Should().Be('`');
+        ((AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Build())).Data).TypeCode.Should().Be('\'');
+    }
+
+    [Fact]
+    public void A_timestamp_is_cut_to_its_resolution()
+    {
+        // 09:23:59 is 0923, the minute a clock shows (B5).
+        Sent(Me.Position(49.0583333, -72.0291667).Symbol(AprsSymbol.House).Timestamp(new DateTime(2026, 11, 10, 9, 23, 59, DateTimeKind.Utc)).Build())
+            .Should().Be("M0LTE>APZ001:/100923z4903.50N/07201.75W-");
+    }
+
+    [Fact]
+    public void A_telemetry_sequence_is_0_to_999_in_three_digits()
+    {
+        // B6, B8: refused past 999, never wrapped; values follow F11.
+        Sent(Me.Telemetry(7).Analog(5m, 190.0m, 1.5m, 0m, 1000m).Digital("10101010").Build())
+            .Should().Be("M0LTE>APZ001:T#007,005,190,1.5,000,1000,10101010");
+        FluentActions.Invoking(() => Me.Telemetry(1000)).Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Out_of_range_is_refused_not_clamped()
+    {
+        // B8: an item name outside 3-9, a message ID that is empty or over 5 characters.
+        FluentActions.Invoking(() => Me.Item("AB").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build()).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => Me.Item("TENLETTERS").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build()).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => Me.Message("G3NRW", "Hi").WithId("").Build()).Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData("/{}")]
+    [InlineData("/x}AB")]
+    public void A_mic_e_comment_after_a_slash_a_takes_a_space_where_a_slash_would_join_an_altitude(string comment)
+    {
+        // After /A=000000 a '/' delimiter would start //{} or 0/x} (ruling E12).
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Altitude(0).Comment(comment).Build());
+        sent.Should().EndWith("/A=000000 " + comment);
+        ((AprsMicEReport)AprsPacket.Decode(sent).Data).Comment.Should().Be(comment);
+    }
+
+    [Theory]
+    [InlineData("/x}ABQTH")]
+    [InlineData("/x}Test 123")]
+    [InlineData("//}abc")]
+    public void A_mic_e_comment_starting_with_a_slash_takes_a_space_where_a_slash_would_join_an_altitude(string comment)
+    {
+        // A '/' delimiter would make //x} an altitude, so the delimiter is a space (ruling E12).
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Course(1).Speed(199.6).Messaging().Comment(comment).Build());
+        sent.Should().EndWith("` " + comment);
+        ((AprsMicEReport)AprsPacket.Decode(sent).Data).Comment.Should().Be(comment);
+    }
+
+    [Fact]
+    public void A_mic_e_comment_starting_with_a_slash_and_a_dao_takes_a_space_too()
+    {
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Speed(143.32).Dao().Comment("/x}Digi").Build());
+        var heard = (AprsMicEReport)AprsPacket.Decode(sent).Data;
+        heard.Comment.Should().Be("/x}Digi");
+        heard.Dao.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void A_compressed_course_and_speed_gets_the_default_compression_type()
+    {
+        var heard = (AprsPositionReport)AprsPacket.Decode(Sent(Me.Position(49.5, -72.75).Symbol(AprsSymbol.Car).Compressed().Course(88).Speed(36).Build())).Data;
+        heard.CompressionType.Should().Be(AprsCompressionType.Default);
+    }
+
+    [Fact]
+    public void A_slash_delimiter_is_kept_after_an_altitude_in_the_mic_e_bytes()
+    {
+        // With the altitude first in its bytes no later one is looked for, so //x} is text (E12).
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(100).Comment("/x}Hello").Build());
+        sent.Should().EndWith("}//x}Hello");
+    }
+
+    [Fact]
+    public void The_67_character_limit_counts_code_points()
+    {
+        // 67 code points, 68 UTF-16 units: the satellite emoji is one character.
+        string text = "  ADRAD Bastel Owend al \U0001F4E1Donneschden um 17h Rue du Couvent n\u00b04,Digi";
+        text.Length.Should().Be(68);
+        Sent(Me.Bulletin('0', text).Build()).Should().EndWith(text);
+        FluentActions.Invoking(() => Me.Bulletin('0', text + "x").Build()).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void A_device_lookup_is_case_sensitive()
+    {
+        // aprs-deviceid lists tocalls in upper case, and its wildcard n is a digit (A1).
+        AprsDeviceIdentification.FromTocall("APNL02").Should().NotBeNull();
+        AprsDeviceIdentification.FromTocall("APNl02").Should().BeNull();
+        AprsDeviceIdentification.FromTocall("APDR16").Should().NotBeNull();
+        AprsDeviceIdentification.FromTocall("APdR16").Should().BeNull();
     }
 
     /// <summary>The packet as TNC2 text, after checking it reads back under strict parsing with no

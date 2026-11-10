@@ -61,13 +61,20 @@ public sealed record AprsWeather
     /// <summary>The 2-4 character weather unit type after the software type, e.g. <c>RSW</c>, <c>Dvs</c>, <c>U2k</c>.</summary>
     public string? UnitType { get; init; }
 
-    internal void Validate(string paramName)
+    /// <summary>
+    /// Checks each value fits the field it is written in. <paramref name="windInFields"/> is false
+    /// when the wind goes elsewhere: a compressed position's cs bytes hold wind faster than a
+    /// three-digit field can (up to 1.08^90 - 1 knots, APRS12c ch. 9), and are checked as they are written.
+    /// </summary>
+    internal void Validate(string paramName, bool windInFields = true)
     {
-        if (WindDirectionDegrees is < 0 or > 360 || WindSpeedMph is < 0 or > 999 || WindGustMph is < 0 or > 999
+        // Each value is checked as its field holds it, rounded to the field's steps (vectors ruling
+        // F2): a humidity of 99.7 is 100, written h00, and one of 0.4 is 0, which has no form (F6).
+        if ((windInFields && (WindDirectionDegrees is < 0 or > 360 || Outside(WindSpeedMph, 1, 0, 999))) || WindGustMph is < 0 or > 999
             || TemperatureFahrenheit is < -99 or > 999 || HumidityPercent is < 1 or > 100
-            || PressureMillibars is < 0 or > 9999.9 || LuminosityWattsPerSquareMetre is < 0 or > 1999
-            || RainLastHourInches is < 0 or > 9.99 || RainLast24HoursInches is < 0 or > 9.99 || RainSinceMidnightInches is < 0 or > 9.99
-            || SnowfallLast24HoursInches is < 0 or > 999 || RainRawCounter is < 0 or > 999)
+            || Outside(PressureMillibars, 10, 0, 99999) || LuminosityWattsPerSquareMetre is < 0 or > 1999
+            || Outside(RainLastHourInches, 100, 0, 999) || Outside(RainLast24HoursInches, 100, 0, 999) || Outside(RainSinceMidnightInches, 100, 0, 999)
+            || (SnowfallLast24HoursInches is { } snow && WeatherCodec.Snowfall(snow) is null) || RainRawCounter is < 0 or > 999)
         {
             throw new ArgumentOutOfRangeException(paramName, "a weather value is outside what its fixed-width field can carry");
         }
@@ -82,4 +89,8 @@ public sealed record AprsWeather
             throw new ArgumentException("weather unit type must be 2-4 characters", paramName);
         }
     }
+
+    /// <summary>True when a value, rounded to <paramref name="stepsPerUnit"/> steps, is outside <paramref name="min"/>-<paramref name="max"/> steps.</summary>
+    private static bool Outside(double? value, double stepsPerUnit, long min, long max) =>
+        value is { } v && (double.IsNaN(v) || (Steps.Nearest(v * stepsPerUnit) is var steps && (steps < min || steps > max)));
 }

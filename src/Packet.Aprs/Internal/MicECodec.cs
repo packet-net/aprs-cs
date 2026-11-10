@@ -207,12 +207,16 @@ internal static class MicECodec
         }
 
         // A Maidenhead locator with the /G grid symbol, then a space before any text (APRS12c §10).
+        // It is read only here, at the start or straight after an altitude (vectors ruling F17).
         int locatorLength = LocatorLengthAt(text);
         if (locatorLength > 0)
         {
             report = report with { MaidenheadLocator = Text.Latin1(text.GetRange(0, locatorLength).ToArray()).ToUpperInvariant() };
             text.RemoveRange(0, locatorLength + 2);
-            if (text.Count > 0)
+            // Base-91 telemetry and a !DAO! count as lifted before the locator is read, so a
+            // locator followed straight by either has nothing after it (vectors ruling F16). They
+            // are only lifted later, once a later altitude has been looked for (README Mic-E).
+            if (text.Count > 0 && !NothingButTrailer(text))
             {
                 if (text[0] == (byte)' ')
                 {
@@ -248,14 +252,28 @@ internal static class MicECodec
         // An altitude later in the text (tolerated) is looked for only once what comes first has
         // been lifted: bytes belong to the element that reaches them first, so 0PH} inside
         // PHG3330PH} is not an altitude (vectors interpretations.md, "A packet is read in order").
-        if (!altitudeFirst && ctx.Options.AllowMicEAltitudeAnywhere)
+        // It is looked for before telemetry and a !DAO! are lifted, so bytes either side of a !DAO!
+        // never join into one, and a !DAO! sharing a byte with it is not one (vectors README,
+        // Mic-E). Strictly it is text and telemetry and the !DAO! are lifted as usual, unless the
+        // text left would join bytes either side of them into an altitude: that is rejected.
+        if (!altitudeFirst)
         {
             for (int i = 0; i + 4 <= text.Count; i++)
             {
                 if (IsAltitudeAt(text, i))
                 {
-                    ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
-                    ReadAltitude(text, i, fields);
+                    if (ctx.Options.AllowMicEAltitudeAnywhere)
+                    {
+                        ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
+                        ReadAltitude(text, i, fields);
+                        fields.DaoBarrier = i;
+                    }
+                    else if (TrailerLiftJoinsAltitude(text))
+                    {
+                        ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "lifting telemetry and the !DAO! would join the bytes either side into a Mic-E altitude xxx} (APRS12c ch. 10)", offset + i);
+                        return false;
+                    }
+
                     break;
                 }
             }
@@ -264,11 +282,79 @@ internal static class MicECodec
         return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
     }
 
+    /// <summary>
+    /// True when the text left once base-91 telemetry and the <c>!DAO!</c> are both lifted has an
+    /// altitude <c>xxx}</c> made of bytes from either side of a lifted one (vectors README, Mic-E).
+    /// </summary>
+    private static bool TrailerLiftJoinsAltitude(List<byte> text)
+    {
+        List<(int Start, int Length)> spans = CommentCodec.TrailerSpans(text);
+        var lifted = new List<byte>();
+        var joins = new List<int>();
+        bool removed = false;
+        for (int k = 0; k < text.Count; k++)
+        {
+            if (spans.Any(sp => k >= sp.Start && k < sp.Start + sp.Length))
+            {
+                removed = true;
+                continue;
+            }
+
+            if (removed && lifted.Count > 0)
+            {
+                joins.Add(lifted.Count);
+            }
+
+            removed = false;
+            lifted.Add(text[k]);
+        }
+
+        for (int j = 0; j + 4 <= lifted.Count; j++)
+        {
+            if (IsAltitudeAt(lifted, j) && joins.Any(p => p > j && p <= j + 3))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>True when the text is only base-91 telemetry and a <c>!DAO!</c>, as a decoder lifts them.</summary>
+    private static bool NothingButTrailer(List<byte> text)
+    {
+        var copy = new List<byte>(text);
+        var probe = new PositionedFields();
+        return CommentCodec.TryExtractTrailer(copy, 0, new DecodeContext(AprsParseOptions.Lenient), probe) && copy.Count == 0;
+    }
+
     private static void ReadAltitude(List<byte> text, int at, PositionedFields fields)
     {
         int metres = ((text[at] - 33) * 91 * 91) + ((text[at + 1] - 33) * 91) + (text[at + 2] - 33) - 10000;
         fields.AltitudeFeet = metres * Units.FeetPerMetre;
         text.RemoveRange(at, 4);
+    }
+
+    /// <summary>
+    /// True when text written straight after digits (an <c>/A=</c> altitude's) would end a Mic-E
+    /// altitude <c>xxx}</c> with them: it starts <c>}</c>, or one or two base-91 digits and <c>}</c>.
+    /// </summary>
+    private static bool JoinsAltitudeDigits(byte[] text)
+    {
+        for (int i = 0; i < Math.Min(text.Length, 3); i++)
+        {
+            if (text[i] == (byte)'}')
+            {
+                return true;
+            }
+
+            if (!Base91.IsDigit(text[i]))
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>6 or 4 when the text starts with a locator of that length followed by the grid
@@ -462,9 +548,14 @@ internal static class MicECodec
             throw new ArgumentOutOfRangeException(nameof(r), "Mic-E destination SSID must be 0-15");
         }
 
-        string lat = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao).Replace(".", "", StringComparison.Ordinal);
+        string lat = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao, r.Position.Ambiguity).Replace(".", "", StringComparison.Ordinal);
+        if (r.Position.Ambiguity > 0 && lat.StartsWith("90", StringComparison.Ordinal))
+        {
+            throw new ArgumentOutOfRangeException(nameof(r), "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
+        }
+
         (int[] bits, bool custom) = MessageBits(r.Message);
-        int lonDegrees = int.Parse(PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao)[..3], System.Globalization.CultureInfo.InvariantCulture);
+        int lonDegrees = int.Parse(PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity)[..3], System.Globalization.CultureInfo.InvariantCulture);
         bool[] flags =
         [
             bits[0] == 1, bits[1] == 1, bits[2] == 1,
@@ -523,10 +614,22 @@ internal static class MicECodec
             throw new ArgumentException("a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
         }
 
-        string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao);
+        string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity);
         int deg = int.Parse(lon[..3], System.Globalization.CultureInfo.InvariantCulture);
         int min = int.Parse(lon.AsSpan(3, 2), System.Globalization.CultureInfo.InvariantCulture);
         int hun = int.Parse(lon.AsSpan(6, 2), System.Globalization.CultureInfo.InvariantCulture);
+
+        // The longitude digits the latitude's ambiguity covers are ignored by a decoder, which
+        // reports the centre of the box; they are written as that centre (vectors README, Mic-E).
+        (min, hun) = r.Position.Ambiguity switch
+        {
+            1 => (min, (hun / 10 * 10) + 5),
+            2 => (min, 50),
+            3 => ((min / 10 * 10) + 5, 0),
+            4 => (30, 0),
+            _ => (min, hun),
+        };
+
         int d = deg switch
         {
             < 10 => deg + 90,
@@ -535,16 +638,30 @@ internal static class MicECodec
             _ => deg - 100,
         };
 
-        int speed = r.SpeedKnots is { } s ? (int)Math.Round(s) : 0;
+        if (deg >= 180)
+        {
+            // Degrees 180-189 would be written as 100-109 are, so 180 itself has no Mic-E form (APRS12c ch. 10).
+            throw new ArgumentOutOfRangeException(nameof(r), "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
+        }
+
+        // Rounded to whole knots, then checked (vectors ruling F2).
+        double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
+        int speed = double.IsNaN(speedKnots) || speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
         int course = r.CourseDegrees ?? 0;
         if (speed is < 0 or > 799 || course is < 0 or > 360)
         {
             throw new ArgumentOutOfRangeException(nameof(r), "Mic-E speed must be 0-799 knots and course 0-360");
         }
 
-        // The printable encoding schemes: speeds under 200 knots use SP + 80, and DC always adds 4 to
-        // the course hundreds, so only the SE byte can be a control character (APRS12c §10).
-        int sp = speed < 200 ? (speed / 10) + 80 : speed / 10;
+        if (r.CourseDegrees == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(r), "a Mic-E course of 0 reads back as no course; north is 360");
+        }
+
+        // The printable encoding schemes: speeds under 200 knots use SP + 80, except 190-199, where
+        // that would be DEL and the table's other character is '/' (vectors ruling E5), and DC always
+        // adds 4 to the course hundreds, so only the SE byte can be a control character (APRS12c §10).
+        int sp = speed < 190 ? (speed / 10) + 80 : speed / 10;
         int dc = ((speed % 10) * 10) + (course / 100) + 4;
         int se = course % 100;
 
@@ -587,14 +704,33 @@ internal static class MicECodec
             throw new ArgumentException("a Mic-E device suffix needs a type code", nameof(r));
         }
 
+        if (r.DeviceSuffix.Length > 0)
+        {
+            // A decoder matches only the suffixes the device database lists for the type code; any
+            // other is comment text. Whether the text before it joins a longer suffix is checked
+            // by decoding the finished field.
+            IEnumerable<string> known = r.TypeCode switch
+            {
+                '`' or '\'' => AprsDeviceIdentification.MicESuffixes,
+                '>' or ']' => AprsDeviceIdentification.MicELegacySuffixes(r.TypeCode.Value),
+                _ => [],
+            };
+            if (!known.Contains(r.DeviceSuffix, StringComparer.Ordinal))
+            {
+                throw new ArgumentException($"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text", nameof(r));
+            }
+
+            w.CommentCheck ??= "the Mic-E status text would read back with a different device suffix";
+        }
+
         // Mic-E carries altitude in whole metres (xxx}); an altitude that is not a whole number of
         // metres, e.g. one that arrived as /A= feet, is written as /A= so it survives unchanged.
         bool altitudeAsFeet = false;
         if (r.AltitudeFeet is { } feet)
         {
-            long metres = (long)Math.Round(feet / Units.FeetPerMetre);
+            long metres = Steps.Count(feet / Units.FeetPerMetre);
             long value = metres + 10000;
-            altitudeAsFeet = Math.Abs((metres * Units.FeetPerMetre) - feet) > 1e-6;
+            altitudeAsFeet = r.AltitudeInFeet || Math.Abs((metres * Units.FeetPerMetre) - feet) > 1e-6;
             if (!altitudeAsFeet)
             {
                 if (value is < 0 or > (91 * 91 * 91) - 1)
@@ -622,12 +758,21 @@ internal static class MicECodec
             }
 
             w.Ascii(locator.ToUpperInvariant()).Ascii("/G");
+            // Telemetry and a !DAO! are lifted before the locator is read, so they follow it
+            // straight on (vectors ruling F16).
             bool more = altitudeAsFeet || r.Phg is not null || r.RadioRangeMiles is not null || r.DfSignalStrength is not null
-                || r.Frequency is not null || r.Comment.Length > 0 || r.Telemetry is not null || r.Dao is not null;
+                || r.Frequency is not null || r.Comment.Length > 0;
             if (more)
             {
                 w.Char(' ');
             }
+        }
+
+        if ((r.Phg is not null ? 1 : 0) + (r.RadioRangeMiles is not null ? 1 : 0) + (r.DfSignalStrength is not null ? 1 : 0) > 1)
+        {
+            // A decoder lifts one data extension from the status text (vectors interpretations.md,
+            // "A late data extension is the first well-formed one"); a second would stay as text.
+            throw new ArgumentException("a Mic-E report carries at most one of PHG, RNG and DFS", nameof(r));
         }
 
         if (r.Phg is { } phg)
@@ -636,7 +781,14 @@ internal static class MicECodec
         }
         else if (r.RadioRangeMiles is { } range)
         {
-            w.Ascii("RNG").Digits((int)range, 4);
+            // Rounded to whole miles, then checked (vectors ruling F2).
+            double miles = Steps.Whole(range);
+            if (double.IsNaN(miles) || miles is < 0 or > 9999)
+            {
+                throw new ArgumentOutOfRangeException(nameof(r), "RNG carries whole miles 0-9999");
+            }
+
+            w.Ascii("RNG").Digits((int)miles, 4);
         }
         else if (r.DfSignalStrength is { } dfs)
         {
@@ -651,6 +803,14 @@ internal static class MicECodec
 
         if (r.Frequency is { } freq)
         {
+            // Straight after a PHG, RNG or DFS the frequency follows a '/', as in a position
+            // comment; a PHGR already ends in one (vectors interpretations.md, "Where a voice
+            // frequency goes").
+            if (!altitudeAsFeet && (r.Phg is { BeaconsPerHour: null } || r.RadioRangeMiles is not null || r.DfSignalStrength is not null))
+            {
+                w.Char('/');
+            }
+
             FrequencyCodec.WriteWithComment(w, freq, r.Comment);
         }
 
@@ -662,12 +822,27 @@ internal static class MicECodec
         // "The Mic-E status text must not start with ` , ' or 0x1d, otherwise it will be confused
         // with [now obsolete] telemetry data" (APRS12c ch. 10). A comment that would start it with a
         // type code character or 0x1D goes after a '/' delimiter, which the decoder drops
-        // (interpretations.md, "Delimiters at the start of free text").
+        // (interpretations.md, "Delimiters at the start of free text"). After Rev 0 telemetry a
+        // 0x1D is text, since the telemetry is only read at the start (vectors ruling E6).
         bool readsAsTypeCode = commentFirst && r.TypeCode is null && r.MaidenheadLocator is null && r.AltitudeFeet is null
-            && commentBytes.Length > 0 && commentBytes[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']' or 0x1d;
+            && commentBytes.Length > 0 && (commentBytes[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']' || (commentBytes[0] == 0x1d && r.LegacyTelemetry is null));
         if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode))
         {
-            w.Char('/');
+            // A '/' delimiter can itself start a Mic-E altitude run (//x}, or 0/x} after /A=
+            // digits); a space delimiter, which a decoder drops as well, cannot (vectors ruling E12).
+            var after = new List<byte> { (byte)'0', (byte)'/' };
+            after.AddRange(commentBytes.Take(3));
+            // Only where a later altitude is looked for: after one in the altitude bytes, none is.
+            bool laterAltitudeRead = r.AltitudeFeet is null || altitudeAsFeet;
+            bool slashJoins = laterAltitudeRead && ((altitudeAsFeet && IsAltitudeAt(after, 0)) || IsAltitudeAt(after, 1));
+            w.Char(slashJoins ? ' ' : '/');
+        }
+        else if (r.Frequency is null && altitudeAsFeet && JoinsAltitudeDigits(commentBytes))
+        {
+            // Straight after /A=000010 a comment starting "4} would make the run 0"4} a Mic-E
+            // altitude. A separating space, which a decoder drops, is the clean form, so it is
+            // written rather than the data refused (vectors ruling E12).
+            w.Char(' ');
         }
 
         if (r.Frequency is null)

@@ -62,6 +62,10 @@ Position, object, item and Mic-E share a base, `AprsPositionedData`, carrying `P
 
 Values are held in the units APRS uses on air, with the unit in the property name (`SpeedKnots`, `AltitudeFeet`, `TemperatureFahrenheit`). Telemetry values are `decimal`, so their scale survives a round trip. Equation coefficients are `double`, since a coefficient may carry an exponent (`10E60`), and a decoded one is written back in the form it was sent.
 
+## Values between steps
+
+A value given in code often lies between the steps its field holds: a speed of 29.75 knots, a latitude whose minutes are 58.585, a gust of 5.4 mph. The encoder rounds it to the nearest step, halves away from zero, and refuses it only when the rounded value is outside the field (vectors ruling F2); every other check applies to the rounded value, so a humidity of 99.7 is `h00`. A cs field's steps follow its formula for every whole s, and a value whose nearest s is outside the byte is refused (ruling G3): a compressed speed of -0.03 knots is 0 and one of -0.3 is refused. A half is judged in binary floating point with a tolerance of 1e-6 of a step, so the half the decimal text means wins (0.9764166666666666 degrees is 58.585 minutes, written `58.59`). A value derived from another (minutes from degrees, knots from km/h, feet from metres) is computed from the value given and rounded once. An ambiguous position is the exception: its digits are cut to the box that holds it, not rounded (ruling B3). A number given as data rather than as received text (a telemetry value, an `EQNS.` coefficient, a footprint coordinate) is written as the plain shortest decimal, with no exponent and no trailing `.0`, and a whole telemetry value from 0 to 999 in three digits (ruling F11).
+
 ## Round trips
 
 - Canonical input decodes and re-encodes **byte for byte**. Every spec example is a test of this.
