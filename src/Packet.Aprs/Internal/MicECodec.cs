@@ -789,11 +789,11 @@ internal static class MicECodec
             && commentBytes.Length > 0 && (commentBytes[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']' || (commentBytes[0] == 0x1d && r.LegacyTelemetry is null));
         if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode))
         {
-            // After /A= digits a '/' delimiter can itself start a Mic-E altitude run (//{} or
-            // /x}AB); a space delimiter, which a decoder drops as well, cannot (vectors ruling E12).
-            var afterDigits = new List<byte> { (byte)'0', (byte)'/' };
-            afterDigits.AddRange(commentBytes.Take(3));
-            bool slashJoins = altitudeAsFeet && (IsAltitudeAt(afterDigits, 0) || IsAltitudeAt(afterDigits, 1));
+            // A '/' delimiter can itself start a Mic-E altitude run (//x}, or 0/x} after /A=
+            // digits); a space delimiter, which a decoder drops as well, cannot (vectors ruling E12).
+            var after = new List<byte> { (byte)'0', (byte)'/' };
+            after.AddRange(commentBytes.Take(3));
+            bool slashJoins = (altitudeAsFeet && IsAltitudeAt(after, 0)) || IsAltitudeAt(after, 1);
             w.Char(slashJoins ? ' ' : '/');
         }
         else if (r.Frequency is null && altitudeAsFeet && JoinsAltitudeDigits(commentBytes))

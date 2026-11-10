@@ -333,6 +333,27 @@ public class BuilderTests
         ((AprsMicEReport)AprsPacket.Decode(sent).Data).Comment.Should().Be(comment);
     }
 
+    [Theory]
+    [InlineData("/x}ABQTH")]
+    [InlineData("/x}Test 123")]
+    [InlineData("//}abc")]
+    public void A_mic_e_comment_starting_with_a_slash_takes_a_space_where_a_slash_would_join_an_altitude(string comment)
+    {
+        // A '/' delimiter would make //x} an altitude, so the delimiter is a space (ruling E12).
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Course(1).Speed(199.6).Messaging().Comment(comment).Build());
+        sent.Should().EndWith("` " + comment);
+        ((AprsMicEReport)AprsPacket.Decode(sent).Data).Comment.Should().Be(comment);
+    }
+
+    [Fact]
+    public void A_mic_e_comment_starting_with_a_slash_and_a_dao_takes_a_space_too()
+    {
+        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).Speed(143.32).Dao().Comment("/x}Digi").Build());
+        var heard = (AprsMicEReport)AprsPacket.Decode(sent).Data;
+        heard.Comment.Should().Be("/x}Digi");
+        heard.Dao.Should().NotBeNull();
+    }
+
     [Fact]
     public void A_compressed_course_and_speed_gets_the_default_compression_type()
     {
