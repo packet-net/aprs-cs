@@ -45,13 +45,6 @@ public abstract record AprsPositionedData : AprsData
     /// compressed <c>{</c> form), if sent.</summary>
     public double? RadioRangeMiles { get; init; }
 
-    /// <summary>
-    /// The range was read from a late <c>RNG</c> in the comment, which brings no compression type
-    /// with it: on a compressed position it goes in the cs bytes with the default type, as wind
-    /// sent after a compressed position does. Data given in code with a range and no type is refused.
-    /// </summary>
-    internal bool RangeFromComment { get; init; }
-
     /// <summary>Omni-DF signal strength (<c>DFSshgd</c>), if sent.</summary>
     public AprsDfSignalStrength? DfSignalStrength { get; init; }
 

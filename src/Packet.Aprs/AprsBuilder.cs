@@ -240,10 +240,6 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
         where T : AprsPositionedData => (T)(data with
         {
             IsCompressed = compressed,
-
-            // The cs bytes' values come with a T byte, read back as a compression type; the
-            // builder writes the default (a current fix from software).
-            CompressionType = compressed && (course is not null || speedKnots is not null || rangeMiles is not null) ? AprsCompressionType.Default : null,
             CourseDegrees = course,
             SpeedKnots = speedKnots,
             AltitudeFeet = altitudeFeet,

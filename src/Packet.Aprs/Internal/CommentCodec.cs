@@ -370,7 +370,6 @@ internal static class CommentCodec
             if (tag[0] == (byte)'R')
             {
                 f.RadioRangeMiles = Text.ParseDigits(ext[3..]);
-                f.RangeFromComment = true;
             }
             else if (tag[0] == (byte)'D')
             {

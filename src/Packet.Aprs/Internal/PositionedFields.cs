@@ -19,8 +19,6 @@ internal sealed class PositionedFields
 
     public double? RadioRangeMiles { get; set; }
 
-    public bool RangeFromComment { get; set; }
-
     public AprsDfSignalStrength? DfSignalStrength { get; set; }
 
     public AprsAreaObject? AreaObject { get; set; }
@@ -56,7 +54,6 @@ internal sealed class PositionedFields
             SpeedKnots = SpeedKnots,
             Phg = Phg,
             RadioRangeMiles = RadioRangeMiles,
-            RangeFromComment = RangeFromComment,
             DfSignalStrength = DfSignalStrength,
             AreaObject = AreaObject,
             DfBearing = DfBearing,

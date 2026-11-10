@@ -176,7 +176,6 @@ public sealed class AprsWeatherBuilder : AprsBuilder
                 MessagingCapable = messaging,
                 Timestamp = timestamp ?? (time is { } t ? AprsTimestamp.FromDateTime(t) : null),
                 IsCompressed = compressed,
-                CompressionType = compressed && (weather.WindDirectionDegrees is not null || weather.WindSpeedMph is not null) ? AprsCompressionType.Default : null,
                 Dao = dao,
             };
         }

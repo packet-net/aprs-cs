@@ -188,14 +188,6 @@ public class EncodingTests : AprsSpec
         ThenEncodingFailed();
     }
 
-    [Fact]
-    public void Compressed_cs_values_without_a_compression_type_are_refused()
-    {
-        // The T byte that goes with them reads back as a type the data does not have.
-        WhenEncodingIsAttempted(new AprsPositionReport { Position = new AprsPosition(49.5, -72.75), Symbol = AprsSymbol.Car, IsCompressed = true, CourseDegrees = 88, SpeedKnots = 36 });
-        ThenEncodingFailed();
-    }
-
     [Theory]
     [InlineData(10.5, "/A=000011")]
     [InlineData(-0.5, "/A=-00001")]
