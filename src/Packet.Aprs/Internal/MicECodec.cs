@@ -647,13 +647,14 @@ internal static class MicECodec
         // Rounded to whole knots, then checked (vectors ruling F2).
         double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
         int speed = double.IsNaN(speedKnots) || speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
-        int course = r.CourseDegrees ?? 0;
-        if (speed is < 0 or > 799 || course is < 0 or > 360)
+        double courseDegrees = r.CourseDegrees is { } cd ? Steps.Whole(cd) : 0;
+        if (speed is < 0 or > 799 || double.IsNaN(courseDegrees) || courseDegrees is < 0 or > 360)
         {
             throw new ArgumentOutOfRangeException(nameof(r), "Mic-E speed must be 0-799 knots and course 0-360");
         }
 
-        if (r.CourseDegrees == 0)
+        int course = (int)courseDegrees;
+        if (r.CourseDegrees is not null && course == 0)
         {
             throw new ArgumentOutOfRangeException(nameof(r), "a Mic-E course of 0 reads back as no course; north is 360");
         }

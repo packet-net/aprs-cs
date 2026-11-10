@@ -778,7 +778,8 @@ internal static class PositionCodec
                 throw new ArgumentException("the cs bytes of a compressed weather position carry wind direction and speed together; one without the other cannot be written (APRS12c ch. 9)", nameof(d.Weather));
             }
 
-            if (wx.WindDirectionDegrees is < 0 or > 360)
+            // Checked rounded to whole degrees, then rounded once to the 4-degree step below.
+            if (double.IsNaN(wx.WindDirectionDegrees.Value) || Steps.Whole(wx.WindDirectionDegrees.Value) is < 0 or > 360)
             {
                 throw new ArgumentOutOfRangeException(nameof(d.Weather), wx.WindDirectionDegrees, "a wind direction is 0-360 degrees");
             }
@@ -817,7 +818,7 @@ internal static class PositionCodec
                 throw new ArgumentException("a compressed position carries either course/speed or radio range, not both (APRS12c ch. 9)");
             }
 
-            if (d.CourseDegrees is not { } course || course is < 1 or > 360)
+            if (d.CourseDegrees is not { } course || double.IsNaN(course) || Steps.Whole(course) is < 1 or > 360)
             {
                 throw new ArgumentOutOfRangeException(nameof(d.CourseDegrees), "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
             }
@@ -979,12 +980,10 @@ internal static class PositionCodec
         }
     }
 
-    internal static void WriteCourseSpeed(InfoWriter w, int? course, double? speed)
+    internal static void WriteCourseSpeed(InfoWriter w, double? course, double? speed)
     {
-        if (course is < 0 or > 360)
-        {
-            throw new ArgumentOutOfRangeException(nameof(course), "course must be 0-360");
-        }
+        // Rounded to whole degrees, then checked (vectors ruling F2).
+        int? degrees = course is { } cd ? (double.IsNaN(cd) || Steps.Whole(cd) is < 0 or > 360 ? throw new ArgumentOutOfRangeException(nameof(course), "course must be 0-360") : (int)Steps.Whole(cd)) : null;
 
         // Rounded to whole knots, then checked (vectors ruling F2).
         double? knots = speed is { } s ? Steps.Whole(s) : null;
@@ -993,7 +992,7 @@ internal static class PositionCodec
             throw new ArgumentOutOfRangeException(nameof(speed), "an uncompressed speed is whole knots 0-999");
         }
 
-        _ = course is { } c ? w.Digits(c, 3) : w.Ascii("...");
+        _ = degrees is { } c ? w.Digits(c, 3) : w.Ascii("...");
         w.Char('/');
         _ = knots is { } v ? w.Digits((int)v, 3) : w.Ascii("...");
     }

@@ -62,7 +62,7 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     private AprsSymbol? symbol;
     private int ambiguity;
     private bool compressed;
-    private int? course;
+    private double? course;
     private double? speedKnots;
     private double? altitudeFeet;
     private double? altitudeMetres;
@@ -97,8 +97,9 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     }
 
     /// <summary>Course over ground in degrees clockwise from north, 1-360 (360 is north); 0 is the
-    /// spec's unknown course (APRS12c ch. 7, 10), which a compressed report cannot send.</summary>
-    public TSelf Course(int degrees)
+    /// spec's unknown course (APRS12c ch. 7, 10), which a compressed report cannot send. A fraction is
+    /// rounded once, to the whole degree (or the 4-degree step of a compressed report).</summary>
+    public TSelf Course(double degrees)
     {
         course = degrees;
         return Self;
@@ -409,7 +410,7 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
         });
 
         // A course of 0 is unknown, which Mic-E writes as 0, no course (APRS12c ch. 10, ruling B1).
-        if (report.CourseDegrees == 0)
+        if (report.CourseDegrees is { } courseGiven && Steps.Whole(courseGiven) == 0)
         {
             report = report with { CourseDegrees = null };
         }

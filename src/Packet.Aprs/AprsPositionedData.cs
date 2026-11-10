@@ -32,8 +32,10 @@ public abstract record AprsPositionedData : AprsData
     public AprsCompressionType? CompressionType { get; init; }
 
     /// <summary>Course in degrees, 1-360 clockwise from north (360 = north). 0 means unknown except
-    /// in DF reports, where it means the DF station is fixed. Null when not sent or sent as dots/spaces.</summary>
-    public int? CourseDegrees { get; init; }
+    /// in DF reports, where it means the DF station is fixed. Null when not sent or sent as dots/spaces.
+    /// A fraction is rounded once, to the nearest step the field holds (whole degrees, or 4 degrees in a
+    /// compressed position), halves away from zero.</summary>
+    public double? CourseDegrees { get; init; }
 
     /// <summary>Speed over ground in knots. Null when not sent or unknown.</summary>
     public double? SpeedKnots { get; init; }

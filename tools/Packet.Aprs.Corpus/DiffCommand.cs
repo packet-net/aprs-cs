@@ -233,12 +233,11 @@ internal static class DiffCommand
         // read first on its own, so that the encoder refusing it is told apart from data that
         // cannot be held.
         // An empty inner information field has no data to read on its own.
-        bool thirdParty = neutral["packet"]?["data"] is JsonObject inner && (string?)neutral["type"] == "third-party"
-            && (string?)inner["type"] != "unrecognized";
+        bool thirdParty = neutral["packet"]?["data"] is JsonObject inner && (string?)neutral["type"] == "third-party";
         AprsData data;
         try
         {
-            if (thirdParty)
+            if (thirdParty && (string?)neutral["packet"]!["data"]!["type"] != "unrecognized")
             {
                 _ = NeutralReader.Data(neutral["packet"]!["data"]!.AsObject());
             }
