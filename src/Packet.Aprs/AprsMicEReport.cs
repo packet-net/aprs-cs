@@ -61,21 +61,21 @@ public enum AprsMicEMessage
 /// first 9 bytes of the information field, followed by optional status text.
 /// </summary>
 /// <remarks>
-/// Build one to send with <see cref="AprsPacket.CreateMicE"/>, which computes the destination.
+/// Build one to send with <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>, which computes the destination.
 /// The status text may begin with a device type code and end with a device suffix identifying
 /// the radio (APRS12c §10, <see cref="AprsDeviceIdentification"/>); both are lifted out into
 /// <see cref="TypeCode"/> and <see cref="DeviceSuffix"/>, a leading <c>xxx}</c> altitude into
 /// <see cref="AprsPositionedData.AltitudeFeet"/>, and a leading <c>IO91SX/G</c> grid locator into
-/// <see cref="MaidenheadLocator"/>.
+/// <see cref="Locator"/>.
 /// </remarks>
 public sealed record AprsMicEReport : AprsPositionedData
 {
     /// <summary>The position comment (message) bits.</summary>
-    public AprsMicEMessage Message { get; init; } = AprsMicEMessage.OffDuty;
+    public AprsMicEMessage MicEMessage { get; init; } = AprsMicEMessage.OffDuty;
 
-    /// <summary>True for current GPS data (<c>`</c>), false for old data (<c>'</c>). The Kenwood
+    /// <summary>True for old data (<c>'</c>), false for current GPS data (<c>`</c>). The Kenwood
     /// TM-D700 sends <c>'</c> for current data (APRS12c §5).</summary>
-    public bool IsCurrent { get; init; } = true;
+    public bool IsOldData { get; init; }
 
     /// <summary>
     /// The device type code after the symbol, or null if none: <c>`</c> messaging-capable and
@@ -93,7 +93,7 @@ public sealed record AprsMicEReport : AprsPositionedData
     /// symbol, <c>IO91SX/G</c> (APRS12c §10 Maidenhead Locator in the Mic-E Status Text Field), or
     /// null. Held in upper case.
     /// </summary>
-    public string? MaidenheadLocator { get; init; }
+    public string? Locator { get; init; }
 
     /// <summary>The destination SSID, which originally selected one of 15 generic digipeater paths.
     /// Obsolete; normally 0 (APRS12c §4, UAP §1.2.1).</summary>
@@ -116,14 +116,18 @@ public sealed record AprsMicEReport : AprsPositionedData
     /// <summary>The sending device, looked up from <see cref="TypeCode"/> and <see cref="DeviceSuffix"/>.</summary>
     public AprsDevice? Device => AprsDeviceIdentification.FromMicE(TypeCode, DeviceSuffix);
 
-    /// <inheritdoc/>
     /// <summary>
-    /// The altitude was given in feet by a builder, so it goes in a <c>/A=</c> even when it is a
-    /// whole number of metres the Mic-E altitude bytes could hold (vectors ruling B2).
+    /// True when <see cref="AprsPositionedData.AltitudeFeet"/> is written in a <c>/A=</c> in the
+    /// comment rather than in the Mic-E altitude bytes (whole metres): the decoder sets it for an
+    /// altitude that came from a <c>/A=</c>, and a builder given the altitude in feet does, so
+    /// writing the data again gives the same bytes (vectors ruling B2). An altitude that is not a
+    /// whole number of metres goes in a <c>/A=</c> whatever this says. Not part of the vectors'
+    /// neutral form.
     /// </summary>
-    internal bool AltitudeInFeet { get; init; }
+    public bool AltitudeInComment { get; init; }
 
-    public override char DataTypeIdentifier => IsCurrent ? '`' : '\'';
+    /// <inheritdoc/>
+    public override char DataTypeIdentifier => IsOldData ? '\'' : '`';
 
     internal override void Encode(Internal.InfoWriter writer) => Internal.MicECodec.WriteInformation(writer, this);
 }

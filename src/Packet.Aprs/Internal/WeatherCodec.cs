@@ -22,7 +22,7 @@ internal static class WeatherCodec
         if (WindComesAsFields(info, pos, ctx))
         {
             windAsFields = ctx.Tolerate(
-                ctx.Options.AllowWindFieldsInPositionWeather,
+                ctx.Options.AllowWindFieldsInsteadOfExtension,
                 AprsDiagnosticCode.WindFieldsInsteadOfExtension,
                 "wind sent as c/s fields instead of the DIR/SPD extension (APRS12c ch. 12)",
                 pos);
@@ -57,7 +57,7 @@ internal static class WeatherCodec
         int? speed = Text.AllDigits(ext.Slice(4, 3)) ? Text.ParseDigits(ext.Slice(4, 3)) : null;
         if (dir > 360)
         {
-            if (!ctx.Tolerate(ctx.Options.AllowOutOfRangeValues, AprsDiagnosticCode.OutOfRangeValue, "wind direction is over 360 degrees; ignored", pos))
+            if (!ctx.Tolerate(ctx.Options.AllowOutOfRangeValue, AprsDiagnosticCode.OutOfRangeValue, "wind direction is over 360 degrees; ignored", pos))
             {
                 return false;
             }
@@ -251,7 +251,7 @@ internal static class WeatherCodec
         if (run >= 1 && length != width && length <= width + 1 && !(snow && !dots))
         {
             if (!ctx.Tolerate(
-                    ctx.Options.AllowNonStandardWeatherFieldWidths,
+                    ctx.Options.AllowNonStandardWeatherFieldWidth,
                     AprsDiagnosticCode.NonStandardWeatherFieldWidth,
                     $"weather field '{letter}' has {length} characters instead of {width} (APRS12c ch. 12, UAP 5.31)",
                     pos))
@@ -304,7 +304,7 @@ internal static class WeatherCodec
             case 'c':
                 if (i > 360)
                 {
-                    if (!ctx.Tolerate(ctx.Options.AllowOutOfRangeValues, AprsDiagnosticCode.OutOfRangeValue, "wind direction is over 360 degrees; ignored", pos))
+                    if (!ctx.Tolerate(ctx.Options.AllowOutOfRangeValue, AprsDiagnosticCode.OutOfRangeValue, "wind direction is over 360 degrees; ignored", pos))
                     {
                         return false;
                     }
@@ -318,7 +318,7 @@ internal static class WeatherCodec
                 w = w with { WindSpeedMph = i };
                 break;
             case 's':
-                w = w with { SnowfallLast24HoursInches = v };
+                w = w with { SnowfallLast24HoursInches = (double?)v };
                 break;
             case 'g':
                 w = w with { WindGustMph = i };
@@ -338,7 +338,7 @@ internal static class WeatherCodec
             case 'h':
                 if (i > 100)
                 {
-                    if (!ctx.Tolerate(ctx.Options.AllowOutOfRangeValues, AprsDiagnosticCode.OutOfRangeValue, "humidity is over 100%; ignored", pos))
+                    if (!ctx.Tolerate(ctx.Options.AllowOutOfRangeValue, AprsDiagnosticCode.OutOfRangeValue, "humidity is over 100%; ignored", pos))
                     {
                         return false;
                     }
@@ -367,14 +367,14 @@ internal static class WeatherCodec
 
     public static void WriteWind(InfoWriter w, AprsWeather weather)
     {
-        weather.Validate(nameof(weather));
+        weather.Validate();
         PositionCodec.WriteCourseSpeed(w, weather.WindDirectionDegrees, weather.WindSpeedMph);
     }
 
     public static void WriteFields(InfoWriter w, AprsWeather weather, bool positionless)
     {
         // A position report's wind is written before the fields (the extension, or the cs bytes).
-        weather.Validate(nameof(weather), windInFields: positionless);
+        weather.Validate(windInFields: positionless);
         int start = w.Length;
         if (positionless)
         {
@@ -405,8 +405,7 @@ internal static class WeatherCodec
 
         if (weather.SnowfallLast24HoursInches is { } snow)
         {
-            w.Char('s').Ascii(Snowfall(snow) ?? throw new ArgumentOutOfRangeException(
-                nameof(weather), snow, "snowfall is written in three characters, so it is at most 999 inches"));
+            w.Char('s').Ascii(Snowfall(snow) ?? throw new AprsEncodeException("snowfall is written in three characters, so it is at most 999 inches"));
         }
 
         Field(w, '#', weather.RainRawCounter, 3);
@@ -430,7 +429,7 @@ internal static class WeatherCodec
             if (!TryReadRun(written, ref pos, probe, ref back, positionless, positionless, out _, out _, out _)
                 || pos != fieldsEnd - start || !CommentCodec.IsSoftwareAndUnit(written.AsSpan(pos)))
             {
-                throw new ArgumentException($"the software type and unit '{sw}{weather.UnitType}' would read back as weather fields or comment text (APRS12c ch. 12)", nameof(weather));
+                throw new AprsEncodeException($"the software type and unit '{sw}{weather.UnitType}' would read back as weather fields or comment text (APRS12c ch. 12)");
             }
         }
     }
@@ -446,10 +445,10 @@ internal static class WeatherCodec
     /// else to whole inches; a result that is a whole number is written as one, in three digits
     /// (<c>002</c>, and 0.995 is <c>001</c>). Null when it rounds past 999.
     /// </summary>
-    internal static string? Snowfall(decimal inches)
+    internal static string? Snowfall(double inches)
     {
-        decimal hundredths = Steps.Whole(inches * 100);
-        if (hundredths < 0)
+        double hundredths = Steps.Nearest(inches * 100);
+        if (double.IsNaN(hundredths) || hundredths < 0)
         {
             return null;
         }
@@ -459,7 +458,7 @@ internal static class WeatherCodec
             return hundredths == 0 ? "000" : "." + ((int)hundredths).ToString("00", CultureInfo.InvariantCulture);
         }
 
-        decimal tenths = Steps.Whole(inches * 10);
+        double tenths = Steps.Nearest(inches * 10);
         if (tenths < 100)
         {
             return tenths % 10 == 0
@@ -467,7 +466,7 @@ internal static class WeatherCodec
                 : ((int)(tenths / 10)).ToString(CultureInfo.InvariantCulture) + "." + ((int)(tenths % 10)).ToString(CultureInfo.InvariantCulture);
         }
 
-        decimal whole = Steps.Whole(inches);
+        double whole = Steps.Nearest(inches);
         return whole <= 999 ? ((int)whole).ToString("000", CultureInfo.InvariantCulture) : null;
     }
 

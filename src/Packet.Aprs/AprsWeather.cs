@@ -15,7 +15,7 @@ public readonly record struct AprsWeatherField(char Letter, string Value);
 /// </summary>
 public sealed record AprsWeather
 {
-    /// <summary>Wind direction in degrees clockwise from north (<c>c</c>, or the DIR part of the extension).</summary>
+    /// <summary>Wind direction in degrees clockwise from north (<c>c</c>, or the DIR part of the extension). Whole when decoded; rounded once when encoded.</summary>
     public double? WindDirectionDegrees { get; init; }
 
     /// <summary>Sustained one-minute wind speed in mph (<c>s</c>, or the SPD part of the extension;
@@ -37,17 +37,17 @@ public sealed record AprsWeather
     /// <summary>Rainfall since local midnight, inches (<c>P</c>, sent in hundredths).</summary>
     public double? RainSinceMidnightInches { get; init; }
 
-    /// <summary>Relative humidity 1-100 percent (<c>h</c>; <c>h00</c> on air means 100).</summary>
+    /// <summary>Relative humidity 1-100 percent (<c>h</c>; <c>h00</c> on air means 100). Whole when decoded; rounded once when encoded.</summary>
     public double? HumidityPercent { get; init; }
 
     /// <summary>Barometric pressure in millibars / hPa (<c>b</c>, sent in tenths).</summary>
     public double? PressureMillibars { get; init; }
 
-    /// <summary>Luminosity in W/m^2 (<c>L</c> for 0-999, <c>l</c> for 1000-1999).</summary>
+    /// <summary>Luminosity in W/m^2 (<c>L</c> for 0-999, <c>l</c> for 1000-1999). Whole when decoded; rounded once when encoded.</summary>
     public double? LuminosityWattsPerSquareMetre { get; init; }
 
     /// <summary>Snowfall in the last 24 hours, inches (<c>s</c> after the mandatory fields; may have a decimal point).</summary>
-    public decimal? SnowfallLast24HoursInches { get; init; }
+    public double? SnowfallLast24HoursInches { get; init; }
 
     /// <summary>Raw rain gauge counter (<c>#</c>).</summary>
     public int? RainRawCounter { get; init; }
@@ -66,7 +66,7 @@ public sealed record AprsWeather
     /// when the wind goes elsewhere: a compressed position's cs bytes hold wind faster than a
     /// three-digit field can (up to 1.08^90 - 1 knots, APRS12c ch. 9), and are checked as they are written.
     /// </summary>
-    internal void Validate(string paramName, bool windInFields = true)
+    internal void Validate(bool windInFields = true)
     {
         // Each value is checked as its field holds it, rounded to the field's steps (vectors ruling
         // F2): a humidity of 99.7 is 100, written h00, and one of 0.4 is 0, which has no form (F6).
@@ -76,17 +76,17 @@ public sealed record AprsWeather
             || Outside(RainLastHourInches, 100, 0, 999) || Outside(RainLast24HoursInches, 100, 0, 999) || Outside(RainSinceMidnightInches, 100, 0, 999)
             || (SnowfallLast24HoursInches is { } snow && WeatherCodec.Snowfall(snow) is null) || RainRawCounter is < 0 or > 999)
         {
-            throw new ArgumentOutOfRangeException(paramName, "a weather value is outside what its fixed-width field can carry");
+            throw new AprsEncodeException("a weather value is outside what its fixed-width field can carry");
         }
 
         if ((SoftwareType is null) != (UnitType is null) && UnitType is not null)
         {
-            throw new ArgumentException("a weather unit type needs a software type before it", paramName);
+            throw new AprsEncodeException("a weather unit type needs a software type before it");
         }
 
         if (UnitType is { Length: < 2 or > 4 })
         {
-            throw new ArgumentException("weather unit type must be 2-4 characters", paramName);
+            throw new AprsEncodeException("weather unit type must be 2-4 characters");
         }
     }
 

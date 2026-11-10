@@ -330,7 +330,7 @@ internal static class QueryCodec
     internal static bool IsQueryType(string type) => type.Length > 0 && type.All(char.IsAsciiLetterUpper);
 
     /// <summary>Decimal degrees: an optional <c>-</c> (a positive value may have one leading space instead), digits and an optional fraction.</summary>
-    private static decimal? Coordinate(string s, int limit)
+    private static double? Coordinate(string s, int limit)
     {
         ReadOnlySpan<char> t = s.StartsWith(' ') ? s.AsSpan(1) : s;
         ReadOnlySpan<char> digits = t.StartsWith("-") && !s.StartsWith(' ') ? t[1..] : t;
@@ -338,7 +338,7 @@ internal static class QueryCodec
         ReadOnlySpan<char> whole = dot < 0 ? digits : digits[..dot];
         ReadOnlySpan<char> fraction = dot < 0 ? [] : digits[(dot + 1)..];
         if (whole.Length + fraction.Length == 0 || whole.ContainsAnyExceptInRange('0', '9') || fraction.ContainsAnyExceptInRange('0', '9')
-            || !decimal.TryParse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal v))
+            || !double.TryParse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double v))
         {
             return null;
         }
@@ -350,24 +350,25 @@ internal static class QueryCodec
     {
         if (!IsQueryType(q.QueryType))
         {
-            throw new ArgumentException("query type must be upper-case letters (APRS12c ch. 15)", nameof(q));
+            throw new AprsEncodeException("query type must be upper-case letters (APRS12c ch. 15)");
         }
 
         w.Char('?').Ascii(q.QueryType).Char('?');
         if (q.Footprint is { } f)
         {
-            if (f.RadiusMiles is < 0 or > 9999 || f.Latitude is < -90 or > 90 || f.Longitude is < -180 or > 180)
+            double radius = Steps.Whole(f.RadiusMiles);
+            if (double.IsNaN(radius) || radius is < 0 or > 9999 || f.Latitude is not (>= -90 and <= 90) || f.Longitude is not (>= -180 and <= 180))
             {
-                throw new ArgumentOutOfRangeException(nameof(q), "footprint latitude, longitude or radius out of range");
+                throw new AprsEncodeException("footprint latitude, longitude or radius out of range");
             }
 
             // A decoded coordinate is written as sent, a number being free-form (vectors ruling E1);
             // one built in code carries a leading space in place of a plus sign (APRS12c §15), 0 too
             // (vectors ruling F15), and is the plain shortest decimal (ruling F11).
-            w.Ascii(Written(f.LatitudeText, f.Latitude)).Char(',').Ascii(Written(f.LongitudeText, f.Longitude)).Char(',').Digits(f.RadiusMiles, 4);
+            w.Ascii(Written(f.LatitudeText, f.Latitude)).Char(',').Ascii(Written(f.LongitudeText, f.Longitude)).Char(',').Digits((int)radius, 4);
         }
 
-        static string Written(string? sent, decimal v) =>
+        static string Written(string? sent, double v) =>
             sent is not null && Coordinate(sent, 180) == v ? sent
                 : v < 0 ? PlainNumber.Format(v) : " " + PlainNumber.Format(v);
     }

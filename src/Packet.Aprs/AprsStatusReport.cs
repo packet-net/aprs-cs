@@ -17,9 +17,9 @@ public sealed record AprsStatusReport : AprsData
     public string Text { get; init; } = "";
 
     /// <summary>A 4- or 6-character Maidenhead locator at the start, or null.</summary>
-    public string? MaidenheadLocator { get; init; }
+    public string? Locator { get; init; }
 
-    /// <summary>The symbol that follows the locator; present exactly when <see cref="MaidenheadLocator"/> is.</summary>
+    /// <summary>The symbol that follows the locator; present exactly when <see cref="Locator"/> is.</summary>
     public AprsSymbol? Symbol { get; init; }
 
     /// <summary>The beam heading/power code pair from a trailing <c>^HP</c>, or null.</summary>
@@ -55,8 +55,9 @@ public readonly record struct AprsBeamHeading(char HeadingCode, char PowerCode)
 /// <remarks>
 /// APRS 1.2 widened values from 000-255 to 000-999, and notes that variable-width and decimal
 /// values (<c>45.7</c>, <c>-7.3</c>) are common and should be accepted; they are decoded in all
-/// modes. A decoded report writes each value back as it was sent (<c>073</c>, <c>2</c>, <c>.53</c>);
-/// one built in code writes a whole number from 0 to 999 as three digits, the spec's form.
+/// modes. A decoded report keeps each value's text as sent in <see cref="AnalogText"/> (<c>073</c>,
+/// <c>2</c>, <c>.53</c>) and writes it back; one built in code writes a whole number from 0 to
+/// 999 as three digits, the spec's form.
 /// </remarks>
 public sealed record AprsTelemetryReport : AprsData
 {
@@ -64,16 +65,32 @@ public sealed record AprsTelemetryReport : AprsData
     public required string Sequence { get; init; }
 
     /// <summary>Up to 5 analog values; a null entry was sent empty.</summary>
-    public required IReadOnlyList<decimal?> Analog { get; init => field = EquatableList<decimal?>.Of(value); }
+    public required IReadOnlyList<double?> Analog { get; init => field = EquatableList<double?>.Of(value); }
 
-    /// <summary>The 8 digital channels (bit 0 = B1), or null if not sent.</summary>
-    public byte? Digital { get; init; }
+    /// <summary>
+    /// How each of <see cref="Analog"/> was written when decoded (<c>073</c>, <c>190.0</c>,
+    /// <c>.53</c>; empty for one sent empty), which the encoder writes back for any entry that
+    /// still means the same number; empty for a report built in code. Not part of equality.
+    /// </summary>
+    public IReadOnlyList<string> AnalogText { get; init => field = EquatableList<string>.Of(value); } = EquatableList<string>.Empty;
+
+    /// <summary>The 8 digital channels as sent, B1 first: eight 0 or 1 characters, or null if not sent.</summary>
+    public string? Bits { get; init; }
 
     /// <summary>Free text after the digital channels.</summary>
     public string Comment { get; init; } = "";
 
     /// <inheritdoc/>
     public override char DataTypeIdentifier => 'T';
+
+    /// <summary>The same report, however the values were written.</summary>
+    /// <param name="other">The report to compare with.</param>
+    public bool Equals(AprsTelemetryReport? other) =>
+        other is not null && Sequence == other.Sequence && Analog.SequenceEqual(other.Analog)
+        && Bits == other.Bits && Comment == other.Comment;
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(Sequence, Analog.Count, Bits, Comment);
 
     internal override void Encode(InfoWriter writer) => TelemetryCodec.Write(writer, this);
 }
@@ -101,12 +118,12 @@ public sealed record AprsWeatherReport : AprsData
     {
         if (Timestamp.Format != AprsTimestampFormat.MonthDayHoursMinutesUtc)
         {
-            throw new ArgumentException("a positionless weather report uses an MDHM timestamp (APRS12c ch. 12)", nameof(Timestamp));
+            throw new AprsEncodeException("a positionless weather report uses an MDHM timestamp (APRS12c ch. 12)");
         }
 
         if (Comment.Length > 0)
         {
-            throw new ArgumentException("a weather report has no comment field (APRS12c ch. 12)", nameof(Comment));
+            throw new AprsEncodeException("a weather report has no comment field (APRS12c ch. 12)");
         }
 
         writer.Char('_');

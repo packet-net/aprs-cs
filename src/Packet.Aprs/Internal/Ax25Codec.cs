@@ -151,7 +151,7 @@ internal static class Ax25Codec
     {
         if (path.Count > MaxDigipeaters)
         {
-            throw new ArgumentException("an AX.25 frame carries at most 8 digipeater addresses", nameof(path));
+            throw new AprsEncodeException("an AX.25 frame carries at most 8 digipeater addresses");
         }
 
         byte[] frame = new byte[(7 * (2 + path.Count)) + 2 + information.Length];
@@ -159,7 +159,7 @@ internal static class Ax25Codec
         WriteAddress(frame.AsSpan(7, 7), source, commandBit: false, last: path.Count == 0, nameof(source));
         for (int i = 0; i < path.Count; i++)
         {
-            WriteAddress(frame.AsSpan(14 + (7 * i), 7), path[i].Address, path[i].HasBeenRepeated, i == path.Count - 1, nameof(path));
+            WriteAddress(frame.AsSpan(14 + (7 * i), 7), path[i].Address, path[i].Used, i == path.Count - 1, nameof(path));
         }
 
         int pos = 7 * (2 + path.Count);
@@ -175,7 +175,7 @@ internal static class Ax25Codec
     {
         if (!address.IsAx25)
         {
-            throw new ArgumentException($"'{address}' is not a valid AX.25 address (1-6 upper-case letters and digits, SSID 1-15)", paramName);
+            throw new AprsEncodeException($"'{address}' is not a valid AX.25 address (1-6 upper-case letters and digits, SSID 1-15)");
         }
 
         string call = address.Base.PadRight(6);

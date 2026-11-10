@@ -21,7 +21,7 @@ public readonly record struct AprsPhg(int PowerCode, int HeightCode, int GainCod
     public double HeightFeet => 10 * Math.Pow(2, HeightCode);
 
     /// <summary>Antenna gain in dBi.</summary>
-    public int GainDbi => GainCode;
+    public int GainDb => GainCode;
 
     /// <summary>Direction of maximum gain in degrees, or null for omnidirectional.</summary>
     public int? DirectivityDegrees => DirectivityCode == 0 ? null : DirectivityCode * 45;
@@ -37,16 +37,16 @@ public readonly record struct AprsPhg(int PowerCode, int HeightCode, int GainCod
         }
     }
 
-    internal void Validate(string paramName)
+    internal void Validate()
     {
         if (PowerCode is < 0 or > 9 || GainCode is < 0 or > 9 || DirectivityCode is < 0 or > 9 || HeightCode is < 0 or > 78)
         {
-            throw new ArgumentOutOfRangeException(paramName, this, "PHG codes: power, gain and directivity 0-9; height 0 and up");
+            throw new AprsEncodeException("PHG codes: power, gain and directivity 0-9; height 0 and up");
         }
 
         if (BeaconsPerHour is < 1 or > 35)
         {
-            throw new ArgumentOutOfRangeException(paramName, BeaconsPerHour, "PHGR beacons per hour must be 1-35");
+            throw new AprsEncodeException("PHGR beacons per hour must be 1-35");
         }
     }
 }
@@ -68,11 +68,11 @@ public readonly record struct AprsDfSignalStrength(int StrengthCode, int HeightC
     /// <summary>Direction of maximum gain in degrees, or null for omnidirectional.</summary>
     public int? DirectivityDegrees => DirectivityCode == 0 ? null : DirectivityCode * 45;
 
-    internal void Validate(string paramName)
+    internal void Validate()
     {
         if (StrengthCode is < 0 or > 9 || GainCode is < 0 or > 9 || DirectivityCode is < 0 or > 9 || HeightCode is < 0 or > 78)
         {
-            throw new ArgumentOutOfRangeException(paramName, this, "DFS codes: strength, gain and directivity 0-9; height 0 and up");
+            throw new AprsEncodeException("DFS codes: strength, gain and directivity 0-9; height 0 and up");
         }
     }
 }
@@ -101,11 +101,11 @@ public readonly record struct AprsDfBearing(int BearingDegrees, int Number, int 
         _ => 32 / Math.Pow(2, Quality - 4),
     };
 
-    internal void Validate(string paramName)
+    internal void Validate()
     {
         if (BearingDegrees is < 0 or > 360 || Number is < 0 or > 9 || Range is < 0 or > 9 || Quality is < 0 or > 9)
         {
-            throw new ArgumentOutOfRangeException(paramName, this, "bearing 0-360; N, R and Q 0-9");
+            throw new AprsEncodeException("bearing 0-360; N, R and Q 0-9");
         }
     }
 }

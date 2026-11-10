@@ -122,7 +122,7 @@ internal static class Tnc2Codec
 
         for (int i = 0; i <= lastStar; i++)
         {
-            path[i] = path[i] with { HasBeenRepeated = true };
+            path[i] = path[i] with { Used = true };
         }
 
         header = new Header(source, destination, path);

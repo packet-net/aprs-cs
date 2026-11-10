@@ -93,7 +93,7 @@ internal static class CommentCodec
 
         ExtractAltitude(c, f);
         ExtractBraces(c, f);
-        if (f.Phg is null && f.RadioRangeMiles is null && f.DfSignalStrength is null)
+        if (f.Phg is null && f.RangeMiles is null && f.DfSignalStrength is null)
         {
             ExtractLateExtension(c, offset, ctx, f);
         }
@@ -352,7 +352,7 @@ internal static class CommentCodec
     /// </summary>
     private static void ExtractLateExtension(List<byte> c, int offset, DecodeContext ctx, PositionedFields f)
     {
-        if (!ctx.Options.RecognizeDataExtensionInComment)
+        if (!ctx.Options.AllowDataExtensionInComment)
         {
             return;
         }
@@ -389,7 +389,7 @@ internal static class CommentCodec
             ReadOnlySpan<byte> ext = s.Slice(at, 7);
             if (tag[0] == (byte)'R')
             {
-                f.RadioRangeMiles = Text.ParseDigits(ext[3..]);
+                f.RangeMiles = Text.ParseDigits(ext[3..]);
             }
             else if (tag[0] == (byte)'D')
             {
@@ -462,7 +462,7 @@ internal static class CommentCodec
             // A DF bearing or storm data extends the course/speed, so one follows a '/' too
             // (vectors ruling F9).
             bool afterExtension = !d.IsCompressed && d.Weather is null
-                && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RadioRangeMiles is not null
+                && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null
                     || d.DfSignalStrength is not null || d.AreaObject is not null || d.Phg is { BeaconsPerHour: null }
                     || d.DfBearing is not null || d.Storm is not null);
             if (afterExtension)
@@ -480,7 +480,7 @@ internal static class CommentCodec
             // with a space or '/', or straight after the symbol or extension it would read as an
             // extension (interpretations.md, "Delimiters at the start of free text").
             bool extensionJustWritten = !braces && !altitude && !d.IsCompressed
-                && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RadioRangeMiles is not null || d.DfSignalStrength is not null
+                && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null || d.DfSignalStrength is not null
                     || d.AreaObject is not null || d.DfBearing is not null || d.Storm is not null || d.Phg is not null);
             bool nothingBefore = !braces && !altitude && !extensionJustWritten;
             if (NeedsDelimiter(d.Comment, extensionJustWritten ? d.Phg : null) || (nothingBefore && !d.IsCompressed && LooksLikeExtension(d.Comment, d)))
@@ -509,16 +509,16 @@ internal static class CommentCodec
     private static void WriteTrailer(InfoWriter w, AprsPositionedData d, bool includeWeatherSoftware)
     {
         if (includeWeatherSoftware && (d.Telemetry is not null || d.Frequency is not null || d.SignpostText is not null
-            || (d.AltitudeFeet is not null && !(d.IsCompressed && d.CompressionType?.Source == AprsNmeaSource.Gga))))
+            || (d.AltitudeFeet is not null && !(d.IsCompressed && d.CompressionType?.Source == AprsCompressionSource.Gga))))
         {
             // A compressed weather report's GGA altitude goes in the cs bytes as the nearest step,
             // with no /A= beside it (vectors ruling F14).
-            throw new ArgumentException("a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
+            throw new AprsEncodeException("a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
         if (d.Telemetry is { } t)
         {
-            t.Validate(nameof(d.Telemetry));
+            t.Validate();
             w.Char('|').Base91(t.Sequence, 2);
             foreach (int v in t.Analog)
             {
@@ -556,7 +556,7 @@ internal static class CommentCodec
         double rounded = Steps.Whole(feet);
         if (double.IsNaN(rounded) || rounded is < -99999 or > 999999)
         {
-            throw new ArgumentOutOfRangeException(nameof(feet), "/A= altitude must fit in 6 digits (or - and 5 digits)");
+            throw new AprsEncodeException("/A= altitude must fit in 6 digits (or - and 5 digits)");
         }
 
         int alt = (int)rounded;
@@ -570,7 +570,7 @@ internal static class CommentCodec
         {
             if (d.Symbol is not { Table: '\\', Code: 'm' } || sign.Length is < 1 or > 3 || sign.Any(ch => ch is < ' ' or > '~' or '{' or '}'))
             {
-                throw new ArgumentException("signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)", nameof(d.SignpostText));
+                throw new AprsEncodeException("signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)");
             }
 
             w.Char('{').Ascii(sign).Char('}');
@@ -580,7 +580,7 @@ internal static class CommentCodec
         {
             if (area.Shape is not (AprsAreaShape.LineDownRight or AprsAreaShape.LineDownLeft))
             {
-                throw new ArgumentException("a corridor width only applies to line area objects (APRS12c ch. 11)", nameof(d.AreaObject));
+                throw new AprsEncodeException("a corridor width only applies to line area objects (APRS12c ch. 11)");
             }
 
             w.Char('{').Ascii(corridor.ToString(CultureInfo.InvariantCulture)).Char('}');
@@ -596,14 +596,15 @@ internal static class CommentCodec
     /// </summary>
     internal static void CheckComment(InfoWriter w, AprsPositionedData d)
     {
-        string comment = d.Comment ?? throw new ArgumentNullException(nameof(d.Comment));
-        Text.RequireNoLineBreaks(comment, nameof(d.Comment));
-        var probe = new PositionedFields { Position = d.Position, Symbol = d.Symbol, AreaObject = d.AreaObject, IsCompressed = d.IsCompressed, Phg = d.Phg, RadioRangeMiles = d.RadioRangeMiles, DfSignalStrength = d.DfSignalStrength };
+        ArgumentNullException.ThrowIfNull(d.Comment);
+        string comment = d.Comment;
+        Text.RequireNoLineBreaks(comment);
+        var probe = new PositionedFields { Position = d.Position, Symbol = d.Symbol, AreaObject = d.AreaObject, IsCompressed = d.IsCompressed, Phg = d.Phg, RangeMiles = d.RangeMiles, DfSignalStrength = d.DfSignalStrength };
         var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
         var ctx = new DecodeContext(AprsParseOptions.Lenient);
         TryExtract(bytes, 0, ctx, probe, frequencyAtStart: d.Frequency is null);
         if (probe.Dao is not null || probe.Telemetry is not null || probe.AltitudeFeet is not null || probe.SignpostText is not null
-            || probe.Frequency is not null || probe.Phg != d.Phg || probe.RadioRangeMiles != d.RadioRangeMiles
+            || probe.Frequency is not null || probe.Phg != d.Phg || probe.RangeMiles != d.RangeMiles
             || probe.DfSignalStrength != d.DfSignalStrength || probe.AreaObject != d.AreaObject)
         {
             w.CommentCheck = "comment text contains something that decodes as a structured element (altitude, !DAO!, |telemetry|, frequency, PHG/RNG/DFS or braces); set the property instead";
@@ -620,24 +621,24 @@ internal static class CommentCodec
         AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), destination, [], info);
         if (back.HasWarnings || back.HasErrors || back.Data is not AprsPositionedData b || !ReadsBackTheSame(sent, b))
         {
-            throw new ArgumentException(problem, nameof(sent.Comment));
+            throw new AprsEncodeException(problem);
         }
     }
 
     private static bool ReadsBackTheSame(AprsPositionedData sent, AprsPositionedData back) =>
         back.GetType() == sent.GetType()
         && back.Comment == sent.Comment
-        && back.Frequency == sent.Frequency
+        && back.Frequency == sent.Frequency?.Rounded()
         && back.Phg == sent.Phg
         && back.SignpostText == sent.SignpostText
         && (back.AltitudeFeet is null) == (sent.AltitudeFeet is null)
         && (back.Dao is null) == (sent.Dao is null)
         && (back.Telemetry is null) == (sent.Telemetry is null)
-        && (back.RadioRangeMiles is null) == (sent.RadioRangeMiles is null)
+        && (back.RangeMiles is null) == (sent.RangeMiles is null)
         && (back.DfSignalStrength is null) == (sent.DfSignalStrength is null)
         && back.AreaObject == sent.AreaObject
         && (sent is not AprsMicEReport m
-            || (back is AprsMicEReport bm && bm.TypeCode == m.TypeCode && bm.DeviceSuffix == m.DeviceSuffix && bm.MaidenheadLocator == m.MaidenheadLocator));
+            || (back is AprsMicEReport bm && bm.TypeCode == m.TypeCode && bm.DeviceSuffix == m.DeviceSuffix && bm.Locator == m.Locator));
 
     /// <summary>
     /// Mic-E status text must not start with something read back as altitude or a data extension,
@@ -647,15 +648,15 @@ internal static class CommentCodec
     internal static void CheckMicEComment(InfoWriter w, AprsMicEReport r)
     {
         string comment = r.Comment ?? throw new ArgumentNullException(nameof(r));
-        Text.RequireNoLineBreaks(comment, nameof(r.Comment));
+        Text.RequireNoLineBreaks(comment);
         var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
-        var probe = new PositionedFields { Position = r.Position, Symbol = r.Symbol, Phg = r.Phg, RadioRangeMiles = r.RadioRangeMiles, DfSignalStrength = r.DfSignalStrength };
+        var probe = new PositionedFields { Position = r.Position, Symbol = r.Symbol, Phg = r.Phg, RangeMiles = r.RangeMiles, DfSignalStrength = r.DfSignalStrength };
         TryExtract(bytes, 0, new DecodeContext(AprsParseOptions.Lenient), probe, frequencyAtStart: r.Frequency is null);
         byte[] c = System.Text.Encoding.UTF8.GetBytes(comment);
-        bool startsWithAltitude = r.AltitudeFeet is null && r.Phg is null && r.RadioRangeMiles is null && r.DfSignalStrength is null && r.Frequency is null
+        bool startsWithAltitude = r.AltitudeFeet is null && r.Phg is null && r.RangeMiles is null && r.DfSignalStrength is null && r.Frequency is null
             && c.Length >= 4 && Base91.IsDigit(c[0]) && Base91.IsDigit(c[1]) && Base91.IsDigit(c[2]) && c[3] == (byte)'}';
         int pos = 0;
-        bool startsWithExtension = r.Phg is null && r.RadioRangeMiles is null && r.DfSignalStrength is null && r.Frequency is null
+        bool startsWithExtension = r.Phg is null && r.RangeMiles is null && r.DfSignalStrength is null && r.Frequency is null
             && !PositionCodec.IsCourseSpeed(c) && PositionCodec.TryReadDataExtension(c, ref pos, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields { Position = r.Position, Symbol = r.Symbol }) && pos > 0;
         bool endsWithSuffix = r.DeviceSuffix.Length == 0 && r.Telemetry is null && r.Dao is null && r.TypeCode is { } t
             && (t is '`' or '\'' ? AprsDeviceIdentification.MicESuffixes : t is '>' or ']' ? AprsDeviceIdentification.MicELegacySuffixes(t) : [])
@@ -664,7 +665,7 @@ internal static class CommentCodec
         // anywhere in the status text when none comes first.
         bool mayFormAltitude = comment.Contains('}', StringComparison.Ordinal);
         if (probe.Dao is not null || probe.Telemetry is not null || probe.AltitudeFeet is not null || probe.Frequency is not null
-            || probe.Phg != r.Phg || probe.RadioRangeMiles != r.RadioRangeMiles || probe.DfSignalStrength != r.DfSignalStrength
+            || probe.Phg != r.Phg || probe.RangeMiles != r.RangeMiles || probe.DfSignalStrength != r.DfSignalStrength
             || startsWithAltitude || startsWithExtension || endsWithSuffix || mayFormAltitude || comment.Contains('\xFF', StringComparison.Ordinal))
         {
             w.CommentCheck = "Mic-E status text contains something that decodes as a structured element (altitude, extension, !DAO!, |telemetry|, frequency or device suffix); set the property instead";
@@ -676,7 +677,7 @@ internal static class CommentCodec
     {
         byte[] c = System.Text.Encoding.UTF8.GetBytes(comment);
         bool hasCourseSpeed = d.CourseDegrees is not null || d.SpeedKnots is not null || d.DfBearing is not null || d.Storm is not null;
-        bool hasExtension = hasCourseSpeed || d.Phg is not null || d.RadioRangeMiles is not null || d.DfSignalStrength is not null || d.AreaObject is not null;
+        bool hasExtension = hasCourseSpeed || d.Phg is not null || d.RangeMiles is not null || d.DfSignalStrength is not null || d.AreaObject is not null;
         if (d.AltitudeFeet is not null || d.Frequency is not null)
         {
             return false;

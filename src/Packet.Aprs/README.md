@@ -31,22 +31,22 @@ if (packet.Data is AprsPositionReport p)
 
 `Data` is a closed hierarchy you pattern-match on: `AprsPositionReport`, `AprsMicEReport`, `AprsObjectReport`, `AprsTextMessage`, `AprsWeatherReport`, `AprsTelemetryReport` and so on, with `AprsUnrecognizedData` for anything that isn't APRS or can't be read. Positions, objects, items and Mic-E reports share a base, `AprsPositionedData`, so one `case` handles every kind of thing that has a place on a map.
 
-Decoding never throws because of the information field: `Data` is always set, and `Diagnostics` says what was wrong. Only an unusable header (no `SOURCE>DEST:`) throws `AprsFormatException`; `AprsPacket.TryDecode` returns false instead. Encoding is the opposite: it is strict, and throws `ArgumentException` naming the offending property rather than write something the spec forbids.
+Decoding never throws because of the information field: `Data` is always set, and `Diagnostics` says what was wrong. Only an unusable header (no `SOURCE>DEST:`) throws `AprsFormatException`; `AprsPacket.TryDecode` returns false instead. Encoding is the opposite: it is strict, and throws `AprsEncodeException` (an `ArgumentException`, always this type for a refusal, never for a bug) rather than write something the spec forbids.
 
 To send, start from your station and say what the packet is:
 
 ```csharp
-AprsPacket beacon = Aprs.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1")
+AprsPacket beacon = AprsStation.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1")
     .Position(51.4543, -0.9781)
     .Symbol(AprsSymbol.Car)
-    .Course(88).Speed(36).Altitude(120)
+    .CourseDegrees(88).SpeedKnots(36).AltitudeFeet(120)
     .Comment("Mobile")
     .Build();
 
 Console.WriteLine(beacon); // M0LTE-9>APZ001,WIDE1-1,WIDE2-1:!5127.26N/00058.69W>088/036/A=000120Mobile
 ```
 
-`Aprs.From` starts positions, objects, items, Mic-E, weather, messages, acks, bulletins, status and telemetry. Each ends in `Build()` for the packet or `ToData()` for the data record on its own; the records can also be built directly, and `with` covers anything the builder does not. The destination is `APZ001`, from the experimental range, until you set your own with `.To("APxxxx")`. Code in a namespace under `Packet` writes `AprsStation.From` instead, because there `Aprs` means the namespace.
+`AprsStation.From` starts positions, objects, items, Mic-E, weather, messages, acks, bulletins, status and telemetry. Each ends in `Build()` for the packet or `ToData()` for the data record on its own; the records can also be built directly, and `with` covers anything the builder does not. Each setter has the name of the field it fills (`CourseDegrees`, `SpeedKnots`, `TemperatureFahrenheit`), and the one that converts changes only the unit (`SpeedKmh`, `TemperatureCelsius`). A builder changes itself and returns itself, so a kept builder keeps what was set on it. The destination is `APZ001`, from the experimental range, until you set your own with `.To("APxxxx")`.
 
 ## Worked examples
 
@@ -67,7 +67,7 @@ foreach (string line in lines)
 
     switch (station.Data)
     {
-        case AprsObjectReport { IsAlive: false } killed:
+        case AprsObjectReport { IsKilled: true } killed:
             Remove(killed.Name);
             break;
         case AprsObjectReport o:
@@ -132,8 +132,8 @@ Console.WriteLine(packet.Diagnostics[0].Code); // WeatherComment
 ### 4. Send a message and know when it arrived
 
 ```csharp
-AprsStation me = Aprs.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1");
-AprsPacket outgoing = me.Message("N0CALL-7", "Meet at the club at 8?").WithId("42").Build();
+AprsStation me = AprsStation.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1");
+AprsPacket outgoing = me.Message("N0CALL-7", "Meet at the club at 8?").MessageId("42").Build();
 Console.WriteLine(outgoing); // M0LTE-9>APZ001,WIDE1-1,WIDE2-1::N0CALL-7 :Meet at the club at 8?{42
 
 // Later, from the feed:
@@ -154,18 +154,18 @@ Retrying and remembering what's outstanding is up to you; the codec keeps no sta
 An object puts something that isn't your station on the map. APRS 1.2 adds a voice frequency, tone and offset that radios can tune to directly.
 
 ```csharp
-AprsObjectBuilder repeater = Aprs.From("M0LTE").Via("WIDE2-1")
+AprsObjectBuilder repeater = AprsStation.From("M0LTE").Via("WIDE2-1")
     .Object("MYRPTR").At(51.4543, -0.9781)
     .Symbol(AprsSymbol.Repeater) // or AprsSymbol.Parse("/r")
     .Timestamp(AprsTimestamp.DayHoursMinutes(25, 18, 30)) // leave out for the time now
-    .Frequency(145.725, tone: 118.8, offsetKHz: -600)
+    .Frequency(145.725, AprsToneType.Tone, toneValue: 118, offsetKHz: -600)
     .Comment("Reading repeater");
 
 Console.WriteLine(repeater.Build());
 // M0LTE>APZ001,WIDE2-1:;MYRPTR   *251830z5127.26N/00058.69Wr145.725MHz T118 -060 Reading repeater
 
-// To take it off everyone's map, send it again marked dead:
-AprsPacket kill = repeater.Kill().Build();
+// To take it off everyone's map, send it again marked dead (the builder stays killed; Killed(false) undoes it):
+AprsPacket kill = repeater.Killed().Build();
 ```
 
 Positions go out to the hundredth of a minute the format allows (about 18 m), so what decodes back is the rounded position; every value between the steps its field holds (a speed of 29.75 knots, 100.5 feet) is rounded to the nearest step, halves away from zero, and an ambiguous position is cut to the box that holds it. A Mic-E report's type code says whether the station can message: `` ` `` with `.Messaging()`, `'` without. Add `.Compressed()` for the shorter base-91 form, which is also more precise. `.Permanent()` marks an object only you may change.
@@ -196,7 +196,7 @@ foreach (string line in lines)
         case AprsTelemetryReport t when names is not null && units is not null && equations is not null:
             for (int channel = 1; channel <= t.Analog.Count; channel++)
             {
-                if (t.Analog[channel - 1] is decimal raw)
+                if (t.Analog[channel - 1] is double raw)
                 {
                     Console.WriteLine($"{names.Names[channel - 1]}: {equations.Scale(channel, raw):0.##} {units.Units[channel - 1]}");
                 }
@@ -204,7 +204,7 @@ foreach (string line in lines)
 
             for (int bit = 0; bit < 8 && 5 + bit < names.Names.Count; bit++)
             {
-                bool set = ((t.Digital >> bit) & 1) == 1;
+                bool set = t.Bits![bit] == '1';
                 Console.WriteLine($"{names.Names[5 + bit]}: {(set ? units.Units[5 + bit] : "-")}");
             }
 
@@ -270,11 +270,12 @@ AprsPacket.Decode(line, AprsParseOptions.Lenient with { AllowWeatherComment = fa
 Each tolerance is a named flag, so you can turn off exactly the ones you don't want. Every flag, the spec rule it relaxes, and how common it is on the network are listed in [docs/strict-vs-pragmatic-audit.md](https://github.com/packet-net/packet.net/blob/main/docs/strict-vs-pragmatic-audit.md#packetaprs). About 88% of APRS-IS traffic passes `Strict`.
 
 ## Good to know
-- **Units are in the names.** `SpeedKnots`, `AltitudeFeet`, `TemperatureFahrenheit`, `WindSpeedMph`, `PressureMillibars`: the units APRS uses on air, so nothing is converted behind your back. The builder takes the same units, with `SpeedKmh`, `AltitudeMetres`, `TemperatureCelsius` and `RainMillimetres` to convert.
+- **Units are in the names.** `SpeedKnots`, `AltitudeFeet`, `TemperatureFahrenheit`, `WindSpeedMph`, `PressureMillibars`: the units APRS uses on air, so nothing is converted behind your back. The builder takes the same units, with `SpeedKmh`, `AltitudeMetres`, `TemperatureCelsius` and `RainLastHourMillimetres` to convert.
 - **To pass a packet on unchanged, send `Information`.** It holds the bytes exactly as received. Re-encoding `Data` gives the canonical form, which can differ from what the sender wrote (filler bytes, field order, padding) while meaning the same thing.
 - **Timestamps are partial.** APRS timestamps have no year and some have no date; `AprsTimestamp.Resolve(reference)` picks the matching time nearest the moment you received the packet.
 - **Text is UTF-8.** Invalid UTF-8 falls back to Latin-1 byte by byte, with a `NonUtf8Text` warning.
-- **Mic-E needs the destination.** Decode the whole packet; the information field alone isn't enough.
+- **Mic-E needs the destination.** Decode the whole packet; the information field alone isn't enough. Writing is the same: `AprsPacket.Create` computes a Mic-E report's destination, and `ToInformationField()` refuses one.
+- **Numbers keep their text.** A decoded telemetry value, `EQNS.` coefficient or query coordinate is a `double`, and its text as sent (`073`, `.53`) is in `AnalogText`, `CoefficientsText` or `LatitudeText`, which the encoder writes back while it still means the same number. Whole-number fields hold fractions too, and a fraction is rounded once, when it is encoded.
 
 ## What's covered
 | Data type | Types |
@@ -289,7 +290,7 @@ Each tolerance is a named flag, so you can turn off exactly the ones you don't w
 | Status (incl. grid locator, meteor scatter beam/ERP), queries, capabilities | `AprsStatusReport`, `AprsGeneralQuery`, `AprsDirectedQuery`, ... |
 | Voice frequency / tone / offset (APRS 1.2) | `AprsVoiceFrequency` |
 | Third-party traffic, user-defined, NMEA, Maidenhead beacons, test data, Agrelo DF | ... |
-| Building any of these fluently, from the sending station | `Aprs.From(...)`, `AprsStation` |
+| Building any of these fluently, from the sending station | `AprsStation.From(...)` |
 | Symbols (every defined one by name: `AprsSymbol.Car`, `AprsSymbol.Gateway.WithOverlay('I')`), device identification, APRS-IS q-constructs | `AprsSymbol`, `AprsSymbolTable`, `AprsDeviceIdentification`, `AprsQConstruct` |
 
 Out of scope for now: an APRS-IS client, messaging state (retries, ack tracking), digipeater and IGate logic.

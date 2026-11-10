@@ -24,7 +24,10 @@ internal sealed class PositionedFields
 
     public AprsPhg? Phg { get; set; }
 
-    public double? RadioRangeMiles { get; set; }
+    public double? RangeMiles { get; set; }
+
+    /// <summary>A Mic-E altitude was read from its altitude bytes rather than a <c>/A=</c>.</summary>
+    public bool AltitudeInBytes { get; set; }
 
     public AprsDfSignalStrength? DfSignalStrength { get; set; }
 
@@ -60,7 +63,7 @@ internal sealed class PositionedFields
             CourseDegrees = CourseDegrees,
             SpeedKnots = SpeedKnots,
             Phg = Phg,
-            RadioRangeMiles = RadioRangeMiles,
+            RangeMiles = RangeMiles,
             DfSignalStrength = DfSignalStrength,
             AreaObject = AreaObject,
             DfBearing = DfBearing,

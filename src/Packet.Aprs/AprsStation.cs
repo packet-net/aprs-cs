@@ -1,55 +1,34 @@
 namespace Packet.Aprs;
 
 /// <summary>
-/// Fluent construction of APRS packets, starting from the sending station.
+/// A sending station and its header, from <see cref="From(string)"/>: the source, destination
+/// and path every packet built from it shares, and the starting point for each kind of packet.
+/// Immutable: <see cref="To(string)"/> and <see cref="Via(string[])"/> return a new station. The
+/// builders it starts are not: each call changes the builder and returns it.
 /// </summary>
 /// <remarks>
 /// <code>
-/// AprsPacket packet = Aprs.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1")
+/// AprsPacket packet = AprsStation.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1")
 ///     .Position(51.4543, -0.9781)
 ///     .Symbol(AprsSymbol.Car)
-///     .Course(88).Speed(36).Altitude(120)
+///     .CourseDegrees(88).SpeedKnots(36).AltitudeFeet(120)
 ///     .Comment("Mobile")
 ///     .Build();
 ///
-/// Aprs.From("M0LTE").Message("G3NRW", "Hi Ian").WithId("01").Build();
-/// Aprs.From("M0LTE").Object("MYRPTR").At(51.45, -0.98).Symbol(AprsSymbol.Repeater)
-///     .Frequency(145.725, tone: 118, offsetKHz: -600).Build();
-/// Aprs.From("M0LTE").Weather().At(51.45, -0.98).Wind(220, 4, gust: 5).Temperature(77).Build();
+/// AprsStation.From("M0LTE").Message("G3NRW", "Hi Ian").MessageId("01").Build();
+/// AprsStation.From("M0LTE").Object("MYRPTR").At(51.45, -0.98).Symbol(AprsSymbol.Repeater)
+///     .Frequency(145.725, AprsToneType.Tone, toneValue: 118, offsetKHz: -600).Build();
+/// AprsStation.From("M0LTE").Weather().At(51.45, -0.98).WindDirectionDegrees(220).WindSpeedMph(4)
+///     .WindGustMph(5).TemperatureFahrenheit(77).Build();
 /// </code>
 /// <para>
 /// A station can be kept and reused: every packet built from it shares its source, destination
 /// and path. <c>Build()</c> encodes the packet, so anything APRS12c does not allow is refused there
-/// with an <see cref="ArgumentException"/>, exactly as <see cref="AprsPacket.Create(AprsAddress, AprsAddress, AprsData, IEnumerable{AprsPathEntry})"/>
+/// with an <see cref="AprsEncodeException"/>, exactly as <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>
 /// would. <c>ToData()</c> gives the data record without a header, for anything the builder does
-/// not cover (records support <c>with</c>); <see cref="AprsStation.Data(AprsData)"/> sends it.
-/// </para>
-/// <para>
-/// Code in a namespace under <c>Packet</c> sees the <c>Packet.Aprs</c> namespace before this
-/// type, so writes <c>AprsStation.From</c> instead, which is the same thing.
+/// not cover (records support <c>with</c>); <see cref="Data(AprsData)"/> sends it.
 /// </para>
 /// </remarks>
-public static class Aprs
-{
-    /// <summary>
-    /// The destination address used unless <see cref="AprsStation.To(string)"/> sets one:
-    /// <c>APZ001</c>, in the range the APRS device identification database keeps for experimental
-    /// software. An application should use its own allocated destination (its "tocall").
-    /// </summary>
-    public const string DefaultDestination = "APZ001";
-
-    /// <summary>The station sending the packets, e.g. <c>M0LTE-9</c>.</summary>
-    public static AprsStation From(string source) => AprsStation.From(source);
-
-    /// <summary>The station sending the packets.</summary>
-    public static AprsStation From(AprsAddress source) => AprsStation.From(source);
-}
-
-/// <summary>
-/// A sending station and its header, from <see cref="Aprs.From(string)"/>: the source, destination
-/// and path every packet built from it shares, and the starting point for each kind of packet.
-/// Immutable: <see cref="To(string)"/> and <see cref="Via(string[])"/> return a new station.
-/// </summary>
 public sealed class AprsStation
 {
     private AprsStation(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path)
@@ -59,30 +38,69 @@ public sealed class AprsStation
         Path = path;
     }
 
+    /// <summary>
+    /// The destination address used unless <see cref="To(string)"/> sets one:
+    /// <c>APZ001</c>, in the range the APRS device identification database keeps for experimental
+    /// software. An application should use its own allocated destination (its "tocall").
+    /// </summary>
+    public const string DefaultDestination = "APZ001";
+
     /// <summary>The source address.</summary>
     public AprsAddress Source { get; }
 
-    /// <summary>The destination address; <see cref="Aprs.DefaultDestination"/> unless set with <see cref="To(string)"/>.
+    /// <summary>The destination address; <see cref="DefaultDestination"/> unless set with <see cref="To(string)"/>.
     /// A Mic-E report computes its own and ignores this.</summary>
     public AprsAddress Destination { get; }
 
     /// <summary>The digipeater path; empty unless set with <see cref="Via(string[])"/>.</summary>
     public IReadOnlyList<AprsPathEntry> Path { get; }
 
-    /// <summary>The station sending the packets, e.g. <c>M0LTE-9</c>.</summary>
-    public static AprsStation From(string source) => From(AprsAddress.Parse(source));
+    /// <summary>The station sending the packets, e.g. <c>M0LTE-9</c>. Throws <see cref="AprsEncodeException"/> for text that is not an address.</summary>
+    public static AprsStation From(string source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return From(ParseAddress(source));
+    }
 
     /// <summary>The station sending the packets.</summary>
-    public static AprsStation From(AprsAddress source) => new(source, AprsAddress.Parse(Aprs.DefaultDestination), []);
+    public static AprsStation From(AprsAddress source) => new(source, AprsAddress.Parse(DefaultDestination), []);
 
     /// <summary>This station with another destination address, usually the application's allocated tocall.</summary>
-    public AprsStation To(string destination) => new(Source, AprsAddress.Parse(destination), Path);
+    public AprsStation To(string destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        return new(Source, ParseAddress(destination), Path);
+    }
 
     /// <summary>This station with a digipeater path, e.g. <c>Via("WIDE1-1", "WIDE2-1")</c>, replacing any set before.</summary>
     public AprsStation Via(params string[] path)
     {
         ArgumentNullException.ThrowIfNull(path);
-        return new(Source, Destination, path.Select(p => new AprsPathEntry(AprsAddress.Parse(p))).ToList());
+        return new(Source, Destination, path.Select(p => new AprsPathEntry(ParseAddress(p))).ToList());
+    }
+
+    internal static AprsAddress ParseAddress(string text)
+    {
+        try
+        {
+            return AprsAddress.Parse(text);
+        }
+        catch (FormatException e)
+        {
+            throw new AprsEncodeException(e.Message, e);
+        }
+    }
+
+    internal static List<AprsPathEntry> ParsePath(string text)
+    {
+        try
+        {
+            return [.. AprsPathEntry.ParseList(text)];
+        }
+        catch (FormatException e)
+        {
+            throw new AprsEncodeException(e.Message, e);
+        }
     }
 
     /// <summary>A position report for this station (APRS12c §8, §9).</summary>
@@ -135,24 +153,28 @@ public sealed class AprsStation
     /// three digits (APRS12c §13); a larger one is refused, not wrapped.</summary>
     public AprsTelemetryBuilder Telemetry(int sequence) => new(this, sequence);
 
-    /// <summary>The names of this station's telemetry channels, A1-A5 then B1-B8 (<c>PARM.</c>, APRS12c §13).</summary>
-    public AprsDataBuilder TelemetryNames(params string[] names) =>
-        Data(new AprsTelemetryParameterNames { Addressee = Source.Value, Names = names });
+    /// <summary>The names of this station's telemetry channels, A1-A5 then B1-B8 (<c>PARM.</c>, APRS12c §13).
+    /// Addressed to this station unless <see cref="AprsTelemetryMetadataBuilder.Addressee(string)"/> says otherwise.</summary>
+    public AprsTelemetryMetadataBuilder TelemetryNames(params string[] names) =>
+        new(this, source => new AprsTelemetryParameterNames { Addressee = source, Names = names });
 
     /// <summary>The units of this station's analog telemetry channels then the labels of its digital
-    /// ones (<c>UNIT.</c>, APRS12c §13).</summary>
-    public AprsDataBuilder TelemetryUnits(params string[] units) =>
-        Data(new AprsTelemetryUnits { Addressee = Source.Value, Units = units });
+    /// ones (<c>UNIT.</c>, APRS12c §13). Addressed to this station unless
+    /// <see cref="AprsTelemetryMetadataBuilder.Addressee(string)"/> says otherwise.</summary>
+    public AprsTelemetryMetadataBuilder TelemetryUnits(params string[] units) =>
+        new(this, source => new AprsTelemetryUnits { Addressee = source, Units = units });
 
     /// <summary>The scaling for this station's analog telemetry channels: a, b and c for each in
-    /// turn, giving a x v^2 + b x v + c (<c>EQNS.</c>, APRS12c §13).</summary>
-    public AprsDataBuilder TelemetryCoefficients(params double[] coefficients) =>
-        Data(new AprsTelemetryCoefficients { Addressee = Source.Value, Coefficients = coefficients });
+    /// turn, giving a x v^2 + b x v + c (<c>EQNS.</c>, APRS12c §13). Addressed to this station unless
+    /// <see cref="AprsTelemetryMetadataBuilder.Addressee(string)"/> says otherwise.</summary>
+    public AprsTelemetryMetadataBuilder TelemetryCoefficients(params double[] coefficients) =>
+        new(this, source => new AprsTelemetryCoefficients { Addressee = source, Coefficients = coefficients });
 
-    /// <summary>Which state of each digital channel matches its label (bit 0 is B1), and the project
-    /// title (<c>BITS.</c>, APRS12c §13).</summary>
-    public AprsDataBuilder TelemetryBits(byte bits, string projectTitle = "") =>
-        Data(new AprsTelemetryBitSense { Addressee = Source.Value, Bits = bits, ProjectTitle = projectTitle });
+    /// <summary>Which state of each digital channel matches its label, as eight 0 and 1 characters
+    /// with B1 first, and the project title (<c>BITS.</c>, APRS12c §13). Addressed to this station
+    /// unless <see cref="AprsTelemetryMetadataBuilder.Addressee(string)"/> says otherwise.</summary>
+    public AprsTelemetryMetadataBuilder TelemetryBits(string bits, string project = "") =>
+        new(this, source => new AprsTelemetryBitSense { Addressee = source, Bits = bits, Project = project });
 
     /// <summary>Any data built by hand, sent from this station.</summary>
     public AprsDataBuilder Data(AprsData data) => new(this, data);

@@ -14,7 +14,7 @@ public class DerivedValueTests : AprsSpec
         var phg = new AprsPhg(5, 1, 3, 2); // APRS12c ch. 7
         phg.PowerWatts.Should().Be(25);
         phg.HeightFeet.Should().Be(20);
-        phg.GainDbi.Should().Be(3);
+        phg.GainDb.Should().Be(3);
         phg.DirectivityDegrees.Should().Be(90);
         phg.RangeMiles.Should().BeApproximately(7.9, 0.05);
     }

@@ -64,7 +64,7 @@ public abstract class AprsSpec
         }
     }
 
-    protected void WhenEncoded(AprsData data) => encoded = data.ToInformationField();
+    protected void WhenEncoded(AprsData data) => encoded = data.EncodeInformation();
 
     protected void WhenEncodingIsAttempted(AprsData data)
     {
@@ -179,14 +179,14 @@ public abstract class AprsSpec
         }
 
         string expected = Show(original.AsSpan(0, end));
-        string actual = Show(Packet.Data.ToInformationField());
+        string actual = Show(Packet.Data.EncodeInformation());
         actual.Should().Be(expected);
     }
 
     /// <summary>Re-encoding and decoding again gives equal data (semantic round trip).</summary>
     protected void ThenRoundTrips()
     {
-        byte[] reencoded = Packet.Data.ToInformationField();
+        byte[] reencoded = Packet.Data.EncodeInformation();
         AprsPacket again = AprsPacket.Decode(Packet.Source, Packet.Destination, Packet.Path, reencoded, options);
         again.HasErrors.Should().BeFalse(because: "re-encoded {0} gave {1}", Show(reencoded), string.Join(" | ", again.Diagnostics));
         again.Data.Should().Be(Packet.Data, because: "re-encoded as {0}", Show(reencoded));
@@ -194,7 +194,7 @@ public abstract class AprsSpec
 
     protected void ThenEncodedIs(string info) => Show(Encoded).Should().Be(Show(Bytes(info)));
 
-    protected void ThenEncodingFailed() => thrown.Should().BeAssignableTo<ArgumentException>();
+    protected void ThenEncodingFailed() => thrown.Should().BeOfType<AprsEncodeException>();
 
     /// <summary>Encodes, decodes the result, and checks the decoded data equals what was encoded.</summary>
     protected void ThenEncodedDecodesBackTo(AprsData data, string destination = "APZ001")

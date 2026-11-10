@@ -71,7 +71,7 @@ internal static class FrequencyCodec
 
         frequency = new AprsVoiceFrequency
         {
-            FrequencyMHz = mhz,
+            FrequencyMHz = (double)mhz,
             TenKilohertzResolution = tenKhz,
             ToneType = toneType,
             ToneValue = toneValue,
@@ -169,6 +169,7 @@ internal static class FrequencyCodec
 
         var alone = new InfoWriter();
         Write(alone, f);
+        f = f.Rounded();
         byte[] text = System.Text.Encoding.UTF8.GetBytes(comment);
         foreach (bool separator in (bool[])[true, false])
         {
@@ -199,8 +200,8 @@ internal static class FrequencyCodec
 
     public static void Write(InfoWriter w, AprsVoiceFrequency f)
     {
-        f.Validate(nameof(f));
-        decimal mhz = f.FrequencyMHz;
+        f.Validate();
+        decimal mhz = f.RoundedMHz();
         string lead;
         decimal rest;
         if (mhz < 1000)
@@ -213,7 +214,7 @@ internal static class FrequencyCodec
             int i = Array.FindLastIndex(Microwave, m => m.BaseMHz <= mhz && mhz < m.BaseMHz + 100);
             if (i < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(f), mhz, "no APRS frequency form for this frequency (APRS12c ch. 18)");
+                throw new AprsEncodeException("no APRS frequency form for this frequency (APRS12c ch. 18)");
             }
 
             lead = Microwave[i].Letter.ToString();

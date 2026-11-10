@@ -25,10 +25,17 @@ public abstract record AprsData
     public abstract char DataTypeIdentifier { get; }
 
     /// <summary>
-    /// Encodes this data as an information field. Throws <see cref="ArgumentException"/> if any
-    /// value cannot be represented as APRS12c requires.
+    /// Encodes this data as an information field. Throws <see cref="AprsEncodeException"/> if any
+    /// value cannot be represented as APRS12c requires, and for a Mic-E report, whose position is
+    /// split between the information field and the destination address: make its packet with
+    /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>.
     /// </summary>
-    public byte[] ToInformationField()
+    public byte[] ToInformationField() => this is AprsMicEReport
+        ? throw new AprsEncodeException("a Mic-E report carries part of its position in the destination address, so its information field alone is not a position; make a packet with AprsPacket.Create")
+        : EncodeInformation();
+
+    /// <summary>The information field, whatever the data type (for a Mic-E report, without its destination).</summary>
+    internal byte[] EncodeInformation()
     {
         var writer = new InfoWriter();
         Encode(writer);
@@ -37,7 +44,7 @@ public abstract record AprsData
         {
             // A field ending in CR or LF reads back with trailing-line-break, a warning, and
             // without the byte (Mic-E telemetry ending 13, say), so no clean form exists.
-            throw new ArgumentException("the information field would end with a line break, which a decoder strips with a warning", nameof(writer));
+            throw new AprsEncodeException("the information field would end with a line break, which a decoder strips with a warning");
         }
 
         if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)

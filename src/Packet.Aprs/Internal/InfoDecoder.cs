@@ -15,7 +15,7 @@ internal static class InfoDecoder
         if (end < info.Length)
         {
             if (!ctx.Tolerate(
-                    ctx.Options.StripTrailingLineBreaks,
+                    ctx.Options.AllowTrailingLineBreak,
                     AprsDiagnosticCode.TrailingLineBreak,
                     "information field ends with CR/LF; removed (APRS12c ch. 5, UAP 5.13)",
                     end))

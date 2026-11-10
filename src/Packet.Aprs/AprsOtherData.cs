@@ -121,18 +121,18 @@ public sealed record AprsNmeaReport : AprsData
         byte[] sentence = System.Text.Encoding.Latin1.GetBytes(Sentence);
         if (Sentence.Any(c => c > 0xFF) || Internal.NmeaCodec.SentenceLength(sentence) != sentence.Length)
         {
-            throw new ArgumentException("an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum", nameof(Sentence));
+            throw new AprsEncodeException("an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum");
         }
 
         if (Internal.NmeaCodec.TryReadChecksum(Sentence, out _, out byte expected, out byte sum) && sum != expected)
         {
-            throw new ArgumentException($"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}", nameof(Sentence));
+            throw new AprsEncodeException($"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
         }
 
-        Internal.Text.RequireNoLineBreaks(Comment, nameof(Comment));
+        Internal.Text.RequireNoLineBreaks(Comment);
         if (Comment.Length > 0 && !HasChecksum)
         {
-            throw new ArgumentException("a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence", nameof(Comment));
+            throw new AprsEncodeException("a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence");
         }
 
         writer.Char('$').Ascii(Sentence).Utf8(Comment);
@@ -161,7 +161,7 @@ public sealed record AprsNmeaReport : AprsData
             : null;
         if (differs is not null)
         {
-            throw new ArgumentException($"{differs} is not what the sentence reads back as; the sentence is what is sent", differs);
+            throw new AprsEncodeException($"{differs} is not what the sentence reads back as; the sentence is what is sent");
         }
 
         // The same value, but for the last bits a different computation of it may differ in.
@@ -187,10 +187,10 @@ public sealed record AprsMaidenheadBeacon : AprsData
     {
         if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(Locator)))
         {
-            throw new ArgumentException($"'{Locator}' is not a 4 or 6 character Maidenhead locator", nameof(Locator));
+            throw new AprsEncodeException($"'{Locator}' is not a 4 or 6 character Maidenhead locator");
         }
 
-        Internal.Text.RequireNoLineBreaks(Comment, nameof(Comment));
+        Internal.Text.RequireNoLineBreaks(Comment);
         writer.Char('[').Ascii(Locator.ToUpperInvariant()).Char(']').Utf8(Comment);
     }
 }
@@ -204,14 +204,14 @@ public sealed record AprsMaidenheadBeacon : AprsData
 /// </remarks>
 /// <param name="Latitude">Degrees, positive north.</param>
 /// <param name="Longitude">Degrees, positive east.</param>
-/// <param name="RadiusMiles">Radius, 0-9999 whole miles.</param>
-public readonly record struct AprsQueryFootprint(decimal Latitude, decimal Longitude, int RadiusMiles)
+/// <param name="RadiusMiles">Radius, 0-9999 miles: whole when decoded; rounded once when encoded.</param>
+public readonly record struct AprsQueryFootprint(double Latitude, double Longitude, double RadiusMiles)
 {
-    /// <summary>The latitude's text as received, when decoded; null for one built in code.</summary>
-    internal string? LatitudeText { get; init; }
+    /// <summary>The latitude's text as received, when decoded (<c>-.1715</c>, <c> 34.0</c>); null for one built in code.</summary>
+    public string? LatitudeText { get; init; }
 
     /// <summary>The longitude's text as received, when decoded; null for one built in code.</summary>
-    internal string? LongitudeText { get; init; }
+    public string? LongitudeText { get; init; }
 
     /// <summary>The same place and radius, however the coordinates were written.</summary>
     /// <param name="other">The footprint to compare with.</param>
@@ -262,7 +262,7 @@ public sealed record AprsStationCapabilities : AprsData
     {
         if (Capabilities.Count == 0)
         {
-            throw new ArgumentException("a capabilities report lists at least one capability (APRS12c ch. 15)", nameof(Capabilities));
+            throw new AprsEncodeException("a capabilities report lists at least one capability (APRS12c ch. 15)");
         }
 
         writer.Char('<');
@@ -274,7 +274,7 @@ public sealed record AprsStationCapabilities : AprsData
             if (c.Token.Length == 0 || c.Token.Any(ch => ch is <= ' ' or '\x7F' or ',' or '=')
                 || (c.Value is { } v && (v.Any(ch => ch is < ' ' or '\x7F' or ',') || v.StartsWith(' ') || v.EndsWith(' '))))
             {
-                throw new ArgumentException("capability tokens and values are text without ',' or control characters, tokens without '=' or spaces, and values that do not start or end with a space", nameof(Capabilities));
+                throw new AprsEncodeException("capability tokens and values are text without ',' or control characters, tokens without '=' or spaces, and values that do not start or end with a space");
             }
 
             if (i > 0)
@@ -313,7 +313,7 @@ public sealed record AprsThirdPartyTraffic : AprsData
         byte[] inner = Packet.ToTnc2();
         if (!ThirdPartyCodec.CanWrite(Packet, inner))
         {
-            throw new ArgumentException("the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)", nameof(Packet));
+            throw new AprsEncodeException("the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)");
         }
 
         writer.Char('}').Bytes(inner);
@@ -336,7 +336,7 @@ public sealed record AprsUserDefinedData : AprsData
     public required IReadOnlyList<byte> Data { get; init => field = EquatableList<byte>.Of(value); }
 
     /// <summary>The data as text (UTF-8, Latin-1 where invalid).</summary>
-    public string DataText => Internal.Text.ForDisplay(Data.ToArray());
+    public string Text => Internal.Text.ForDisplay(Data.ToArray());
 
     /// <inheritdoc/>
     public override char DataTypeIdentifier => '{';
@@ -347,13 +347,13 @@ public sealed record AprsUserDefinedData : AprsData
         // included, so any byte is written back as it came.
         if (UserId > '\xFF' || PacketType > '\xFF')
         {
-            throw new ArgumentException("user ID and packet type are single bytes (U+0000-U+00FF)");
+            throw new AprsEncodeException("user ID and packet type are single bytes (U+0000-U+00FF)");
         }
 
         // A trailing line break is a tolerated defect a decoder strips, not data.
         if ((Data.Count > 0 ? Data[^1] : (byte)PacketType) is (byte)'\r' or (byte)'\n')
         {
-            throw new ArgumentException("user-defined data that ends with a carriage return or line feed would read back without it", nameof(Data));
+            throw new AprsEncodeException("user-defined data that ends with a carriage return or line feed would read back without it");
         }
 
         writer.Char('{').Char(UserId).Char(PacketType).Bytes(Data.ToArray());
@@ -371,7 +371,7 @@ public sealed record AprsTestData : AprsData
 
     internal override void Encode(InfoWriter writer)
     {
-        Internal.Text.RequireNoLineBreaks(Data, nameof(Data));
+        Internal.Text.RequireNoLineBreaks(Data);
         writer.Char(',').Utf8(Data);
     }
 }
@@ -392,7 +392,7 @@ public sealed record AprsAgreloDfReport : AprsData
     {
         if (BearingDegrees is < 0 or > 360 || Quality is < 0 or > 9)
         {
-            throw new ArgumentOutOfRangeException(nameof(BearingDegrees), "bearing 0-360, quality 0-9");
+            throw new AprsEncodeException("bearing 0-360, quality 0-9");
         }
 
         writer.Char('%').Digits(BearingDegrees, 3).Char('/').Digits(Quality, 1);

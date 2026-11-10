@@ -27,16 +27,16 @@ public sealed record AprsCommentTelemetry
     /// 5 analog channels.</summary>
     public byte? Digital { get; init; }
 
-    internal void Validate(string paramName)
+    internal void Validate()
     {
         if (Sequence is < 0 or > MaxValue || Analog.Count is < 1 or > 5 || Analog.Any(v => v is < 0 or > MaxValue))
         {
-            throw new ArgumentOutOfRangeException(paramName, "comment telemetry: sequence and 1-5 analog values, each 0-8280");
+            throw new AprsEncodeException("comment telemetry: sequence and 1-5 analog values, each 0-8280");
         }
 
         if (Digital is not null && Analog.Count != 5)
         {
-            throw new ArgumentException("comment telemetry digital bits can only follow all 5 analog channels", paramName);
+            throw new AprsEncodeException("comment telemetry digital bits can only follow all 5 analog channels");
         }
     }
 }

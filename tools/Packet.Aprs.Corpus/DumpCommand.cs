@@ -84,7 +84,7 @@ internal static class DumpCommand
                     j.WriteString("phg", $"{phg.PowerCode}{(char)('0' + phg.HeightCode)}{phg.GainCode}{phg.DirectivityCode}");
                 }
 
-                Num(j, "rng", p.RadioRangeMiles);
+                Num(j, "rng", p.RangeMiles);
                 if (p.Dao is { } dao)
                 {
                     j.WriteString("dao", dao.Datum.ToString());
@@ -114,15 +114,15 @@ internal static class DumpCommand
                         break;
                     case AprsObjectReport o:
                         j.WriteString("name", o.Name);
-                        j.WriteBoolean("alive", o.IsAlive);
+                        j.WriteBoolean("alive", !o.IsKilled);
                         j.WriteString("ts", o.Timestamp?.ToString());
                         break;
                     case AprsItemReport it:
                         j.WriteString("name", it.Name);
-                        j.WriteBoolean("alive", it.IsAlive);
+                        j.WriteBoolean("alive", !it.IsKilled);
                         break;
                     case AprsMicEReport m:
-                        j.WriteString("mice_msg", m.Message.ToString());
+                        j.WriteString("mice_msg", m.MicEMessage.ToString());
                         j.WriteString("mice_type", m.TypeCode?.ToString());
                         j.WriteString("mice_suffix", m.DeviceSuffix);
                         break;
@@ -154,15 +154,15 @@ internal static class DumpCommand
                 break;
             case AprsStatusReport s:
                 j.WriteString("status", s.Text);
-                j.WriteString("locator", s.MaidenheadLocator);
+                j.WriteString("locator", s.Locator);
                 j.WriteString("ts", s.Timestamp?.ToString());
                 break;
             case AprsTelemetryReport tr:
                 j.WriteString("tlm_seq", tr.Sequence);
                 j.WriteString("tlm_vals", string.Join(",", tr.Analog));
-                if (tr.Digital is { } bits)
+                if (tr.Bits is { } bits)
                 {
-                    j.WriteNumber("tlm_bits", bits);
+                    j.WriteNumber("tlm_bits", bits.Select((c, i) => c == '1' ? 1 << i : 0).Sum());
                 }
 
                 break;

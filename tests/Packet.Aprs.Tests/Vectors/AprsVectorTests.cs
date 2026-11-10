@@ -70,7 +70,7 @@ public class AprsVectorTests
         {
             if (packet.Data is AprsMicEReport mic)
             {
-                AprsPacket created = AprsPacket.CreateMicE(packet.Source, mic, packet.Path);
+                AprsPacket created = AprsPacket.Create(packet.Source, mic, null, packet.Path);
                 info = created.Information.ToArray();
                 destination = created.Destination;
             }
@@ -79,7 +79,7 @@ public class AprsVectorTests
                 info = packet.Data.ToInformationField();
             }
         }
-        catch (ArgumentException ex)
+        catch (AprsEncodeException ex)
         {
             Pass(c, expected == "refused" ? [] : [$"reencode: expected {expected}, but the encoder refused: {ex.Message}"]);
             return;
@@ -156,11 +156,9 @@ public class AprsVectorTests
         AprsPacket packet;
         try
         {
-            packet = data is AprsMicEReport mic
-                ? AprsPacket.CreateMicE(VectorCases.Source(input), mic)
-                : AprsPacket.Create(VectorCases.Source(input), VectorCases.Destination(input), data);
+            packet = AprsPacket.Create(VectorCases.Source(input), data, data is AprsMicEReport ? null : VectorCases.Destination(input));
         }
-        catch (ArgumentException ex)
+        catch (AprsEncodeException ex)
         {
             Pass(c, (bool?)expect["refused"] == true ? [] : [$"encode: expected {expect["info"]?.ToJsonString()}, but the encoder refused: {ex.Message}"]);
             return;
@@ -256,15 +254,15 @@ public class AprsVectorTests
     /// <summary>Which AprsParseOptions flag tolerates each code. Packet.Aprs's own detail, kept out of the neutral files.</summary>
     private static readonly Dictionary<string, string> Flags = new()
     {
-        ["trailing-line-break"] = nameof(AprsParseOptions.StripTrailingLineBreaks),
+        ["trailing-line-break"] = nameof(AprsParseOptions.AllowTrailingLineBreak),
         ["non-utf8-text"] = nameof(AprsParseOptions.AllowNonUtf8Text),
         ["lowercase-hemisphere"] = nameof(AprsParseOptions.AllowLowercaseHemisphere),
-        ["out-of-range-value"] = nameof(AprsParseOptions.AllowOutOfRangeValues),
+        ["out-of-range-value"] = nameof(AprsParseOptions.AllowOutOfRangeValue),
         ["object-without-timestamp"] = nameof(AprsParseOptions.AllowObjectWithoutTimestamp),
-        ["object-name-not-padded"] = nameof(AprsParseOptions.AllowShortObjectName),
+        ["object-name-not-padded"] = nameof(AprsParseOptions.AllowObjectNameNotPadded),
         ["incomplete-weather"] = nameof(AprsParseOptions.AllowIncompleteWeather),
         ["weather-comment"] = nameof(AprsParseOptions.AllowWeatherComment),
-        ["data-extension-in-comment"] = nameof(AprsParseOptions.RecognizeDataExtensionInComment),
+        ["data-extension-in-comment"] = nameof(AprsParseOptions.AllowDataExtensionInComment),
         ["kenwood-ff-padding"] = nameof(AprsParseOptions.AllowKenwoodFfPadding),
         ["empty-destination"] = nameof(AprsParseOptions.AllowEmptyDestination),
         ["empty-path-entry"] = nameof(AprsParseOptions.AllowEmptyPathEntry),
@@ -274,15 +272,15 @@ public class AprsVectorTests
         ["unpadded-addressee"] = nameof(AprsParseOptions.AllowUnpaddedAddressee),
         ["invalid-ax25-address-characters"] = nameof(AprsParseOptions.AllowInvalidAx25AddressCharacters),
         ["missing-space-after-locator"] = nameof(AprsParseOptions.AllowMissingSpaceAfterLocator),
-        ["invalid-telemetry"] = nameof(AprsParseOptions.AllowIncompleteTelemetry),
+        ["invalid-telemetry"] = nameof(AprsParseOptions.AllowInvalidTelemetry),
         ["compression-type-reserved-bits"] = nameof(AprsParseOptions.AllowCompressionTypeReservedBits),
         ["invalid-timestamp"] = nameof(AprsParseOptions.AllowInvalidTimestamp),
         ["malformed-timestamp"] = nameof(AprsParseOptions.AllowMalformedTimestamp),
         ["position-not-at-start"] = nameof(AprsParseOptions.AllowPositionNotAtStart),
-        ["non-standard-weather-field-width"] = nameof(AprsParseOptions.AllowNonStandardWeatherFieldWidths),
-        ["wind-fields-instead-of-extension"] = nameof(AprsParseOptions.AllowWindFieldsInPositionWeather),
+        ["non-standard-weather-field-width"] = nameof(AprsParseOptions.AllowNonStandardWeatherFieldWidth),
+        ["wind-fields-instead-of-extension"] = nameof(AprsParseOptions.AllowWindFieldsInsteadOfExtension),
         ["wind-extension-after-compressed"] = nameof(AprsParseOptions.AllowWindExtensionAfterCompressed),
-        ["mic-e-altitude-not-first"] = nameof(AprsParseOptions.AllowMicEAltitudeAnywhere),
+        ["mic-e-altitude-not-first"] = nameof(AprsParseOptions.AllowMicEAltitudeNotFirst),
         ["dao-with-ambiguity"] = nameof(AprsParseOptions.AllowDaoWithAmbiguity),
         ["brace-in-message-text"] = nameof(AprsParseOptions.AllowBraceInMessageText),
         ["invalid-addressee-characters"] = nameof(AprsParseOptions.AllowInvalidAddresseeCharacters),

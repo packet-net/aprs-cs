@@ -81,7 +81,9 @@ internal static class StatsCommand
             clean += isClean ? 1 : 0;
             try
             {
-                byte[] reencoded = packet.Data.ToInformationField();
+                byte[] reencoded = packet.Data is AprsMicEReport mic
+                    ? AprsPacket.Create(packet.Source, mic, null, packet.Path).Information.ToArray()
+                    : packet.Data.ToInformationField();
                 AprsPacket again = AprsPacket.Decode(packet.Source, packet.Destination, packet.Path, reencoded);
                 bool same = Equals(again.Data, packet.Data);
                 idempotent += same ? 1 : 0;
@@ -106,7 +108,7 @@ internal static class StatsCommand
                     }
                 }
             }
-            catch (ArgumentException ex)
+            catch (AprsEncodeException ex)
             {
                 reencodeThrew++;
                 // Refusing a clean packet is the case to look at: nothing was tolerated to read it.

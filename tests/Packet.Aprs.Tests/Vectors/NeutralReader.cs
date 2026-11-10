@@ -27,11 +27,11 @@ internal static class NeutralReader
             {
                 Position = default,
                 Symbol = default,
-                Message = Enum<AprsMicEMessage>(Str(d, "mic_e_message")),
-                IsCurrent = !Flag(d, "old_data"),
+                MicEMessage = Enum<AprsMicEMessage>(Str(d, "mic_e_message")),
+                IsOldData = Flag(d, "old_data"),
                 TypeCode = OptChar(d, "type_code"),
                 DeviceSuffix = OptStr(d, "device_suffix") ?? "",
-                MaidenheadLocator = OptStr(d, "locator"),
+                Locator = OptStr(d, "locator"),
                 LegacyTelemetry = d["legacy_telemetry"] is JsonArray lt ? [.. lt.Select(v => (int)v!)] : null,
                 DestinationSsid = (int?)d["destination_ssid"] ?? 0,
             }, "mic_e_message", "old_data", "type_code", "device_suffix", "locator", "legacy_telemetry", "destination_ssid"),
@@ -40,7 +40,7 @@ internal static class NeutralReader
                 Position = default,
                 Symbol = default,
                 Name = Str(d, "name"),
-                IsAlive = !Flag(d, "killed"),
+                IsKilled = Flag(d, "killed"),
                 Timestamp = Timestamp(d["timestamp"]),
             }, "name", "killed", "timestamp"),
             "item" => Positioned(d, new AprsItemReport
@@ -48,7 +48,7 @@ internal static class NeutralReader
                 Position = default,
                 Symbol = default,
                 Name = Str(d, "name"),
-                IsAlive = !Flag(d, "killed"),
+                IsKilled = Flag(d, "killed"),
             }, "name", "killed"),
             "message" => Only(d, new AprsTextMessage { Addressee = Str(d, "addressee"), Text = OptStr(d, "text") ?? "", ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "text", "reply_ack", "message_id"),
             "ack" => Only(d, new AprsMessageAck { Addressee = Str(d, "addressee"), AcknowledgedId = Str(d, "acked_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "acked_id", "reply_ack", "message_id"),
@@ -58,12 +58,12 @@ internal static class NeutralReader
             "telemetry-names" => Only(d, new AprsTelemetryParameterNames { Addressee = Str(d, "addressee"), Names = Strings(d["names"]), MessageId = OptStr(d, "message_id") }, "addressee", "names", "message_id"),
             "telemetry-units" => Only(d, new AprsTelemetryUnits { Addressee = Str(d, "addressee"), Units = Strings(d["units"]), MessageId = OptStr(d, "message_id") }, "addressee", "units", "message_id"),
             "telemetry-coefficients" => Only(d, new AprsTelemetryCoefficients { Addressee = Str(d, "addressee"), Coefficients = [.. (d["coefficients"] as JsonArray ?? []).Select(v => (double)v!)], MessageId = OptStr(d, "message_id") }, "addressee", "coefficients", "message_id"),
-            "telemetry-bits" => Only(d, new AprsTelemetryBitSense { Addressee = Str(d, "addressee"), Bits = Bits(Str(d, "bits")), ProjectTitle = OptStr(d, "project") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "bits", "project", "message_id"),
+            "telemetry-bits" => Only(d, new AprsTelemetryBitSense { Addressee = Str(d, "addressee"), Bits = Str(d, "bits"), Project = OptStr(d, "project") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "bits", "project", "message_id"),
             "directed-query" => Only(d, new AprsDirectedQuery { Addressee = Str(d, "addressee"), QueryType = Str(d, "query_type"), Target = OptStr(d, "target"), MessageId = OptStr(d, "message_id") }, "addressee", "query_type", "target", "message_id"),
             "status" => Only(d, new AprsStatusReport
             {
                 Timestamp = Timestamp(d["timestamp"]),
-                MaidenheadLocator = OptStr(d, "locator"),
+                Locator = OptStr(d, "locator"),
                 Symbol = OptStr(d, "symbol") is { } s ? Symbol(s) : null,
                 BeamHeading = d["beam"] is JsonObject b ? new AprsBeamHeading(Str(b, "heading_code")[0], Str(b, "power_code")[0]) : null,
                 Text = OptStr(d, "text") ?? "",
@@ -71,8 +71,8 @@ internal static class NeutralReader
             "telemetry" => Only(d, new AprsTelemetryReport
             {
                 Sequence = Str(d, "sequence"),
-                Analog = [.. (d["analog"] as JsonArray ?? []).Select(v => v is null ? (decimal?)null : (decimal)v)],
-                Digital = OptStr(d, "bits") is { } bits ? Bits(bits) : null,
+                Analog = [.. (d["analog"] as JsonArray ?? []).Select(v => v is null ? (double?)null : (double)v)],
+                Bits = OptStr(d, "bits"),
                 Comment = OptStr(d, "comment") ?? "",
             }, "sequence", "analog", "bits", "comment"),
             "weather" => Only(d, new AprsWeatherReport { Timestamp = Timestamp(d["timestamp"])!.Value, Weather = Weather(d["weather"]!.AsObject()), Comment = OptStr(d, "comment") ?? "" }, "timestamp", "weather", "comment"),
@@ -94,7 +94,7 @@ internal static class NeutralReader
             "query" => Only(d, new AprsGeneralQuery
             {
                 QueryType = Str(d, "query_type"),
-                Footprint = d["footprint"] is JsonObject f ? new AprsQueryFootprint((decimal)f["latitude"]!, (decimal)f["longitude"]!, Whole(f["radius_miles"])!.Value) : null,
+                Footprint = d["footprint"] is JsonObject f ? new AprsQueryFootprint((double)f["latitude"]!, (double)f["longitude"]!, (double)f["radius_miles"]!) : null,
             }, "query_type", "footprint"),
             "capabilities" => Only(d, new AprsStationCapabilities
             {
@@ -130,7 +130,7 @@ internal static class NeutralReader
 
         AprsPacket inner = Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"
             ? AprsPacket.Decode(source, destination, path, [])
-            : AprsPacket.Create(source, destination, Data(data), path);
+            : AprsPacket.Create(source, Data(data), destination, path);
         return new AprsThirdPartyTraffic { Packet = inner };
     }
 
@@ -145,13 +145,13 @@ internal static class NeutralReader
             Symbol = Symbol(Str(d, "symbol")),
             IsCompressed = Flag(d, "compressed"),
             CompressionType = d["compression"] is JsonObject ct
-                ? new AprsCompressionType(Enum<AprsGpsFix>(Str(ct, "fix")), Enum<AprsNmeaSource>(Str(ct, "source")), Enum<AprsCompressionOrigin>(Str(ct, "origin")))
+                ? new AprsCompressionType(Enum<AprsCompressionFix>(Str(ct, "fix")), Enum<AprsCompressionSource>(Str(ct, "source")), Enum<AprsCompressionOrigin>(Str(ct, "origin")))
                 : null,
             CourseDegrees = (double?)d["course_degrees"],
             SpeedKnots = (double?)d["speed_knots"],
             AltitudeFeet = (double?)d["altitude_feet"],
             Phg = d["phg"] is JsonObject phg ? new AprsPhg((int)phg["power"]!, (int)phg["height"]!, (int)phg["gain"]!, (int)phg["directivity"]!, (int?)phg["beacons_per_hour"]) : null,
-            RadioRangeMiles = (double?)d["range_miles"],
+            RangeMiles = (double?)d["range_miles"],
             DfSignalStrength = d["dfs"] is JsonObject dfs ? new AprsDfSignalStrength((int)dfs["strength"]!, (int)dfs["height"]!, (int)dfs["gain"]!, (int)dfs["directivity"]!) : null,
             AreaObject = d["area"] is JsonObject a
                 ? new AprsAreaObject(Enum<AprsAreaShape>(Str(a, "shape")), Enum<AprsAreaColor>(Str(a, "color")), (int)a["lat_offset"]!, (int)a["lon_offset"]!, (int?)a["corridor_width_miles"])
@@ -176,7 +176,7 @@ internal static class NeutralReader
             Frequency = d["frequency"] is JsonObject f
                 ? new AprsVoiceFrequency
                 {
-                    FrequencyMHz = (decimal)f["mhz"]!,
+                    FrequencyMHz = (double)f["mhz"]!,
                     ToneType = OptStr(f, "tone") is { } tone ? Enum<AprsToneType>(tone) : null,
                     ToneValue = (int?)f["tone_value"],
                     OffsetKHz = (int?)f["offset_khz"],
@@ -205,7 +205,7 @@ internal static class NeutralReader
         HumidityPercent = (double?)w["humidity_percent"],
         PressureMillibars = (double?)w["pressure_mbar"],
         LuminosityWattsPerSquareMetre = (double?)w["luminosity_w_m2"],
-        SnowfallLast24HoursInches = (decimal?)w["snow_24h_in"],
+        SnowfallLast24HoursInches = (double?)w["snow_24h_in"],
         SoftwareType = OptChar(w, "software"),
         UnitType = OptStr(w, "unit"),
         AdditionalFields = w["extra"] is JsonArray extra ? [.. extra.Select(e => new AprsWeatherField(Str(e!.AsObject(), "letter")[0], Str(e.AsObject(), "value")))] : [],
@@ -230,20 +230,6 @@ internal static class NeutralReader
                 'h' => AprsTimestamp.Unchecked(AprsTimestampFormat.HoursMinutesSecondsUtc, 0, 0, F(0), F(2), F(4)),
                 _ => throw new FormatException($"'{s}' is not an on-air timestamp"),
             };
-    }
-
-    private static byte Bits(string onAir)
-    {
-        byte b = 0;
-        for (int i = 0; i < onAir.Length; i++)
-        {
-            if (onAir[i] == '1')
-            {
-                b |= (byte)(1 << i);
-            }
-        }
-
-        return b;
     }
 
     /// <summary>

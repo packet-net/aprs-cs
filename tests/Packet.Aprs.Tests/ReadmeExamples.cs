@@ -21,10 +21,10 @@ public class ReadmeExamples
         $"{p.AltitudeFeet} ft, \"{p.Comment}\"".Should().Be("1234 ft, \"Hello\"");
         packet.QConstruct!.Value.Station!.Value.Value.Should().Be("M0LTE-10");
 
-        AprsPacket beacon = Aprs.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1")
+        AprsPacket beacon = AprsStation.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1")
             .Position(51.4543, -0.9781)
             .Symbol(AprsSymbol.Car)
-            .Course(88).Speed(36).Altitude(120)
+            .CourseDegrees(88).SpeedKnots(36).AltitudeFeet(120)
             .Comment("Mobile")
             .Build();
 
@@ -62,7 +62,7 @@ public class ReadmeExamples
 
             switch (station.Data)
             {
-                case AprsObjectReport { IsAlive: false } killed:
+                case AprsObjectReport { IsKilled: true } killed:
                     Remove(killed.Name);
                     break;
                 case AprsObjectReport o:
@@ -90,7 +90,7 @@ public class ReadmeExamples
         $"{mobile.Position.Latitude}, {mobile.Position.Longitude}".Should().Be("42.179, -71.1985");
         $"{mobile.SpeedKnots} kn heading {mobile.CourseDegrees} deg".Should().Be("9 kn heading 215 deg");
         $"{mobile.AltitudeFeet:F0} ft".Should().Be("72 ft");
-        mobile.Message.Should().Be(AprsMicEMessage.OffDuty);
+        mobile.MicEMessage.Should().Be(AprsMicEMessage.OffDuty);
         mobile.Device!.ToString().Should().Be("Yaesu FTM-400DR");
         mobile.MessagingCapable.Should().BeTrue();
         packet.Path[0].ToString().Should().Be("WA1PLE-4*");
@@ -122,8 +122,8 @@ public class ReadmeExamples
     [Fact]
     public void Example_4_send_a_message_and_know_when_it_arrived()
     {
-        AprsStation me = Aprs.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1");
-        AprsPacket outgoing = me.Message("N0CALL-7", "Meet at the club at 8?").WithId("42").Build();
+        AprsStation me = AprsStation.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1");
+        AprsPacket outgoing = me.Message("N0CALL-7", "Meet at the club at 8?").MessageId("42").Build();
         outgoing.ToString().Should().Be("M0LTE-9>APZ001,WIDE1-1,WIDE2-1::N0CALL-7 :Meet at the club at 8?{42");
 
         AprsPacket incoming = AprsPacket.Decode("N0CALL-7>APDR16,WIDE1-1,qAR,N0CALL-10::M0LTE-9  :ack42");
@@ -138,22 +138,22 @@ public class ReadmeExamples
     [Fact]
     public void Example_5_announce_a_repeater()
     {
-        AprsObjectBuilder repeater = Aprs.From("M0LTE").Via("WIDE2-1")
+        AprsObjectBuilder repeater = AprsStation.From("M0LTE").Via("WIDE2-1")
             .Object("MYRPTR").At(51.4543, -0.9781)
             .Symbol(AprsSymbol.Repeater)
             .Timestamp(AprsTimestamp.DayHoursMinutes(25, 18, 30))
-            .Frequency(145.725, tone: 118.8, offsetKHz: -600)
+            .Frequency(145.725, AprsToneType.Tone, toneValue: 118, offsetKHz: -600)
             .Comment("Reading repeater");
 
         repeater.Build().ToString()
             .Should().Be("M0LTE>APZ001,WIDE2-1:;MYRPTR   *251830z5127.26N/00058.69Wr145.725MHz T118 -060 Reading repeater");
 
-        AprsPacket kill = repeater.Kill().Build();
+        AprsPacket kill = repeater.Killed().Build();
         kill.ToString().Should().Contain(";MYRPTR   _251830z");
 
         var heard = (AprsObjectReport)AprsPacket.Decode(kill.ToString()).Data;
-        heard.IsAlive.Should().BeFalse();
-        heard.Frequency.Should().Be(new AprsVoiceFrequency { FrequencyMHz = 145.725m, ToneType = AprsToneType.Tone, ToneValue = 118, OffsetKHz = -600 });
+        heard.IsKilled.Should().BeTrue();
+        heard.Frequency.Should().Be(new AprsVoiceFrequency { FrequencyMHz = 145.725, ToneType = AprsToneType.Tone, ToneValue = 118, OffsetKHz = -600 });
         heard.Position.Latitude.Should().BeApproximately(51.4543, 0.01 / 60);
     }
 
@@ -182,7 +182,7 @@ public class ReadmeExamples
                 case AprsTelemetryReport t when names is not null && units is not null && equations is not null:
                     for (int channel = 1; channel <= t.Analog.Count; channel++)
                     {
-                        if (t.Analog[channel - 1] is decimal raw)
+                        if (t.Analog[channel - 1] is double raw)
                         {
                             output.Add($"{names.Names[channel - 1]}: {equations.Scale(channel, raw):0.##} {units.Units[channel - 1]}");
                         }
@@ -190,7 +190,7 @@ public class ReadmeExamples
 
                     for (int bit = 0; bit < 8 && 5 + bit < names.Names.Count; bit++)
                     {
-                        bool set = ((t.Digital >> bit) & 1) == 1;
+                        bool set = t.Bits![bit] == '1';
                         output.Add($"{names.Names[5 + bit]}: {(set ? units.Units[5 + bit] : "-")}");
                     }
 
@@ -229,7 +229,7 @@ public class ReadmeExamples
     public void Example_8_on_the_air_with_packet_ax25()
     {
         Ax25Frame frame = Ax25Frame.Ui(new Callsign("APZ001"), new Callsign("N0CALL", 9), "!5130.00N/00007.00W>"u8);
-        AprsPacket packet = AprsPacket.Create("M0LTE-9", "APZ001", new AprsStatusReport { Text = "hi" });
+        AprsPacket packet = AprsPacket.Create("M0LTE-9", new AprsStatusReport { Text = "hi" }, "APZ001");
 
         AprsPacket received = AprsPacket.DecodeAx25(frame.ToBytes());
         Ax25Frame.TryParse(packet.ToAx25Frame(), out Ax25Frame? toSend).Should().BeTrue();

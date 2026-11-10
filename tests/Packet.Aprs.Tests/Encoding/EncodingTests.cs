@@ -12,7 +12,7 @@ public class EncodingTests : AprsSpec
     public void Creating_a_packet_needs_mic_e_to_go_through_create_mic_e()
     {
         var mic = new AprsMicEReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>") };
-        FluentActions.Invoking(() => AprsPacket.Create("N0CALL", "APZ001", mic)).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => AprsPacket.Create("N0CALL", mic, "APZ001")).Should().Throw<AprsEncodeException>();
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class EncodingTests : AprsSpec
     {
         // A decoder reads a Mic-E course of 0 as no course; north is 360.
         var report = new AprsMicEReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), CourseDegrees = 0, SpeedKnots = 10 };
-        FluentActions.Invoking(() => AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report)).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => AprsPacket.Create(AprsAddress.Parse("N0CALL"), report)).Should().Throw<AprsEncodeException>();
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public class EncodingTests : AprsSpec
     {
         // Mic-E writes 100-109 degrees as 180-189 would be written, so 180 itself has no form (APRS12c ch. 10).
         var report = new AprsMicEReport { Position = new AprsPosition(49.05, 180), Symbol = AprsSymbol.Parse("/>") };
-        FluentActions.Invoking(() => AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report)).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => AprsPacket.Create(AprsAddress.Parse("N0CALL"), report)).Should().Throw<AprsEncodeException>();
     }
 
     [Fact]
@@ -109,14 +109,14 @@ public class EncodingTests : AprsSpec
         // |3 is not a suffix the device database lists after the > type code, so it would read
         // back as comment text.
         var report = new AprsMicEReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), TypeCode = '>', DeviceSuffix = "|3", Comment = "Net" };
-        FluentActions.Invoking(() => AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report)).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => AprsPacket.Create(AprsAddress.Parse("N0CALL"), report)).Should().Throw<AprsEncodeException>();
     }
 
     [Fact]
     public void Mic_telemetry_with_an_empty_first_channel_is_refused()
     {
         // T#MIC,,119 reads back otherwise, so no form holds it (vectors ruling F12).
-        WhenEncodingIsAttempted(new AprsTelemetryReport { Sequence = "MIC", Analog = [null, 119m, 62.66m, 175m, 999m], Digital = 0b1001_0110 });
+        WhenEncodingIsAttempted(new AprsTelemetryReport { Sequence = "MIC", Analog = [null, 119, 62.66, 175, 999], Bits = "01101001" });
         ThenEncodingFailed();
     }
 
@@ -137,7 +137,7 @@ public class EncodingTests : AprsSpec
     public void Snowfall_is_rounded_to_its_three_characters(string inches, string written)
     {
         // Hundredths under 1, tenths under 10, else whole; a whole result in three digits (ruling F3).
-        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = decimal.Parse(inches, System.Globalization.CultureInfo.InvariantCulture) };
+        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = double.Parse(inches, System.Globalization.CultureInfo.InvariantCulture) };
         WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.WeatherStation, Weather = weather });
         Show(Encoded).Should().EndWith(written);
     }
@@ -145,7 +145,7 @@ public class EncodingTests : AprsSpec
     [Fact]
     public void Snowfall_that_rounds_past_999_is_refused()
     {
-        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = 999.5m };
+        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = 999.5 };
         WhenEncodingIsAttempted(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.WeatherStation, Weather = weather });
         ThenEncodingFailed();
     }
@@ -156,12 +156,12 @@ public class EncodingTests : AprsSpec
         GivenInformationField("?APRS? 34.360,-.1715,0200");
         WhenDecoded();
         var query = ThenDataIs<AprsGeneralQuery>();
-        query.Footprint.Should().Be(new AprsQueryFootprint(34.36m, -0.1715m, 200));
+        query.Footprint.Should().Be(new AprsQueryFootprint(34.36, -0.1715, 200));
 
         WhenEncoded(query);
         ThenEncodedIs("?APRS? 34.360,-.1715,0200");
 
-        WhenEncoded(query with { Footprint = new AprsQueryFootprint(34.36m, -0.1715m, 200) });
+        WhenEncoded(query with { Footprint = new AprsQueryFootprint(34.36, -0.1715, 200) });
         ThenEncodedIs("?APRS? 34.36,-0.1715,0200");
     }
 
@@ -201,10 +201,10 @@ public class EncodingTests : AprsSpec
     [Fact]
     public void A_mic_e_range_and_speed_are_rounded()
     {
-        var report = new AprsMicEReport { Position = new AprsPosition(33.427333, -112.129), Symbol = new AprsSymbol('/', 'j'), SpeedKnots = 0.5, RadioRangeMiles = 4362.7, TypeCode = '`' };
-        string info = Show(AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report).Information.ToArray());
+        var report = new AprsMicEReport { Position = new AprsPosition(33.427333, -112.129), Symbol = new AprsSymbol('/', 'j'), SpeedKnots = 0.5, RangeMiles = 4362.7, TypeCode = '`' };
+        string info = Show(AprsPacket.Create(AprsAddress.Parse("N0CALL"), report).Information.ToArray());
         info.Should().EndWith("RNG4363");
-        ((AprsMicEReport)AprsPacket.Decode(AprsAddress.Parse("N0CALL"), global::Packet.Aprs.Internal.MicECodec.EncodeDestination(report), [], AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report).Information.ToArray()).Data)
+        ((AprsMicEReport)AprsPacket.Decode(AprsAddress.Parse("N0CALL"), global::Packet.Aprs.Internal.MicECodec.EncodeDestination(report), [], AprsPacket.Create(AprsAddress.Parse("N0CALL"), report).Information.ToArray()).Data)
             .SpeedKnots.Should().Be(1);
     }
 
@@ -213,7 +213,7 @@ public class EncodingTests : AprsSpec
     {
         WhenEncoded(new AprsTelemetryCoefficients { Addressee = "N0CALL", Coefficients = [0.53, 190.0, 1e61, 1e-7, -94.0] });
         ThenEncodedIs(":N0CALL   :EQNS.0.53,190,1" + new string('0', 61) + ",0.0000001,-94");
-        WhenEncoded(new AprsGeneralQuery { QueryType = "APRS", Footprint = new AprsQueryFootprint(0m, 34.0m, 200) });
+        WhenEncoded(new AprsGeneralQuery { QueryType = "APRS", Footprint = new AprsQueryFootprint(0, 34.0, 200) });
         ThenEncodedIs("?APRS? 0, 34,0200");
     }
 
@@ -240,7 +240,7 @@ public class EncodingTests : AprsSpec
     {
         // The 13 would read back as a trailing line break, stripped with a warning.
         var report = new AprsMicEReport { Position = new AprsPosition(33.427333, -112.129), Symbol = new AprsSymbol('/', 'j'), LegacyTelemetry = [203, 184, 177, 127, 13] };
-        FluentActions.Invoking(() => AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report)).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => AprsPacket.Create(AprsAddress.Parse("N0CALL"), report)).Should().Throw<AprsEncodeException>();
     }
 
     // ------------------------------------------------------------ exact bytes (vectors rulings E1-E12)
@@ -275,7 +275,7 @@ public class EncodingTests : AprsSpec
         var report = new AprsPositionReport
         {
             Position = Somewhere, Symbol = AprsSymbol.Parse("/j"), CourseDegrees = 6, SpeedKnots = 58,
-            Frequency = new AprsVoiceFrequency { FrequencyMHz = 146.520m }, AltitudeFeet = 889, Comment = "Dayton Bound",
+            Frequency = new AprsVoiceFrequency { FrequencyMHz = 146.520 }, AltitudeFeet = 889, Comment = "Dayton Bound",
         };
         WhenEncoded(report);
         ThenEncodedIs("!4903.50N/07201.75Wj006/058/146.520MHz/A=000889 Dayton Bound");
@@ -306,9 +306,9 @@ public class EncodingTests : AprsSpec
         var report = new AprsMicEReport
         {
             Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), TypeCode = '`', Phg = new AprsPhg(7, 5, 3, 0),
-            Frequency = new AprsVoiceFrequency { FrequencyMHz = 145.425m }, Comment = "Club",
+            Frequency = new AprsVoiceFrequency { FrequencyMHz = 145.425 }, Comment = "Club",
         };
-        AprsPacket created = AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report);
+        AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), report);
         Show(created.Information.Span).Should().EndWith("`PHG7530/145.425MHz Club");
         var back = (AprsMicEReport)AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data;
         (back.Phg, back.Frequency, back.Comment).Should().Be((report.Phg, report.Frequency, report.Comment));
@@ -319,7 +319,7 @@ public class EncodingTests : AprsSpec
     {
         // E5: SP + 80 would be DEL; the table's other character for that band is '/'.
         var report = new AprsMicEReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), CourseDegrees = 90, SpeedKnots = 195 };
-        AprsPacket created = AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report);
+        AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), report);
         created.Information.Span[4].Should().Be((byte)'/');
         AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data.Should().Be(report);
     }
@@ -334,7 +334,7 @@ public class EncodingTests : AprsSpec
         // comment reads back as itself, and a space after a frequency before a 0x00.
         GivenPacket(tnc2);
         WhenDecoded();
-        AprsPacket created = AprsPacket.CreateMicE(Packet.Source, (AprsMicEReport)Packet.Data);
+        AprsPacket created = AprsPacket.Create(Packet.Source, (AprsMicEReport)Packet.Data);
         Show(created.Information.Span).Should().Be(Show(Packet.Information.Span));
         created.Destination.Should().Be(Packet.Destination);
     }
@@ -357,7 +357,7 @@ public class EncodingTests : AprsSpec
     public void Snowfall_is_written_in_its_one_form(string inches, string written)
     {
         // E8: under 1 inch is '.' and two digits.
-        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = decimal.Parse(inches, System.Globalization.CultureInfo.InvariantCulture) };
+        var weather = new AprsWeather { WindDirectionDegrees = 220, WindSpeedMph = 4, WindGustMph = 5, TemperatureFahrenheit = 77, SnowfallLast24HoursInches = double.Parse(inches, System.Globalization.CultureInfo.InvariantCulture) };
         var report = new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.WeatherStation, Weather = weather };
         WhenEncoded(report);
         ThenEncodedIs("!4903.50N/07201.75W_220/004g005t077" + written);
@@ -411,7 +411,7 @@ public class EncodingTests : AprsSpec
         GivenPacket("AK6ID-9>SS5UQQ:`.3 lSU>/`\"4}_01/A=000010 70cm%");
         WhenDecoded();
         var report = ThenDataIs<AprsMicEReport>();
-        AprsPacket created = AprsPacket.CreateMicE(Packet.Source, report);
+        AprsPacket created = AprsPacket.Create(Packet.Source, report);
         Show(created.Information.Span).Should().Be("`.3 lSU>/`/A=000010 \"4}_01 70cm%");
         AprsPacket again = AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span);
         again.Diagnostics.Should().BeEmpty();
@@ -428,7 +428,7 @@ public class EncodingTests : AprsSpec
         // hold the centre the decoder reports, not the position's own digits.
         double longitude = -(70 + ((34 + (hundredths / 100)) / 60));
         var report = new AprsMicEReport { Position = new AprsPosition(49.0583, longitude, ambiguity), Symbol = AprsSymbol.Parse("/>"), CourseDegrees = 90, SpeedKnots = 10 };
-        AprsPacket created = AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report);
+        AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), report);
         (created.Information.Span[3] - 28).Should().Be(written);
     }
 
@@ -436,8 +436,8 @@ public class EncodingTests : AprsSpec
     public void A_mic_e_report_with_two_data_extensions_is_refused()
     {
         // A decoder lifts only one of PHG, RNG and DFS from the status text.
-        var report = new AprsMicEReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), Phg = new AprsPhg(1, 5, 6, 0), RadioRangeMiles = 1 };
-        FluentActions.Invoking(() => AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), report)).Should().Throw<ArgumentException>();
+        var report = new AprsMicEReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), Phg = new AprsPhg(1, 5, 6, 0), RangeMiles = 1 };
+        FluentActions.Invoking(() => AprsPacket.Create(AprsAddress.Parse("N0CALL"), report)).Should().Throw<AprsEncodeException>();
     }
 
     [Fact]
@@ -467,7 +467,7 @@ public class EncodingTests : AprsSpec
     public void Create_builds_the_whole_packet()
     {
         var status = new AprsStatusReport { Text = "Net Control" };
-        AprsPacket packet = AprsPacket.Create("M0LTE-9", "APZ001", status, "WIDE1-1,WIDE2-1");
+        AprsPacket packet = AprsPacket.Create("M0LTE-9", status, "APZ001", "WIDE1-1,WIDE2-1");
         packet.ToString().Should().Be("M0LTE-9>APZ001,WIDE1-1,WIDE2-1:>Net Control");
         packet.Diagnostics.Should().BeEmpty();
         AprsPacket.DecodeAx25(packet.ToAx25Frame()).Should().Be(packet);

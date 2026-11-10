@@ -1,7 +1,7 @@
 namespace Packet.Aprs;
 
 /// <summary>Whether a compressed position's fix was current (APRS12c §9 Compression Type byte, bit 5).</summary>
-public enum AprsGpsFix
+public enum AprsCompressionFix
 {
     /// <summary>Old (last known) fix.</summary>
     Old = 0,
@@ -11,7 +11,7 @@ public enum AprsGpsFix
 }
 
 /// <summary>The NMEA sentence a compressed position came from (T byte bits 3-4).</summary>
-public enum AprsNmeaSource
+public enum AprsCompressionSource
 {
     /// <summary>Other or unknown.</summary>
     Other = 0,
@@ -61,16 +61,16 @@ public enum AprsCompressionOrigin
 /// <param name="Fix">Old or current fix.</param>
 /// <param name="Source">The NMEA sentence the data came from.</param>
 /// <param name="Origin">What compressed it.</param>
-public readonly record struct AprsCompressionType(AprsGpsFix Fix, AprsNmeaSource Source, AprsCompressionOrigin Origin)
+public readonly record struct AprsCompressionType(AprsCompressionFix Fix, AprsCompressionSource Source, AprsCompressionOrigin Origin)
 {
     /// <summary>
     /// Current fix, other source, compressed by software: what the encoder writes when the cs bytes
     /// carry data but <see cref="AprsPositionedData.CompressionType"/> is not set.
     /// </summary>
-    public static AprsCompressionType Default => new(AprsGpsFix.Current, AprsNmeaSource.Other, AprsCompressionOrigin.Software);
+    public static AprsCompressionType Default => new(AprsCompressionFix.Current, AprsCompressionSource.Other, AprsCompressionOrigin.Software);
 
     internal int Bits => ((int)Fix << 5) | ((int)Source << 3) | (int)Origin;
 
     internal static AprsCompressionType FromBits(int bits) =>
-        new((AprsGpsFix)((bits >> 5) & 1), (AprsNmeaSource)((bits >> 3) & 3), (AprsCompressionOrigin)(bits & 7));
+        new((AprsCompressionFix)((bits >> 5) & 1), (AprsCompressionSource)((bits >> 3) & 3), (AprsCompressionOrigin)(bits & 7));
 }

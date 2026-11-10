@@ -29,15 +29,15 @@ public sealed record AprsParseOptions
     /// <summary>Every tolerance off: packets must follow APRS12c.</summary>
     public static AprsParseOptions Strict { get; } = new()
     {
-        StripTrailingLineBreaks = false,
+        AllowTrailingLineBreak = false,
         AllowNonUtf8Text = false,
         AllowLowercaseHemisphere = false,
-        AllowOutOfRangeValues = false,
+        AllowOutOfRangeValue = false,
         AllowObjectWithoutTimestamp = false,
-        AllowShortObjectName = false,
+        AllowObjectNameNotPadded = false,
         AllowIncompleteWeather = false,
         AllowWeatherComment = false,
-        RecognizeDataExtensionInComment = false,
+        AllowDataExtensionInComment = false,
         AllowKenwoodFfPadding = false,
         AllowEmptyDestination = false,
         AllowEmptyPathEntry = false,
@@ -47,15 +47,15 @@ public sealed record AprsParseOptions
         AllowUnpaddedAddressee = false,
         AllowInvalidAx25AddressCharacters = false,
         AllowMissingSpaceAfterLocator = false,
-        AllowIncompleteTelemetry = false,
+        AllowInvalidTelemetry = false,
         AllowCompressionTypeReservedBits = false,
         AllowInvalidTimestamp = false,
         AllowMalformedTimestamp = false,
         AllowPositionNotAtStart = false,
-        AllowNonStandardWeatherFieldWidths = false,
-        AllowWindFieldsInPositionWeather = false,
+        AllowNonStandardWeatherFieldWidth = false,
+        AllowWindFieldsInsteadOfExtension = false,
         AllowWindExtensionAfterCompressed = false,
-        AllowMicEAltitudeAnywhere = false,
+        AllowMicEAltitudeNotFirst = false,
         AllowDaoWithAmbiguity = false,
         AllowBraceInMessageText = false,
         AllowInvalidAddresseeCharacters = false,
@@ -68,7 +68,7 @@ public sealed record AprsParseOptions
     /// not to send them; Kenwood radios add CR after acks (UAP §5.13) and many devices add one to
     /// comments (UAP §2.2). The raw bytes stay in <see cref="AprsPacket.Information"/>.
     /// </summary>
-    public bool StripTrailingLineBreaks { get; init; } = true;
+    public bool AllowTrailingLineBreak { get; init; } = true;
 
     /// <summary>
     /// Accept free text that is not valid UTF-8 (APRS 1.2 text is ASCII or UTF-8); such bytes are
@@ -84,14 +84,14 @@ public sealed record AprsParseOptions
     /// Accept a well-formed field whose value is out of range (e.g. a course over 360) by dropping
     /// that one value.
     /// </summary>
-    public bool AllowOutOfRangeValues { get; init; } = true;
+    public bool AllowOutOfRangeValue { get; init; } = true;
 
     /// <summary>Accept an object report without a timestamp; APRS12c §11 says an object always has one
     /// (even the spec's own weather-object example omits it).</summary>
     public bool AllowObjectWithoutTimestamp { get; init; } = true;
 
     /// <summary>Accept an object name that is not space-padded to 9 characters (APRS12c §11).</summary>
-    public bool AllowShortObjectName { get; init; } = true;
+    public bool AllowObjectNameNotPadded { get; init; } = true;
 
     /// <summary>Accept weather reports missing mandatory fields: the wind extension, gust or
     /// temperature (APRS12c §12 requires them, as dots if unknown).</summary>
@@ -106,7 +106,7 @@ public sealed record AprsParseOptions
     /// Strictly such text is plain comment (UAP §5.15); with this off it is left in the comment
     /// rather than rejected.
     /// </summary>
-    public bool RecognizeDataExtensionInComment { get; init; } = true;
+    public bool AllowDataExtensionInComment { get; init; } = true;
 
     /// <summary>Remove the runs of 0xFF bytes (and stray 0x00 / 0x0F) that some Kenwood TM-D710 radios
     /// insert before the Mic-E device suffix (UAP §5.10).</summary>
@@ -143,7 +143,7 @@ public sealed record AprsParseOptions
 
     /// <summary>Accept a telemetry report with fewer than 5 analog values or without the 8 digital
     /// bits (APRS12c §13).</summary>
-    public bool AllowIncompleteTelemetry { get; init; } = true;
+    public bool AllowInvalidTelemetry { get; init; } = true;
 
     /// <summary>Accept a compressed position whose type byte sets the two unused high bits
     /// (APRS12c §9); they are ignored. Driver: UI-View32 compressed weather reports.</summary>
@@ -175,12 +175,12 @@ public sealed record AprsParseOptions
     /// digits clearly end there: <c>t45</c>, <c>h070</c>, <c>h100</c>, <c>b...</c> (APRS12c §12, UAP §5.31).
     /// A spec-width reading is always tried first, so this never changes a well-formed report.
     /// </summary>
-    public bool AllowNonStandardWeatherFieldWidths { get; init; } = true;
+    public bool AllowNonStandardWeatherFieldWidth { get; init; } = true;
 
     /// <summary>Accept wind as positionless-style <c>cDDDsSSS</c> fields in a position weather report
     /// instead of the <c>DDD/SSS</c> extension, or after a compressed position whose cs bytes carry no
     /// wind. Driver: ESP32 and Ecowitt gateway firmware, LoRa APRS trackers.</summary>
-    public bool AllowWindFieldsInPositionWeather { get; init; } = true;
+    public bool AllowWindFieldsInsteadOfExtension { get; init; } = true;
 
     /// <summary>Accept an uncompressed <c>DDD/SSS</c> wind extension after a compressed weather position,
     /// which already carries wind in its cs bytes (UAP §5.33). Driver: LoRa APRS trackers.</summary>
@@ -188,7 +188,7 @@ public sealed record AprsParseOptions
 
     /// <summary>Recognise a Mic-E <c>xxx}</c> altitude later in the status text rather than only at its
     /// start (APRS12c §10). Driver: several radios put it at the end.</summary>
-    public bool AllowMicEAltitudeAnywhere { get; init; } = true;
+    public bool AllowMicEAltitudeNotFirst { get; init; } = true;
 
     /// <summary>Accept a <c>!DAO!</c> with extra precision on an ambiguous position, which contradict
     /// each other; the extra precision is ignored and the datum kept.</summary>
