@@ -116,7 +116,15 @@ internal static class NeutralReader
     private static AprsThirdPartyTraffic ThirdParty(JsonObject p)
     {
         IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
-        AprsPacket inner = AprsPacket.Create(AprsAddress.Parse(Str(p, "source")), AprsAddress.Parse(Str(p, "destination")), Data(p["data"]!.AsObject()), path);
+        AprsAddress source = AprsAddress.Parse(Str(p, "source"));
+        AprsAddress destination = AprsAddress.Parse(Str(p, "destination"));
+        JsonObject data = p["data"]!.AsObject();
+
+        // An empty inner information field is data too: it is written back as it came, empty
+        // (vectors README, Encoding). Other unrecognized data carries no bytes to write.
+        AprsPacket inner = Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"
+            ? AprsPacket.Decode(source, destination, path, [])
+            : AprsPacket.Create(source, destination, Data(data), path);
         return new AprsThirdPartyTraffic { Packet = inner };
     }
 
