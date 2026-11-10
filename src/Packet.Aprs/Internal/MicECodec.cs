@@ -150,7 +150,7 @@ internal static class MicECodec
             return null;
         }
 
-        return fields.ApplyTo(report with { AltitudeInComment = fields.AltitudeFeet is not null && !fields.AltitudeInBytes });
+        return fields.ApplyTo(report with { AltitudeInComment = fields.AltitudeFeet is not null && (fields.AltitudeFromComment || !fields.AltitudeInBytes) });
     }
 
     private static bool TryReadStatus(ReadOnlySpan<byte> info, DecodeContext ctx, PositionedFields fields, ref AprsMicEReport report)

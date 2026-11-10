@@ -182,6 +182,19 @@ public class ApiContractTests
     }
 
     [Fact]
+    public void A_slash_a_altitude_that_wins_over_mic_e_altitude_bytes_is_written_back_there()
+    {
+        byte[] line = System.Text.Encoding.UTF8.GetBytes("DL7VAF-9>UR4P64,WIDE1-1,qAO,DB0BBB:`)?rm B>/`\"4P}18.99Wi/A=00000070c45.500MHz Dieter Y14 _% ");
+        AprsPacket packet = AprsPacket.Decode(line);
+        var report = (AprsMicEReport)packet.Data;
+
+        report.AltitudeInComment.Should().BeTrue();
+        AprsPacket again = AprsPacket.Create(packet.Source, report, null, packet.Path);
+        System.Text.Encoding.Latin1.GetString(again.Information.Span).Should().Contain("/A=000000").And.NotContain("}");
+        ((AprsMicEReport)AprsPacket.Decode(again.ToTnc2()).Data).AltitudeFeet.Should().Be(report.AltitudeFeet);
+    }
+
+    [Fact]
     public void Every_parse_option_flag_is_allow_plus_the_code_it_tolerates()
     {
         string[] codes = [.. Enum.GetNames<AprsDiagnosticCode>()];
