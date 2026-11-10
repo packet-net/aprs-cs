@@ -178,12 +178,13 @@ public class EncodingTests : AprsSpec
     }
 
     [Fact]
-    public void A_compressed_speed_that_rounds_to_0_is_written_and_one_below_is_refused()
+    public void A_compressed_speed_whose_nearest_step_is_0_is_written_and_one_below_is_refused()
     {
-        var report = new AprsPositionReport { Position = new AprsPosition(49.5, -72.75), Symbol = AprsSymbol.Car, IsCompressed = true, CourseDegrees = 88, SpeedKnots = -0.3 };
+        // -0.03 knots is nearest s = 0; -0.3 is nearest s = -5, outside the byte (ruling G3).
+        var report = new AprsPositionReport { Position = new AprsPosition(49.5, -72.75), Symbol = AprsSymbol.Car, IsCompressed = true, CourseDegrees = 88, SpeedKnots = -0.03 };
         WhenEncoded(report);
         Show(Encoded).Should().StartWith("!/5L!!<*e8>7!");
-        WhenEncodingIsAttempted(report with { SpeedKnots = -0.5 });
+        WhenEncodingIsAttempted(report with { SpeedKnots = -0.3 });
         ThenEncodingFailed();
     }
 

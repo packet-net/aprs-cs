@@ -871,14 +871,16 @@ internal static class PositionCodec
     /// </summary>
     private static int SpeedCode(double knots)
     {
-        // A negative speed that rounds to 0 knots (-0.3) is 0, the lowest step (vectors ruling F2).
-        if (Steps.Whole(knots) < 0 || double.IsNaN(knots))
+        // The steps follow 1.08^s - 1 for every whole s; a speed rounds to the nearest, and one
+        // whose s is outside the byte is refused: -0.03 knots is s = 0, -0.3 is s = -5 (vectors
+        // ruling G3).
+        long s = knots == 0 ? 0 : knots > -1 ? Steps.Count(Math.Log(knots + 1) / Math.Log(1.08)) : -1;
+        if (s < 0 || double.IsNaN(knots))
         {
-            throw new ArgumentOutOfRangeException(nameof(knots), knots, "a speed is not negative");
+            throw new ArgumentOutOfRangeException(nameof(knots), knots, "a compressed speed is 0 to 1.08^90 - 1 knots");
         }
 
-        int s = knots <= 0 ? 0 : (int)Steps.Count(Math.Log(knots + 1) / Math.Log(1.08));
-        return s > 90 ? throw new ArgumentOutOfRangeException(nameof(knots), "speed too high for compressed form") : s;
+        return s > 90 ? throw new ArgumentOutOfRangeException(nameof(knots), "speed too high for compressed form") : (int)s;
     }
 
     private static void WriteDataExtension(InfoWriter w, AprsPositionedData d)
