@@ -299,6 +299,7 @@ internal static class CommentCodec
             }
 
             f.AltitudeFeet = negative ? -value : value;
+            f.AltitudeFromComment = true;
             c.RemoveRange(i, 9);
             return;
         }

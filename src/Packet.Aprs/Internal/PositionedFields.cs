@@ -29,6 +29,9 @@ internal sealed class PositionedFields
     /// <summary>A Mic-E altitude was read from its altitude bytes rather than a <c>/A=</c>.</summary>
     public bool AltitudeInBytes { get; set; }
 
+    /// <summary>The altitude came from a <c>/A=</c> in the comment, which wins over Mic-E altitude bytes.</summary>
+    public bool AltitudeFromComment { get; set; }
+
     public AprsDfSignalStrength? DfSignalStrength { get; set; }
 
     public AprsAreaObject? AreaObject { get; set; }
