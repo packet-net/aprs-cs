@@ -34,7 +34,7 @@ public abstract record AprsPositionedData : AprsData
     /// <summary>Course in degrees, 1-360 clockwise from north (360 = north). 0 means unknown except
     /// in DF reports, where it means the DF station is fixed. Null when not sent or sent as dots/spaces.
     /// A fraction is rounded once, to the nearest step the field holds (whole degrees, or 4 degrees in a
-    /// compressed position), halves away from zero.</summary>
+    /// compressed position), halves away from zero: whole when decoded; rounded once when encoded.</summary>
     public double? CourseDegrees { get; init; }
 
     /// <summary>Speed over ground in knots. Null when not sent or unknown.</summary>
@@ -45,7 +45,7 @@ public abstract record AprsPositionedData : AprsData
 
     /// <summary>Pre-calculated omnidirectional radio range in miles (<c>RNGrrrr</c>, or the
     /// compressed <c>{</c> form), if sent.</summary>
-    public double? RadioRangeMiles { get; init; }
+    public double? RangeMiles { get; init; }
 
     /// <summary>Omni-DF signal strength (<c>DFSshgd</c>), if sent.</summary>
     public AprsDfSignalStrength? DfSignalStrength { get; init; }
@@ -119,7 +119,7 @@ public sealed record AprsPositionReport : AprsPositionedData
 /// <summary>
 /// An object: something placed on the map by a station on its behalf, such as a storm, an event
 /// or a repeater (APRS12c §11). Data type identifier <c>;</c>. Any station may take over an
-/// object by sending one with the same name; <see cref="IsAlive"/> false kills it.
+/// object by sending one with the same name; <see cref="IsKilled"/> kills it.
 /// </summary>
 public sealed record AprsObjectReport : AprsPositionedData
 {
@@ -127,8 +127,8 @@ public sealed record AprsObjectReport : AprsPositionedData
     /// trailing spaces are padding and not part of the name).</summary>
     public required string Name { get; init; }
 
-    /// <summary>True for a live object (<c>*</c>), false for a killed one (<c>_</c>).</summary>
-    public bool IsAlive { get; init; } = true;
+    /// <summary>True for a killed object (<c>_</c>), false for a live one (<c>*</c>).</summary>
+    public bool IsKilled { get; init; }
 
     /// <summary>
     /// When the object report was made. The spec requires one; <c>111111z</c> marks a permanent
@@ -141,11 +141,11 @@ public sealed record AprsObjectReport : AprsPositionedData
 
     internal override void Encode(Internal.InfoWriter writer)
     {
-        Internal.ObjectCodec.ValidateObjectName(Name, nameof(Name));
-        writer.Char(';').Ascii(Name.PadRight(9)).Char(IsAlive ? '*' : '_');
+        Internal.ObjectCodec.ValidateObjectName(Name);
+        writer.Char(';').Ascii(Name.PadRight(9)).Char(IsKilled ? '_' : '*');
         Internal.TimestampCodec.Write(
             writer,
-            Timestamp ?? throw new ArgumentException("an object report must have a timestamp (APRS12c ch. 11)", nameof(Timestamp)),
+            Timestamp ?? throw new AprsEncodeException("an object report must have a timestamp (APRS12c ch. 11)"),
             allowMonthDay: false);
         Internal.PositionCodec.WriteBody(writer, this);
     }
@@ -161,16 +161,16 @@ public sealed record AprsItemReport : AprsPositionedData
     /// <summary>The item name, 3-9 printable ASCII characters other than <c>!</c> and <c>_</c>.</summary>
     public required string Name { get; init; }
 
-    /// <summary>True for a live item (<c>!</c>), false for a killed one (<c>_</c>).</summary>
-    public bool IsAlive { get; init; } = true;
+    /// <summary>True for a killed item (<c>_</c>), false for a live one (<c>!</c>).</summary>
+    public bool IsKilled { get; init; }
 
     /// <inheritdoc/>
     public override char DataTypeIdentifier => ')';
 
     internal override void Encode(Internal.InfoWriter writer)
     {
-        Internal.ObjectCodec.ValidateItemName(Name, nameof(Name));
-        writer.Char(')').Ascii(Name).Char(IsAlive ? '!' : '_');
+        Internal.ObjectCodec.ValidateItemName(Name);
+        writer.Char(')').Ascii(Name).Char(IsKilled ? '_' : '!');
         Internal.PositionCodec.WriteBody(writer, this);
     }
 }

@@ -114,12 +114,12 @@ public readonly record struct AprsAreaObject(
     /// <summary>The longitude offset in degrees: xx squared / 1500.</summary>
     public double LongitudeOffsetDegrees => LongitudeOffsetCode * LongitudeOffsetCode / 1500.0;
 
-    internal void Validate(string paramName)
+    internal void Validate()
     {
         if (!Enum.IsDefined(Shape) || !Enum.IsDefined(Color) || LatitudeOffsetCode is < 0 or > 99 || LongitudeOffsetCode is < 0 or > 99
             || CorridorWidthMiles is < 0 or > 999)
         {
-            throw new ArgumentOutOfRangeException(paramName, this, "area object: defined shape and colour, offsets 0-99, corridor 0-999");
+            throw new AprsEncodeException("area object: defined shape and colour, offsets 0-99, corridor 0-999");
         }
     }
 }

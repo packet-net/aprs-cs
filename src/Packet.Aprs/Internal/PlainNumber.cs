@@ -23,7 +23,7 @@ internal static class PlainNumber
     {
         if (!double.IsFinite(value))
         {
-            throw new ArgumentOutOfRangeException(nameof(value), value, "a number is finite");
+            throw new AprsEncodeException("a number is finite");
         }
 
         if (value == 0)

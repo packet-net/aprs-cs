@@ -81,11 +81,11 @@ public readonly partial record struct AprsSymbol(char Table, char Code)
 
     internal static bool IsValidTable(char table) => table is '/' or '\\' or (>= '0' and <= '9') or (>= 'A' and <= 'Z');
 
-    internal void Validate(string paramName)
+    internal void Validate()
     {
         if (!IsValid)
         {
-            throw new ArgumentException($"'{this}' is not a valid APRS symbol (table / \\ 0-9 A-Z, code ! to ~)", paramName);
+            throw new AprsEncodeException($"'{this}' is not a valid APRS symbol (table / \\ 0-9 A-Z, code ! to ~)");
         }
     }
 }

@@ -4,7 +4,7 @@ namespace Packet.Aprs;
 /// A weather report, from <see cref="AprsStation.Weather()"/> (APRS12c §12). With a position it is
 /// a position report with the weather station symbol, as APRS12c recommends; without, a
 /// positionless weather report. Values are in the units APRS sends (mph, Fahrenheit, inches,
-/// millibars); the <c>Celsius</c>, <c>Metres</c> and similar methods convert. A value between the
+/// millibars); the <c>Celsius</c>, <c>Millimetres</c> and similar methods convert, and change only the unit. A value between the
 /// steps its field holds, a fractional wind direction or humidity say, is rounded once from the
 /// value given when the report is encoded.
 /// </summary>
@@ -86,23 +86,29 @@ public sealed class AprsWeatherBuilder : AprsBuilder
         return this;
     }
 
-    /// <summary>Wind direction in degrees clockwise from north, sustained one-minute speed in mph,
-    /// and optionally the peak gust in the last five minutes in mph.</summary>
-    public AprsWeatherBuilder Wind(double directionDegrees, double speedMph, double? gust = null)
+    /// <summary>Wind direction in degrees clockwise from north.</summary>
+    public AprsWeatherBuilder WindDirectionDegrees(double degrees)
     {
-        weather = weather with { WindDirectionDegrees = directionDegrees, WindSpeedMph = speedMph, WindGustMph = gust ?? weather.WindGustMph };
+        weather = weather with { WindDirectionDegrees = degrees };
+        return this;
+    }
+
+    /// <summary>Sustained one-minute wind speed in mph.</summary>
+    public AprsWeatherBuilder WindSpeedMph(double mph)
+    {
+        weather = weather with { WindSpeedMph = mph };
         return this;
     }
 
     /// <summary>The peak wind gust in the last five minutes, in mph.</summary>
-    public AprsWeatherBuilder Gust(double mph)
+    public AprsWeatherBuilder WindGustMph(double mph)
     {
         weather = weather with { WindGustMph = mph };
         return this;
     }
 
     /// <summary>Temperature in degrees Fahrenheit.</summary>
-    public AprsWeatherBuilder Temperature(double fahrenheit)
+    public AprsWeatherBuilder TemperatureFahrenheit(double fahrenheit)
     {
         weather = weather with { TemperatureFahrenheit = fahrenheit };
         return this;
@@ -110,47 +116,61 @@ public sealed class AprsWeatherBuilder : AprsBuilder
 
     /// <summary>Temperature in degrees Celsius, sent to the nearest degree Fahrenheit.</summary>
     public AprsWeatherBuilder TemperatureCelsius(double celsius) =>
-        Temperature((celsius * 9 / 5) + 32);
+        TemperatureFahrenheit((celsius * 9 / 5) + 32);
 
     /// <summary>Relative humidity, 1-100 percent.</summary>
-    public AprsWeatherBuilder Humidity(double percent)
+    public AprsWeatherBuilder HumidityPercent(double percent)
     {
         weather = weather with { HumidityPercent = percent };
         return this;
     }
 
     /// <summary>Barometric pressure in millibars (hPa), sent to a tenth.</summary>
-    public AprsWeatherBuilder Pressure(double millibars)
+    public AprsWeatherBuilder PressureMillibars(double millibars)
     {
         weather = weather with { PressureMillibars = millibars };
         return this;
     }
 
-    /// <summary>Rainfall in inches over the last hour, the last 24 hours and since local midnight; each is optional.</summary>
-    public AprsWeatherBuilder Rain(double? lastHour = null, double? last24Hours = null, double? sinceMidnight = null)
+    /// <summary>Rainfall in inches over the last hour.</summary>
+    public AprsWeatherBuilder RainLastHourInches(double inches)
     {
-        weather = weather with
-        {
-            RainLastHourInches = lastHour ?? weather.RainLastHourInches,
-            RainLast24HoursInches = last24Hours ?? weather.RainLast24HoursInches,
-            RainSinceMidnightInches = sinceMidnight ?? weather.RainSinceMidnightInches,
-        };
+        weather = weather with { RainLastHourInches = inches };
         return this;
     }
 
-    /// <summary>Rainfall in millimetres, as for <see cref="Rain"/>, sent in inches.</summary>
-    public AprsWeatherBuilder RainMillimetres(double? lastHour = null, double? last24Hours = null, double? sinceMidnight = null) =>
-        Rain(lastHour / 25.4, last24Hours / 25.4, sinceMidnight / 25.4);
+    /// <summary>Rainfall in millimetres over the last hour, sent in inches.</summary>
+    public AprsWeatherBuilder RainLastHourMillimetres(double millimetres) => RainLastHourInches(millimetres / 25.4);
+
+    /// <summary>Rainfall in inches over the last 24 hours.</summary>
+    public AprsWeatherBuilder RainLast24HoursInches(double inches)
+    {
+        weather = weather with { RainLast24HoursInches = inches };
+        return this;
+    }
+
+    /// <summary>Rainfall in millimetres over the last 24 hours, sent in inches.</summary>
+    public AprsWeatherBuilder RainLast24HoursMillimetres(double millimetres) => RainLast24HoursInches(millimetres / 25.4);
+
+    /// <summary>Rainfall in inches since local midnight.</summary>
+    public AprsWeatherBuilder RainSinceMidnightInches(double inches)
+    {
+        weather = weather with { RainSinceMidnightInches = inches };
+        return this;
+    }
+
+    /// <summary>Rainfall in millimetres since local midnight, sent in inches.</summary>
+    public AprsWeatherBuilder RainSinceMidnightMillimetres(double millimetres) => RainSinceMidnightInches(millimetres / 25.4);
 
     /// <summary>Luminosity in watts per square metre, 0-1999.</summary>
-    public AprsWeatherBuilder Luminosity(double wattsPerSquareMetre)
+    public AprsWeatherBuilder LuminosityWattsPerSquareMetre(double wattsPerSquareMetre)
     {
         weather = weather with { LuminosityWattsPerSquareMetre = wattsPerSquareMetre };
         return this;
     }
 
     /// <summary>Snowfall in the last 24 hours, in inches.</summary>
-    public AprsWeatherBuilder Snowfall(decimal inches)
+    public AprsWeatherBuilder SnowfallLast24HoursInches(double inches)
     {
         weather = weather with { SnowfallLast24HoursInches = inches };
         return this;

@@ -180,7 +180,7 @@ internal static class DiffCommand
         {
             if (packet.Data is AprsMicEReport mic)
             {
-                AprsPacket created = AprsPacket.CreateMicE(packet.Source, mic, packet.Path);
+                AprsPacket created = AprsPacket.Create(packet.Source, mic, null, packet.Path);
                 info = created.Information.ToArray();
                 destination = created.Destination;
                 writtenDestination = destination;
@@ -190,7 +190,7 @@ internal static class DiffCommand
                 info = packet.Data.ToInformationField();
             }
         }
-        catch (ArgumentException)
+        catch (AprsEncodeException)
         {
             return "refused";
         }
@@ -265,7 +265,7 @@ internal static class DiffCommand
         {
             if (data is AprsMicEReport mic)
             {
-                AprsPacket created = AprsPacket.CreateMicE(EncodeSource, mic);
+                AprsPacket created = AprsPacket.Create(EncodeSource, mic);
                 info = created.Information.ToArray();
                 destination = created.Destination;
             }
@@ -274,7 +274,7 @@ internal static class DiffCommand
                 info = data.ToInformationField();
             }
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;

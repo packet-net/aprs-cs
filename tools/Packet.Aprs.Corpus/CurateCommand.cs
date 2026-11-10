@@ -61,7 +61,7 @@ internal static class CurateCommand
                 .Append(p.Position.Ambiguity > 0 ? "|ambiguous" : "")
                 .Append(p.CourseDegrees is not null ? "|course" : "")
                 .Append(p.Phg is not null ? "|phg" : "")
-                .Append(p.RadioRangeMiles is not null ? "|rng" : "")
+                .Append(p.RangeMiles is not null ? "|rng" : "")
                 .Append(p.AltitudeFeet is not null ? "|alt" : "")
                 .Append(p.Dao is not null ? "|dao" : "")
                 .Append(p.Telemetry is not null ? "|tlm" : "")

@@ -195,7 +195,7 @@ internal static class VectorsCommand
 
         try
         {
-            byte[] again = lenient.Data is AprsMicEReport mic ? AprsPacket.CreateMicE(lenient.Source, mic, lenient.Path).Information.ToArray() : lenient.Data.ToInformationField();
+            byte[] again = lenient.Data is AprsMicEReport mic ? AprsPacket.Create(lenient.Source, mic, null, lenient.Path).Information.ToArray() : lenient.Data.ToInformationField();
             byte[] original = lenient.Information.ToArray();
             int end = original.Length;
             while (end > 0 && original[end - 1] is (byte)'\r' or (byte)'\n')
@@ -203,7 +203,7 @@ internal static class VectorsCommand
                 end--;
             }
 
-            bool sameDestination = lenient.Data is not AprsMicEReport m || AprsPacket.CreateMicE(lenient.Source, m).Destination == lenient.Destination;
+            bool sameDestination = lenient.Data is not AprsMicEReport m || AprsPacket.Create(lenient.Source, m).Destination == lenient.Destination;
             if (again.AsSpan().SequenceEqual(original.AsSpan(0, end)) && sameDestination)
             {
                 c["reencode"] = "identical";
@@ -223,7 +223,7 @@ internal static class VectorsCommand
                 }
             }
         }
-        catch (ArgumentException)
+        catch (AprsEncodeException)
         {
             c["reencode"] = "refused";
         }

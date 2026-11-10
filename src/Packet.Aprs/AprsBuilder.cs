@@ -17,15 +17,22 @@ public abstract class AprsBuilder
     /// <summary>The sending station, whose header the packet gets.</summary>
     public AprsStation Station { get; }
 
-    /// <summary>The data record built so far, without a header. Nothing is checked until it is encoded.</summary>
+    /// <summary>The data record built so far, without a header. Nothing is checked until it is encoded.
+    /// Builders change themselves and return themselves, so a builder that is kept and built from
+    /// again still has everything set on it.</summary>
     public abstract AprsData ToData();
 
     /// <summary>
-    /// The packet: the station's header and this data, encoded. Throws <see cref="ArgumentException"/>
+    /// The packet: the station's header and this data, encoded. Throws <see cref="AprsEncodeException"/>
     /// for anything APRS12c does not allow, and <see cref="InvalidOperationException"/> when
-    /// something the packet needs, such as a symbol, was never given.
+    /// something the packet needs, such as a symbol, was never given. A Mic-E report gets its
+    /// computed destination, whatever the station's.
     /// </summary>
-    public virtual AprsPacket Build() => AprsPacket.Create(Station.Source, Station.Destination, ToData(), Station.Path);
+    public AprsPacket Build()
+    {
+        AprsData data = ToData();
+        return AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
+    }
 }
 
 /// <summary>Sends a data record built by hand, from <see cref="AprsStation.Data(AprsData)"/>.</summary>
@@ -42,11 +49,6 @@ public sealed class AprsDataBuilder : AprsBuilder
 
     /// <inheritdoc/>
     public override AprsData ToData() => data;
-
-    /// <inheritdoc/>
-    public override AprsPacket Build() => data is AprsMicEReport micE
-        ? AprsPacket.CreateMicE(Station.Source, micE, Station.Path)
-        : base.Build();
 }
 
 /// <summary>
@@ -99,24 +101,24 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     /// <summary>Course over ground in degrees clockwise from north, 1-360 (360 is north); 0 is the
     /// spec's unknown course (APRS12c ch. 7, 10), which a compressed report cannot send. A fraction is
     /// rounded once, to the whole degree (or the 4-degree step of a compressed report).</summary>
-    public TSelf Course(double degrees)
+    public TSelf CourseDegrees(double degrees)
     {
         course = degrees;
         return Self;
     }
 
     /// <summary>Speed over ground in knots.</summary>
-    public TSelf Speed(double knots)
+    public TSelf SpeedKnots(double knots)
     {
         speedKnots = knots;
         return Self;
     }
 
     /// <summary>Speed over ground in kilometres per hour, sent in knots.</summary>
-    public TSelf SpeedKmh(double kilometresPerHour) => Speed(kilometresPerHour / 1.852);
+    public TSelf SpeedKmh(double kilometresPerHour) => SpeedKnots(kilometresPerHour / 1.852);
 
     /// <summary>Altitude above mean sea level in feet (<c>/A=</c>).</summary>
-    public TSelf Altitude(double feet)
+    public TSelf AltitudeFeet(double feet)
     {
         altitudeFeet = feet;
         altitudeMetres = null;
@@ -151,7 +153,7 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     }
 
     /// <summary>Omnidirectional radio range in miles (<c>RNGrrrr</c>, APRS12c §7).</summary>
-    public TSelf Range(double miles)
+    public TSelf RangeMiles(double miles)
     {
         rangeMiles = miles;
         return Self;
@@ -159,14 +161,17 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
 
     /// <summary>
     /// A voice frequency at the start of the comment, as radios with a tune button read it
-    /// (APRS12c §18): e.g. <c>Frequency(145.725, tone: 118.8, offsetKHz: -600)</c> sends
-    /// <c>145.725MHz T118 -060</c>. The tone is a CTCSS access tone in Hz; its tenths are not sent.
+    /// (APRS12c §18): e.g. <c>Frequency(145.725, AprsToneType.Tone, 118, -600)</c> sends
+    /// <c>145.725MHz T118 -060</c>. <paramref name="mhz"/> is rounded once to the field's step (1 kHz).
+    /// <paramref name="toneValue"/> is the tone as sent, whole Hz for a CTCSS tone or the DCS code,
+    /// and goes with a <paramref name="tone"/> of <see cref="AprsToneType.Tone"/>,
+    /// <see cref="AprsToneType.Ctcss"/> or <see cref="AprsToneType.Dcs"/>.
     /// </summary>
-    public TSelf Frequency(double mhz, double? tone = null, int? offsetKHz = null) => Frequency(new AprsVoiceFrequency
+    public TSelf Frequency(double mhz, AprsToneType? tone = null, int? toneValue = null, int? offsetKHz = null) => Frequency(new AprsVoiceFrequency
     {
-        FrequencyMHz = (decimal)mhz,
-        ToneType = tone is null ? null : AprsToneType.Tone,
-        ToneValue = tone is { } t ? (int)Math.Truncate(t) : null,
+        FrequencyMHz = mhz,
+        ToneType = tone,
+        ToneValue = toneValue,
         OffsetKHz = offsetKHz,
     });
 
@@ -245,7 +250,7 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
             SpeedKnots = speedKnots,
             AltitudeFeet = altitudeFeet,
             Phg = phg,
-            RadioRangeMiles = rangeMiles,
+            RangeMiles = rangeMiles,
             Frequency = frequency,
             Dao = dao,
             Telemetry = telemetry,
@@ -295,7 +300,7 @@ public sealed class AprsPositionBuilder : AprsPositionedBuilder<AprsPositionBuil
 public sealed class AprsObjectBuilder : AprsPositionedBuilder<AprsObjectBuilder>
 {
     private readonly string name;
-    private bool alive = true;
+    private bool killed;
     private AprsTimestamp? timestamp;
 
     internal AprsObjectBuilder(AprsStation station, string name)
@@ -319,10 +324,10 @@ public sealed class AprsObjectBuilder : AprsPositionedBuilder<AprsObjectBuilder>
     /// <c>111111z</c> timestamp (APRS12c §18 Object Name Permanence).</summary>
     public AprsObjectBuilder Permanent() => Timestamp(AprsTimestamp.DayHoursMinutes(11, 11, 11));
 
-    /// <summary>Kills the object, removing it from maps (<c>_</c> rather than <c>*</c>).</summary>
-    public AprsObjectBuilder Kill()
+    /// <summary>Kills the object, removing it from maps (<c>_</c> rather than <c>*</c>); <c>Killed(false)</c> brings it back.</summary>
+    public AprsObjectBuilder Killed(bool killed = true)
     {
-        alive = false;
+        this.killed = killed;
         return this;
     }
 
@@ -330,7 +335,7 @@ public sealed class AprsObjectBuilder : AprsPositionedBuilder<AprsObjectBuilder>
     public override AprsObjectReport ToData() => Apply(new AprsObjectReport
     {
         Name = name,
-        IsAlive = alive,
+        IsKilled = killed,
         Timestamp = timestamp ?? AprsTimestamp.FromDateTime(DateTime.UtcNow),
         Position = RequirePosition("an object"),
         Symbol = RequireSymbol("an object"),
@@ -341,7 +346,7 @@ public sealed class AprsObjectBuilder : AprsPositionedBuilder<AprsObjectBuilder>
 public sealed class AprsItemBuilder : AprsPositionedBuilder<AprsItemBuilder>
 {
     private readonly string name;
-    private bool alive = true;
+    private bool killed;
 
     internal AprsItemBuilder(AprsStation station, string name)
         : base(station, null)
@@ -350,10 +355,10 @@ public sealed class AprsItemBuilder : AprsPositionedBuilder<AprsItemBuilder>
         this.name = name;
     }
 
-    /// <summary>Kills the item, removing it from maps (<c>_</c> rather than <c>!</c>).</summary>
-    public AprsItemBuilder Kill()
+    /// <summary>Kills the item, removing it from maps (<c>_</c> rather than <c>!</c>); <c>Killed(false)</c> brings it back.</summary>
+    public AprsItemBuilder Killed(bool killed = true)
     {
-        alive = false;
+        this.killed = killed;
         return this;
     }
 
@@ -361,7 +366,7 @@ public sealed class AprsItemBuilder : AprsPositionedBuilder<AprsItemBuilder>
     public override AprsItemReport ToData() => Apply(new AprsItemReport
     {
         Name = name,
-        IsAlive = alive,
+        IsKilled = killed,
         Position = RequirePosition("an item"),
         Symbol = RequireSymbol("an item"),
     });
@@ -374,7 +379,7 @@ public sealed class AprsItemBuilder : AprsPositionedBuilder<AprsItemBuilder>
 /// </summary>
 public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
 {
-    private AprsMicEMessage message = AprsMicEMessage.OffDuty;
+    private AprsMicEMessage micEMessage = AprsMicEMessage.OffDuty;
     private bool messaging;
 
     internal AprsMicEBuilder(AprsStation station, AprsPosition position)
@@ -383,9 +388,9 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
     }
 
     /// <summary>The position comment, e.g. <see cref="AprsMicEMessage.EnRoute"/>.</summary>
-    public AprsMicEBuilder Message(AprsMicEMessage message)
+    public AprsMicEBuilder MicEMessage(AprsMicEMessage message)
     {
-        this.message = message;
+        micEMessage = message;
         return this;
     }
 
@@ -405,7 +410,7 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
         {
             Position = RequirePosition("a Mic-E report"),
             Symbol = RequireSymbol("a Mic-E report"),
-            Message = message,
+            MicEMessage = micEMessage,
             TypeCode = messaging ? '`' : '\'',
         });
 
@@ -418,9 +423,6 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
         // An altitude in metres goes in the Mic-E altitude bytes, whose unit is the metre, rounded
         // to the metre (ruling B2); one in feet goes in a /A=.
         return AltitudeInMetres is { } metres ? report with { AltitudeFeet = Steps.Whole(metres) * Units.FeetPerMetre }
-            : report with { AltitudeInFeet = report.AltitudeFeet is not null };
+            : report with { AltitudeInComment = report.AltitudeFeet is not null };
     }
-
-    /// <inheritdoc/>
-    public override AprsPacket Build() => AprsPacket.CreateMicE(Station.Source, ToData(), Station.Path);
 }

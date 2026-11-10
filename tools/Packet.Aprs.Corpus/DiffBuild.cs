@@ -30,7 +30,7 @@ internal static class DiffBuild
             o["reason"] = ex.Message;
             return o;
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
+        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;
@@ -56,7 +56,7 @@ internal static class DiffBuild
     {
         var station = recipe["station"]!.AsObject();
         var s = new Args(station, "station");
-        AprsStation from = Aprs.From(s.Str("source")!);
+        AprsStation from = AprsStation.From(s.Str("source")!);
         if (s.Str("destination") is { } destination)
         {
             from = from.To(destination);
@@ -83,8 +83,8 @@ internal static class DiffBuild
             "bulletin" => Bulletin(from, a),
             "status" => Status(from, a),
             "telemetry" => Telemetry(from, a),
-            "telemetry-names" => Metadata(from, a, "names", (addressee, list) => new AprsTelemetryParameterNames { Addressee = addressee, Names = list }, from.TelemetryNames),
-            "telemetry-units" => Metadata(from, a, "units", (addressee, list) => new AprsTelemetryUnits { Addressee = addressee, Units = list }, from.TelemetryUnits),
+            "telemetry-names" => Metadata(a, from.TelemetryNames([.. (a.Node("names") as JsonArray ?? []).Select(v => (string)v!)])),
+            "telemetry-units" => Metadata(a, from.TelemetryUnits([.. (a.Node("units") as JsonArray ?? []).Select(v => (string)v!)])),
             "telemetry-coefficients" => Coefficients(from, a),
             "telemetry-bits" => Bits(from, a),
             _ => throw new UnsupportedException($"report '{report}': no builder for it"),
@@ -121,7 +121,7 @@ internal static class DiffBuild
 
         if (a.Bool("killed"))
         {
-            b.Kill();
+            b.Killed();
         }
 
         return Positioned(b, a);
@@ -132,7 +132,7 @@ internal static class DiffBuild
         AprsItemBuilder b = from.Item(a.Str("name")!).At(a.Double("latitude")!.Value, a.Double("longitude")!.Value);
         if (a.Bool("killed"))
         {
-            b.Kill();
+            b.Killed();
         }
 
         return Positioned(b, a);
@@ -143,7 +143,7 @@ internal static class DiffBuild
         AprsMicEBuilder b = from.MicE(a.Double("latitude")!.Value, a.Double("longitude")!.Value);
         if (a.Str("mic_e_message") is { } message)
         {
-            b.Message(Enum.Parse<AprsMicEMessage>(message.Replace("-", "", StringComparison.Ordinal), ignoreCase: true));
+            b.MicEMessage(Enum.Parse<AprsMicEMessage>(message.Replace("-", "", StringComparison.Ordinal), ignoreCase: true));
         }
 
         if (a.Bool("messaging"))
@@ -165,12 +165,12 @@ internal static class DiffBuild
 
         if (a.Double("course_degrees") is { } course)
         {
-            b.Course(course);
+            b.CourseDegrees(course);
         }
 
         if (a.Double("speed_knots") is { } knots)
         {
-            b.Speed(knots);
+            b.SpeedKnots(knots);
         }
 
         if (a.Double("speed_kmh") is { } kmh)
@@ -180,7 +180,7 @@ internal static class DiffBuild
 
         if (a.Double("altitude_feet") is { } feet)
         {
-            b.Altitude(feet);
+            b.AltitudeFeet(feet);
         }
 
         if (a.Double("altitude_m") is { } metres)
@@ -202,7 +202,7 @@ internal static class DiffBuild
 
         if (a.Double("range_miles") is { } range)
         {
-            b.Range(range);
+            b.RangeMiles(range);
         }
 
         if (a.Node("frequency") is JsonObject frequency)
@@ -210,7 +210,7 @@ internal static class DiffBuild
             var f = new Args(frequency, "frequency");
             b.Frequency(new AprsVoiceFrequency
             {
-                FrequencyMHz = f.Decimal("mhz")!.Value,
+                FrequencyMHz = f.Double("mhz")!.Value,
                 ToneType = f.Str("tone") switch
                 {
                     null => null,
@@ -274,26 +274,24 @@ internal static class DiffBuild
             b.Timestamp(t);
         }
 
-        // Wind(direction, speed) takes both; one alone is given as the observations it starts from.
-        double? direction = a.Double("wind_direction_degrees");
-        double? speed = a.Double("wind_speed_mph");
-        if (direction is { } d && speed is { } v)
+        if (a.Double("wind_direction_degrees") is { } direction)
         {
-            b.Wind(d, v);
+            b.WindDirectionDegrees(direction);
         }
-        else if (direction is not null || speed is not null)
+
+        if (a.Double("wind_speed_mph") is { } speed)
         {
-            b.Observations(new AprsWeather { WindDirectionDegrees = direction, WindSpeedMph = speed });
+            b.WindSpeedMph(speed);
         }
 
         if (a.Double("wind_gust_mph") is { } gust)
         {
-            b.Gust(gust);
+            b.WindGustMph(gust);
         }
 
         if (a.Double("temperature_f") is { } fahrenheit)
         {
-            b.Temperature(fahrenheit);
+            b.TemperatureFahrenheit(fahrenheit);
         }
 
         if (a.Double("temperature_c") is { } celsius)
@@ -301,36 +299,54 @@ internal static class DiffBuild
             b.TemperatureCelsius(celsius);
         }
 
-        double? r1 = a.Double("rain_1h_in"), r24 = a.Double("rain_24h_in"), rm = a.Double("rain_midnight_in");
-        if (r1 is not null || r24 is not null || rm is not null)
+        if (a.Double("rain_1h_in") is { } r1)
         {
-            b.Rain(r1, r24, rm);
+            b.RainLastHourInches(r1);
         }
 
-        double? m1 = a.Double("rain_1h_mm"), m24 = a.Double("rain_24h_mm"), mm = a.Double("rain_midnight_mm");
-        if (m1 is not null || m24 is not null || mm is not null)
+        if (a.Double("rain_24h_in") is { } r24)
         {
-            b.RainMillimetres(m1, m24, mm);
+            b.RainLast24HoursInches(r24);
+        }
+
+        if (a.Double("rain_midnight_in") is { } rm)
+        {
+            b.RainSinceMidnightInches(rm);
+        }
+
+        if (a.Double("rain_1h_mm") is { } m1)
+        {
+            b.RainLastHourMillimetres(m1);
+        }
+
+        if (a.Double("rain_24h_mm") is { } m24)
+        {
+            b.RainLast24HoursMillimetres(m24);
+        }
+
+        if (a.Double("rain_midnight_mm") is { } mm)
+        {
+            b.RainSinceMidnightMillimetres(mm);
         }
 
         if (a.Double("humidity_percent") is { } humidity)
         {
-            b.Humidity(humidity);
+            b.HumidityPercent(humidity);
         }
 
         if (a.Double("pressure_mbar") is { } pressure)
         {
-            b.Pressure(pressure);
+            b.PressureMillibars(pressure);
         }
 
         if (a.Double("luminosity_w_m2") is { } luminosity)
         {
-            b.Luminosity(luminosity);
+            b.LuminosityWattsPerSquareMetre(luminosity);
         }
 
-        if (a.Decimal("snow_24h_in") is { } snow)
+        if (a.Double("snow_24h_in") is { } snow)
         {
-            b.Snowfall(snow);
+            b.SnowfallLast24HoursInches(snow);
         }
 
         return b;
@@ -343,7 +359,7 @@ internal static class DiffBuild
         AprsMessageBuilder b = from.Message(a.Str("addressee")!, a.Str("text") ?? "");
         if (a.Str("message_id") is { } id)
         {
-            b.WithId(id);
+            b.MessageId(id);
         }
 
         if (a.Str("reply_ack") is { } replyAck)
@@ -374,15 +390,14 @@ internal static class DiffBuild
             b.Timestamp(t);
         }
 
-        string? locator = a.Str("locator");
-        string? symbol = a.Str("symbol");
-        if (locator is not null && symbol is not null)
+        if (a.Str("locator") is { } locator)
         {
-            b.Locator(locator, Symbol(symbol));
+            b.Locator(locator);
         }
-        else if (locator is not null || symbol is not null)
+
+        if (a.Str("symbol") is { } symbol)
         {
-            throw new UnsupportedException("status locator and symbol: the builder takes them together");
+            b.Symbol(Symbol(symbol));
         }
 
         if (a.Node("beam") is JsonObject beam)
@@ -400,12 +415,12 @@ internal static class DiffBuild
         AprsTelemetryBuilder b = from.Telemetry(a.Int("sequence", "the builder takes a whole sequence number")!.Value);
         if (a.Node("analog") is JsonArray analog)
         {
-            b.Analog([.. analog.Select(v => v is null ? (decimal?)null : v.GetValue<decimal>())]);
+            b.Analog([.. analog.Select(v => v is null ? (double?)null : v.GetValue<double>())]);
         }
 
         if (a.Str("bits") is { } bits)
         {
-            b.Digital(bits);
+            b.Bits(bits);
         }
 
         if (a.Str("comment") is { } comment)
@@ -416,40 +431,15 @@ internal static class DiffBuild
         return b;
     }
 
-    /// <summary>Names or units; addressed to another station, the record is built by hand, since the builder addresses the station itself.</summary>
-    private static AprsDataBuilder Metadata(AprsStation from, Args a, string key, Func<string, string[], AprsData> record, Func<string[], AprsDataBuilder> own)
-    {
-        string[] list = [.. (a.Node(key) as JsonArray ?? []).Select(v => (string)v!)];
-        return a.Str("addressee") is { } addressee && addressee != from.Source.Value ? from.Data(record(addressee, list)) : own(list);
-    }
+    /// <summary>A metadata message, addressed to another station when the recipe says so.</summary>
+    private static AprsTelemetryMetadataBuilder Metadata(Args a, AprsTelemetryMetadataBuilder b) =>
+        a.Str("addressee") is { } addressee ? b.Addressee(addressee) : b;
 
-    private static AprsDataBuilder Coefficients(AprsStation from, Args a)
-    {
-        double[] list = [.. (a.Node("coefficients") as JsonArray ?? []).Select(v => (double)v!)];
-        return a.Str("addressee") is { } addressee && addressee != from.Source.Value
-            ? from.Data(new AprsTelemetryCoefficients { Addressee = addressee, Coefficients = list })
-            : from.TelemetryCoefficients(list);
-    }
+    private static AprsTelemetryMetadataBuilder Coefficients(AprsStation from, Args a) =>
+        Metadata(a, from.TelemetryCoefficients([.. (a.Node("coefficients") as JsonArray ?? []).Select(v => (double)v!)]));
 
-    private static AprsDataBuilder Bits(AprsStation from, Args a)
-    {
-        string bits = a.Str("bits")!;
-        if (bits.Length != 8 || bits.Any(c => c is not ('0' or '1')))
-        {
-            throw new UnsupportedException("telemetry-bits bits: the builder takes eight 0 or 1");
-        }
-
-        byte value = 0;
-        for (int i = 0; i < 8; i++)
-        {
-            value |= (byte)(bits[i] == '1' ? 1 << i : 0);
-        }
-
-        string project = a.Str("project") ?? "";
-        return a.Str("addressee") is { } addressee && addressee != from.Source.Value
-            ? from.Data(new AprsTelemetryBitSense { Addressee = addressee, Bits = value, ProjectTitle = project })
-            : from.TelemetryBits(value, project);
-    }
+    private static AprsTelemetryMetadataBuilder Bits(AprsStation from, Args a) =>
+        Metadata(a, from.TelemetryBits(a.Str("bits")!, a.Str("project") ?? ""));
 
     // ------------------------------------------------------------------ values
 
@@ -505,7 +495,6 @@ internal static class DiffBuild
 
         public double? Double(string key) => Node(key) is { } v ? (double)v : null;
 
-        public decimal? Decimal(string key) => Node(key) is { } v ? v.GetValue<decimal>() : null;
 
         /// <summary>A whole number; a fraction is unsupported, since the builder takes an int there.</summary>
         public int? Int(string key, string? why = null)

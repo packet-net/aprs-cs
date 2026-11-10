@@ -78,8 +78,8 @@ public class EnvelopeTests : AprsSpec
         WhenDecodedAsAx25();
 
         Packet.Should().Be(original);
-        Packet.Path[0].HasBeenRepeated.Should().BeTrue();
-        Packet.Path[1].HasBeenRepeated.Should().BeFalse();
+        Packet.Path[0].Used.Should().BeTrue();
+        Packet.Path[1].Used.Should().BeFalse();
         ThenNoDiagnostics();
     }
 

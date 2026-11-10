@@ -47,7 +47,7 @@ public class RoundTripProperties
         from offset in Gen.Elements<int?>(null, -600, 600, 5000)
         select (AprsVoiceFrequency?)new AprsVoiceFrequency
         {
-            FrequencyMHz = khz / 1000m,
+            FrequencyMHz = khz / 1000.0,
             ToneType = tone,
             ToneValue = tone is AprsToneType.Tone or AprsToneType.Ctcss ? 100 : null,
             OffsetKHz = offset,
@@ -63,7 +63,10 @@ public class RoundTripProperties
     private static readonly Gen<(int? Course, double? Speed, AprsPhg? Phg, double? Range)> Extension = Gen.OneOf(
         Gen.Constant<(int?, double?, AprsPhg?, double?)>((null, null, null, null)),
         from course in Gen.Choose(1, 360) from speed in Gen.Choose(0, 999) select ((int?)course, (double?)speed, (AprsPhg?)null, (double?)null),
-        from p in Gen.Choose(0, 9) from h in Gen.Choose(0, 12) from g in Gen.Choose(0, 9) from d in Gen.Choose(0, 8)
+        from p in Gen.Choose(0, 9)
+        from h in Gen.Choose(0, 12)
+        from g in Gen.Choose(0, 9)
+        from d in Gen.Choose(0, 8)
         from rate in Gen.Elements<int?>(null, null, 4, 12)
         select ((int?)null, (double?)null, (AprsPhg?)new AprsPhg(p, h, g, d, rate), (double?)null),
         from r in Gen.Choose(0, 9999) select ((int?)null, (double?)null, (AprsPhg?)null, (double?)r));
@@ -87,7 +90,7 @@ public class RoundTripProperties
             CourseDegrees = ext.Course,
             SpeedKnots = ext.Speed,
             Phg = ext.Phg,
-            RadioRangeMiles = ext.Range,
+            RangeMiles = ext.Range,
             AltitudeFeet = altitude,
             Frequency = frequency,
             Comment = comment,
@@ -110,9 +113,9 @@ public class RoundTripProperties
             IsCompressed = true,
             CourseDegrees = cs == 1 ? c * 4 : null,
             SpeedKnots = cs == 1 ? Math.Pow(1.08, sp) - 1 : null,
-            RadioRangeMiles = cs == 2 ? 2 * Math.Pow(1.08, sp) : null,
+            RangeMiles = cs == 2 ? 2 * Math.Pow(1.08, sp) : null,
             AltitudeFeet = cs == 3 ? Math.Pow(1.002, (c * 91) + sp) : null,
-            CompressionType = cs == 0 ? null : new AprsCompressionType(AprsGpsFix.Current, cs == 3 ? AprsNmeaSource.Gga : AprsNmeaSource.Rmc, AprsCompressionOrigin.Software),
+            CompressionType = cs == 0 ? null : new AprsCompressionType(AprsCompressionFix.Current, cs == 3 ? AprsCompressionSource.Gga : AprsCompressionSource.Rmc, AprsCompressionOrigin.Software),
             Comment = comment,
         };
 
@@ -132,9 +135,9 @@ public class RoundTripProperties
             Symbol = symbol,
             CourseDegrees = course,
             SpeedKnots = speed,
-            Message = message,
+            MicEMessage = message,
             TypeCode = type,
-            MaidenheadLocator = locator,
+            Locator = locator,
             AltitudeFeet = type is null ? null : metres * (1 / 0.3048),
             Comment = type is null && comment.Length > 0 && comment[0] is '`' or '\'' or '>' or ']' or ' ' ? "x" + comment : comment,
         };
@@ -201,16 +204,14 @@ public class RoundTripProperties
         Config config = Config.QuickThrowOnFailure.WithMaxTest(Runs);
         Prop.ForAll(Arb.From(gen), data =>
         {
-            AprsPacket first = micE
-                ? AprsPacket.CreateMicE(AprsAddress.Parse("N0CALL"), (AprsMicEReport)(object)data)
-                : AprsPacket.Create(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), data);
+            AprsPacket first = AprsPacket.Create(AprsAddress.Parse("N0CALL"), data, micE ? null : AprsAddress.Parse("APZ001"));
             AprsPacket decoded = AprsPacket.Decode(first.ToTnc2());
             if (decoded.HasErrors || decoded.HasWarnings)
             {
                 throw new InvalidOperationException($"{first} decoded with: {string.Join(" | ", decoded.Diagnostics)}");
             }
 
-            byte[] again = decoded.Data.ToInformationField();
+            byte[] again = decoded.Data.EncodeInformation();
             if (!again.AsSpan().SequenceEqual(first.Information.Span))
             {
                 throw new InvalidOperationException($"{first} re-encoded as {System.Text.Encoding.UTF8.GetString(again)}");
@@ -232,9 +233,9 @@ public class RoundTripProperties
         {
             static bool Near(double? x, double? y) => (x is null && y is null) || (x is { } p && y is { } q && Math.Abs(p - q) <= 1e-9 * Math.Max(1, Math.Abs(p)));
             bool close = Near(e.Position.Latitude, a.Position.Latitude) && Near(e.Position.Longitude, a.Position.Longitude)
-                && Near(e.AltitudeFeet, a.AltitudeFeet) && Near(e.SpeedKnots, a.SpeedKnots) && Near(e.RadioRangeMiles, a.RadioRangeMiles)
+                && Near(e.AltitudeFeet, a.AltitudeFeet) && Near(e.SpeedKnots, a.SpeedKnots) && Near(e.RangeMiles, a.RangeMiles)
                 && e.Position.Ambiguity == a.Position.Ambiguity;
-            return close && a with { Position = e.Position, AltitudeFeet = e.AltitudeFeet, SpeedKnots = e.SpeedKnots, RadioRangeMiles = e.RadioRangeMiles } == e;
+            return close && a with { Position = e.Position, AltitudeFeet = e.AltitudeFeet, SpeedKnots = e.SpeedKnots, RangeMiles = e.RangeMiles } == e;
         }
 
         return expected == actual;

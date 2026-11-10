@@ -18,7 +18,7 @@ public sealed class AprsMessageBuilder : AprsBuilder
     }
 
     /// <summary>A message ID (1-5 letters or digits), which asks the other station to acknowledge it.</summary>
-    public AprsMessageBuilder WithId(string id)
+    public AprsMessageBuilder MessageId(string id)
     {
         ArgumentNullException.ThrowIfNull(id);
         this.id = id;
@@ -27,13 +27,13 @@ public sealed class AprsMessageBuilder : AprsBuilder
 
     /// <summary>
     /// Uses the reply-ack format (APRS12c §14 New Message Number Format), which needs
-    /// <see cref="WithId"/>: acknowledges the other station's message <paramref name="theirId"/> in
+    /// <see cref="MessageId"/>: acknowledges the other station's message <paramref name="replyAck"/> in
     /// the same packet, or with none just says this station understands reply-acks.
     /// </summary>
-    public AprsMessageBuilder ReplyAck(string theirId = "")
+    public AprsMessageBuilder ReplyAck(string replyAck = "")
     {
-        ArgumentNullException.ThrowIfNull(theirId);
-        replyAck = theirId;
+        ArgumentNullException.ThrowIfNull(replyAck);
+        this.replyAck = replyAck;
         return this;
     }
 
@@ -61,10 +61,10 @@ public sealed class AprsAckBuilder : AprsBuilder
     }
 
     /// <summary>For a message that came in reply-ack format (<c>{MM}AA</c>), echoes back its <c>AA</c> part.</summary>
-    public AprsAckBuilder ReplyAck(string theirAck)
+    public AprsAckBuilder ReplyAck(string replyAck)
     {
-        ArgumentNullException.ThrowIfNull(theirAck);
-        replyAck = theirAck;
+        ArgumentNullException.ThrowIfNull(replyAck);
+        this.replyAck = replyAck;
         return this;
     }
 
@@ -90,7 +90,7 @@ public sealed class AprsStatusBuilder : AprsBuilder
         this.text = text;
     }
 
-    /// <summary>When the status was set, sent as day, hours and minutes UTC. Not with <see cref="Locator"/>.</summary>
+    /// <summary>When the status was set, sent as day, hours and minutes UTC. Not with <see cref="Locator(string)"/>.</summary>
     public AprsStatusBuilder Timestamp(AprsTimestamp timestamp)
     {
         this.timestamp = timestamp;
@@ -100,11 +100,18 @@ public sealed class AprsStatusBuilder : AprsBuilder
     /// <summary>When the status was set, sent as day, hours and minutes UTC (<c>DDHHMMz</c>).</summary>
     public AprsStatusBuilder Timestamp(DateTime utc) => Timestamp(AprsTimestamp.FromDateTime(utc));
 
-    /// <summary>A 4- or 6-character Maidenhead locator and a symbol at the start, e.g. <c>IO91SX/-</c>.</summary>
-    public AprsStatusBuilder Locator(string maidenheadLocator, AprsSymbol symbol)
+    /// <summary>A 4- or 6-character Maidenhead locator at the start, e.g. <c>IO91SX</c>, which needs
+    /// <see cref="Symbol(AprsSymbol)"/> too.</summary>
+    public AprsStatusBuilder Locator(string locator)
     {
-        ArgumentNullException.ThrowIfNull(maidenheadLocator);
-        locator = maidenheadLocator;
+        ArgumentNullException.ThrowIfNull(locator);
+        this.locator = locator;
+        return this;
+    }
+
+    /// <summary>The symbol after the locator, e.g. <c>-</c> on the primary table for a house; only with <see cref="Locator(string)"/>.</summary>
+    public AprsStatusBuilder Symbol(AprsSymbol symbol)
+    {
         this.symbol = symbol;
         return this;
     }
@@ -121,7 +128,7 @@ public sealed class AprsStatusBuilder : AprsBuilder
     {
         Text = text,
         Timestamp = timestamp,
-        MaidenheadLocator = locator,
+        Locator = locator,
         Symbol = symbol,
         BeamHeading = beam,
     };
@@ -135,8 +142,8 @@ public sealed class AprsStatusBuilder : AprsBuilder
 public sealed class AprsTelemetryBuilder : AprsBuilder
 {
     private readonly string sequence;
-    private decimal?[] analog = [null, null, null, null, null];
-    private byte digital;
+    private double?[] analog = [null, null, null, null, null];
+    private string bits = "00000000";
     private string comment = "";
 
     internal AprsTelemetryBuilder(AprsStation station, int sequence)
@@ -144,53 +151,37 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
     {
         // 0-999 in the spec's three digits (APRS12c ch. 13 sss); a larger one is refused, not
         // wrapped (vectors rulings B6, B8).
-        ArgumentOutOfRangeException.ThrowIfNegative(sequence);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(sequence, 999);
+        if (sequence is < 0 or > 999)
+        {
+            throw new AprsEncodeException("a telemetry sequence number is 0-999 (APRS12c ch. 13)");
+        }
+
         this.sequence = sequence.ToString("000", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Up to 5 analog values, A1 first; any not given are sent empty.</summary>
-    public AprsTelemetryBuilder Analog(params decimal[] values)
-    {
-        ArgumentNullException.ThrowIfNull(values);
-        return Analog([.. values.Select(v => (decimal?)v)]);
-    }
-
     /// <summary>Up to 5 analog values, A1 first; a null one, and any not given, are sent empty.</summary>
-    public AprsTelemetryBuilder Analog(params decimal?[] values)
+    public AprsTelemetryBuilder Analog(params double?[] values)
     {
         ArgumentNullException.ThrowIfNull(values);
         if (values.Length > 5)
         {
-            throw new ArgumentException("a telemetry report carries at most 5 analog values (APRS12c ch. 13)", nameof(values));
+            throw new AprsEncodeException("a telemetry report carries at most 5 analog values (APRS12c ch. 13)");
         }
 
-        analog = [.. values, .. Enumerable.Repeat<decimal?>(null, 5 - values.Length)];
-        return this;
-    }
-
-    /// <summary>The 8 digital channels; bit 0 is B1.</summary>
-    public AprsTelemetryBuilder Digital(byte bits)
-    {
-        digital = bits;
+        analog = [.. values, .. Enumerable.Repeat<double?>(null, 5 - values.Length)];
         return this;
     }
 
     /// <summary>The 8 digital channels as sent, B1 first, e.g. <c>"10000000"</c> for B1 on.</summary>
-    public AprsTelemetryBuilder Digital(string bits)
+    public AprsTelemetryBuilder Bits(string bits)
     {
         ArgumentNullException.ThrowIfNull(bits);
         if (bits.Length != 8 || bits.Any(c => c is not ('0' or '1')))
         {
-            throw new ArgumentException("the digital channels are 8 characters, each 0 or 1, B1 first", nameof(bits));
+            throw new AprsEncodeException("the digital channels are 8 characters, each 0 or 1, B1 first");
         }
 
-        digital = 0;
-        for (int i = 0; i < 8; i++)
-        {
-            digital |= (byte)(bits[i] == '1' ? 1 << i : 0);
-        }
-
+        this.bits = bits;
         return this;
     }
 
@@ -203,5 +194,31 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
     }
 
     /// <inheritdoc/>
-    public override AprsTelemetryReport ToData() => new() { Sequence = sequence, Analog = analog, Digital = digital, Comment = comment };
+    public override AprsTelemetryReport ToData() => new() { Sequence = sequence, Analog = analog, Bits = bits, Comment = comment };
+}
+
+/// <summary>
+/// The names, units, scaling or bit sense of a station's telemetry channels, from
+/// <see cref="AprsStation.TelemetryNames(string[])"/> and its siblings (APRS12c §13). It is a
+/// message to the telemetry station itself, which is the sending station unless
+/// <see cref="Addressee(string)"/> says otherwise.
+/// </summary>
+public sealed class AprsTelemetryMetadataBuilder : AprsBuilder
+{
+    private readonly Func<string, AprsMessage> make;
+    private string? addressee;
+
+    internal AprsTelemetryMetadataBuilder(AprsStation station, Func<string, AprsMessage> make)
+        : base(station) => this.make = make;
+
+    /// <summary>The station the telemetry belongs to, when not the sender.</summary>
+    public AprsTelemetryMetadataBuilder Addressee(string addressee)
+    {
+        ArgumentNullException.ThrowIfNull(addressee);
+        this.addressee = addressee;
+        return this;
+    }
+
+    /// <inheritdoc/>
+    public override AprsMessage ToData() => make(addressee ?? Station.Source.Value);
 }

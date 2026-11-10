@@ -1,9 +1,10 @@
 root = true
 
-# C# — enforce curly braces on all control-flow blocks (IDE0011).
+# C#: enforce curly braces on all control-flow blocks (IDE0011).
 # A single-line `if (x) return;` without braces is a maintenance/diff hazard
 # (the classic "add a second statement, forget the braces" bug). With the repo's
 # TreatWarningsAsErrors, warning severity makes this a build gate, so braces stay.
 [*.cs]
 csharp_prefer_braces = true:warning
+csharp_indent_case_contents_when_block = false
 dotnet_diagnostic.IDE0011.severity = warning

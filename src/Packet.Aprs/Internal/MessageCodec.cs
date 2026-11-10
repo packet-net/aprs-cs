@@ -258,7 +258,7 @@ internal static class MessageCodec
                     return false;
                 }
 
-                candidate = new AprsTelemetryCoefficients { Addressee = addressee, Coefficients = EquatableList<double>.WithText(values, written), MessageId = id };
+                candidate = new AprsTelemetryCoefficients { Addressee = addressee, Coefficients = values, CoefficientsText = written, MessageId = id };
                 break;
             }
 
@@ -272,16 +272,7 @@ internal static class MessageCodec
                     return false;
                 }
 
-                byte value = 0;
-                for (int i = 0; i < 8; i++)
-                {
-                    if (bits[i] == '1')
-                    {
-                        value |= (byte)(1 << i);
-                    }
-                }
-
-                candidate = new AprsTelemetryBitSense { Addressee = addressee, Bits = value, ProjectTitle = comma >= 0 ? s[(comma + 1)..] : "", MessageId = id };
+                candidate = new AprsTelemetryBitSense { Addressee = addressee, Bits = bits, Project = comma >= 0 ? s[(comma + 1)..] : "", MessageId = id };
                 break;
             }
         }
@@ -308,6 +299,9 @@ internal static class MessageCodec
     /// point) with an optional exponent (<c>e</c> or <c>E</c>, an optional sign, digits), which is a
     /// finite floating-point number (vectors interpretations.md, "Numbers in telemetry").
     /// </summary>
+    /// <summary>Whether <paramref name="sent"/> is an EQNS number that reads as <paramref name="value"/>.</summary>
+    internal static bool CoefficientMeans(string sent, double value) => TryCoefficient(sent, out double parsed) && parsed == value;
+
     private static bool TryCoefficient(string s, out double value)
     {
         value = 0;
@@ -424,16 +418,16 @@ internal static class MessageCodec
         ArgumentNullException.ThrowIfNull(addressee);
         if (addressee.Length is < 1 or > 9 || addressee.Any(c => c is <= ' ' or > '~' or ':'))
         {
-            throw new ArgumentException("addressee must be 1-9 printable ASCII characters without spaces or ':' (APRS12c ch. 14)", nameof(addressee));
+            throw new AprsEncodeException("addressee must be 1-9 printable ASCII characters without spaces or ':' (APRS12c ch. 14)");
         }
     }
 
-    public static void ValidateId(string id, string paramName)
+    public static void ValidateId(string id)
     {
-        ArgumentNullException.ThrowIfNull(id, paramName);
+        ArgumentNullException.ThrowIfNull(id);
         if (!IsId(System.Text.Encoding.ASCII.GetBytes(id)) || id.Any(c => c > 0x7F))
         {
-            throw new ArgumentException("a message ID is 1-5 letters or digits (APRS12c ch. 14)", paramName);
+            throw new AprsEncodeException("a message ID is 1-5 letters or digits (APRS12c ch. 14)");
         }
     }
 
@@ -450,21 +444,21 @@ internal static class MessageCodec
             string problem = back.Data.GetType() != sent.GetType()
                 ? $"would read back as {back.Data.GetType().Name}"
                 : $"would read back with {string.Join(", ", back.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => d.Code))}";
-            throw new ArgumentException($"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}", nameof(sent));
+            throw new AprsEncodeException($"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}");
         }
     }
 
-    public static void ValidateText(string text, string paramName)
+    public static void ValidateText(string text)
     {
-        ArgumentNullException.ThrowIfNull(text, paramName);
-        Text.RequireNoLineBreaks(text, paramName);
-        RequireNoBrace(text, paramName);
+        ArgumentNullException.ThrowIfNull(text);
+        Text.RequireNoLineBreaks(text);
+        RequireNoBrace(text);
 
         // Characters are Unicode code points, not UTF-16 units (APRS12c ch. 14: "printable ASCII
         // or UTF-8 characters"), so a character outside the BMP counts once.
         if (text.EnumerateRunes().Count() > MaxTextLength)
         {
-            throw new ArgumentException($"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)", paramName);
+            throw new AprsEncodeException($"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)");
         }
     }
 
@@ -473,11 +467,11 @@ internal static class MessageCodec
     /// a project title) must not contain <c>{</c>, which starts the message ID (APRS12c ch. 14); it
     /// would read back as <see cref="AprsDiagnosticCode.BraceInMessageText"/>.
     /// </summary>
-    public static void RequireNoBrace(string text, string paramName)
+    public static void RequireNoBrace(string text)
     {
         if (text.Contains('{', StringComparison.Ordinal))
         {
-            throw new ArgumentException("message text must not contain '{', which starts the message ID (APRS12c ch. 14)", paramName);
+            throw new AprsEncodeException("message text must not contain '{', which starts the message ID (APRS12c ch. 14)");
         }
     }
 
@@ -487,15 +481,15 @@ internal static class MessageCodec
         int max = prefix == "EQNS." ? MaxCoefficients : MaxChannelNames;
         if (items.Count < 1 || items.Count > max)
         {
-            throw new ArgumentException($"{prefix} needs between 1 and {max} entries");
+            throw new AprsEncodeException($"{prefix} needs between 1 and {max} entries");
         }
 
         foreach (string item in items)
         {
-            Text.RequireNoLineBreaks(item, nameof(items));
+            Text.RequireNoLineBreaks(item);
             if (item.Contains(',', StringComparison.Ordinal) || item.Contains('{', StringComparison.Ordinal))
             {
-                throw new ArgumentException($"{prefix} entries must not contain ',' or '{{'");
+                throw new AprsEncodeException($"{prefix} entries must not contain ',' or '{{'");
             }
         }
 

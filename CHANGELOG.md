@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased
+
+The 1.0 API cleanup. Every item below is a breaking change, with no deprecation shims: the names and shapes here are the ones 1.0 keeps. The wire output is unchanged: the encoder writes the same bytes and the decoder reads the same data, apart from the number formats noted under "Numbers kept as sent".
+
+### Breaking changes
+
+Refusals
+
+- Every refusal from the encoder, the builders and the text address parsers is now an `AprsEncodeException` (an `ArgumentException`, so `catch (ArgumentException)` still works). It carries a reason in `Message` and no longer names an internal parameter (`ParamName` is null). A null argument is still an `ArgumentNullException`, and a builder missing something its packet needs (a position, a symbol) still throws `InvalidOperationException`. This includes `Telemetry(int)` out of 0-999, a telemetry builder given a bad value, and `AprsStation.From`, `To`, `Via` and the string `AprsPacket.Create` given text that is not an address (was `FormatException`).
+
+Creating packets
+
+- `AprsPacket.Create` is now `Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)` and `Create(string source, AprsData data, string? destination = null, string path = "")`: the data comes before the destination, and a null destination is `AprsStation.DefaultDestination`. Migrate `Create(source, destination, data)` to `Create(source, data, destination)`.
+- `AprsPacket.CreateMicE` is gone: `Create` computes a Mic-E report's destination, and a destination given with a Mic-E report is refused. Migrate `CreateMicE(source, report, path)` to `Create(source, report, null, path)`.
+- `AprsData.ToInformationField()` now refuses a Mic-E report (it dropped the destination, which holds half the position); make a packet with `Create` and read `Information`.
+- The static class `Aprs` is gone (it clashed with its own namespace). Use `AprsStation.From(...)` and `AprsStation.DefaultDestination`.
+- `AprsBuilder.Build()` is no longer virtual.
+
+Builder names: a setter has the name of the field it fills, and the one that converts changes only the unit
+
+- Positioned builders: `Course` is `CourseDegrees`, `Speed` is `SpeedKnots`, `Altitude` is `AltitudeFeet`, `Range` is `RangeMiles`. `SpeedKmh` and `AltitudeMetres` stay.
+- `Frequency(double mhz, double? tone, int? offsetKHz)` is `Frequency(double mhz, AprsToneType? tone = null, int? toneValue = null, int? offsetKHz = null)`: the tone is a kind and its whole value as sent (a CTCSS tone, a DCS code), not Hz. The frequency is rounded once to its step (1 kHz, or 10 kHz) instead of being refused for extra decimals.
+- Weather builder: `Wind(direction, speed, gust)` is three setters, `WindDirectionDegrees`, `WindSpeedMph` and `WindGustMph`; `Gust` is `WindGustMph`, `Temperature` is `TemperatureFahrenheit`, `Humidity` is `HumidityPercent`, `Pressure` is `PressureMillibars`, `Luminosity` is `LuminosityWattsPerSquareMetre`, `Snowfall(decimal)` is `SnowfallLast24HoursInches(double)`. `Rain(...)` and `RainMillimetres(...)` are one setter per value: `RainLastHourInches`, `RainLast24HoursInches`, `RainSinceMidnightInches` and the same with `Millimetres`. `TemperatureCelsius` stays.
+- `AprsMessageBuilder.WithId` is `MessageId`.
+- `AprsObjectBuilder.Kill()` and `AprsItemBuilder.Kill()` are `Killed(bool killed = true)`, so a builder that was killed can be brought back.
+- `AprsMicEBuilder.Message` is `MicEMessage`.
+- `AprsStatusBuilder.Locator(locator, symbol)` is two setters, `Locator(locator)` and `Symbol(symbol)`.
+- `AprsTelemetryBuilder.Digital(byte)` and `Digital(string)` are `Bits(string)` (eight 0 or 1 characters, B1 first); `Analog(params decimal[])` and `Analog(params decimal?[])` are `Analog(params double?[])`.
+- `AprsStation.TelemetryNames`, `TelemetryUnits`, `TelemetryCoefficients` and `TelemetryBits` return an `AprsTelemetryMetadataBuilder`, whose `Addressee(string)` sets the station the metadata is for (the sender by default). `TelemetryBits(byte bits, string projectTitle)` is `TelemetryBits(string bits, string project = "")`.
+- `AprsBuilder` documents that builders change themselves and return themselves.
+
+Data
+
+- Telemetry values and coefficients are doubles, with their text as sent beside them: `AprsTelemetryReport.Analog` is `IReadOnlyList<double?>` (was `decimal?`) with `AnalogText`; `AprsTelemetryCoefficients` gains `CoefficientsText`; `AprsQueryFootprint.Latitude` and `Longitude` are `double` (were `decimal`) with `LatitudeText` and `LongitudeText`, and `RadiusMiles` is `double` (was `int`). `AprsTelemetryCoefficients.Scale` takes a `double`. The text is written back for any entry that still means the same number, and is not part of equality.
+- Digital bits are the text as sent: `AprsTelemetryReport.Digital` (`byte?`) is `Bits` (`string?`, eight 0 or 1 characters, B1 first), and `AprsTelemetryBitSense.Bits` is a `string` (was `byte`). Migrate a byte `b` to the text with `string.Concat(Enumerable.Range(0, 8).Select(i => (b >> i & 1) == 1 ? '1' : '0'))`.
+- `AprsVoiceFrequency.FrequencyMHz` is `double` (was `decimal`), rounded once when encoded. `AprsWeather.SnowfallLast24HoursInches` is `double?` (was `decimal?`).
+- `AprsObjectReport.IsAlive` and `AprsItemReport.IsAlive` (default true) are `IsKilled` (default false). `AprsMicEReport.IsCurrent` (default true) is `IsOldData` (default false). `AprsMicEReport.Message` is `MicEMessage`.
+- `AprsMicEReport.AltitudeInComment` is public (was an internal property): set by the decoder when the altitude came from a `/A=`, and honoured by the encoder, so writing a decoded report again gives the same bytes.
+- `AprsPathEntry.HasBeenRepeated` is `Used`. `AprsTelemetryBitSense.ProjectTitle` is `Project`. `AprsPositionedData.RadioRangeMiles` is `RangeMiles`. `AprsMicEReport.MaidenheadLocator` and `AprsStatusReport.MaidenheadLocator` are `Locator`. `AprsUserDefinedData.DataText` is `Text`. `AprsPhg.GainDbi` is `GainDb`.
+- `AprsGpsFix` is `AprsCompressionFix` and `AprsNmeaSource` is `AprsCompressionSource`.
+- `AprsParseOptions` flags are all `Allow` plus the diagnostic code name: `StripTrailingLineBreaks` is `AllowTrailingLineBreak`, `RecognizeDataExtensionInComment` is `AllowDataExtensionInComment`, `AllowShortObjectName` is `AllowObjectNameNotPadded`, `AllowIncompleteTelemetry` is `AllowInvalidTelemetry`, `AllowNonStandardWeatherFieldWidths` is `AllowNonStandardWeatherFieldWidth`, `AllowWindFieldsInPositionWeather` is `AllowWindFieldsInsteadOfExtension`, `AllowMicEAltitudeAnywhere` is `AllowMicEAltitudeNotFirst` and `AllowOutOfRangeValues` is `AllowOutOfRangeValue`.
+- `AprsAddress.MaxLength` is internal, and `AprsSymbolTable.Describe` is gone (use `AprsSymbol.Description`).
+
+### Numbers kept as sent
+
+- A decoded telemetry value, coefficient or footprint coordinate now prints as the shortest double (`0` where it was `0.00` when held as a decimal); the text as sent is still written back unchanged.
+- A whole-number field that the encoder rounds (course, wind direction, humidity, luminosity, footprint radius) is documented as whole when decoded and rounded once when encoded.
+
+### Other
+
+- New `AprsEncodeException`, `AprsTelemetryMetadataBuilder`; new tests for the API contract. The corpus tool's `diff build` now maps every recipe key with a single setter instead of falling back to hand-built records.
+
 ## 0.56.0 (2026-11-10)
 
 This release breaks the public API (a binary break, and a source break for code that assigns these values to an `int`), so it needs a minor version bump.

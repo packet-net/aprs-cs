@@ -35,14 +35,20 @@ public sealed record AprsTelemetryCoefficients : AprsMessage
 {
     /// <summary>
     /// Up to 15 values in the order a1, b1, c1, a2, b2, c2 ... a5, b5, c5. The list may stop early.
-    /// Each is a finite floating-point number (an exponent is allowed, <c>10E60</c>); a decoded
-    /// report writes each back in the form it was sent.
+    /// Each is a finite floating-point number (an exponent is allowed, <c>10E60</c>).
     /// </summary>
     public required IReadOnlyList<double> Coefficients { get; init => field = EquatableList<double>.Of(value); }
 
+    /// <summary>
+    /// How each of <see cref="Coefficients"/> was written when decoded (<c>.53</c>, <c>10E60</c>),
+    /// which the encoder writes back for any entry that still means the same number; empty for
+    /// coefficients built in code. Not part of equality.
+    /// </summary>
+    public IReadOnlyList<string> CoefficientsText { get; init => field = EquatableList<string>.Of(value); } = EquatableList<string>.Empty;
+
     /// <summary>Applies channel <paramref name="channel"/>'s (1-5) coefficients to a raw value, as a
     /// telemetry report carries it; a missing coefficient counts as a=0, b=1, c=0.</summary>
-    public double Scale(int channel, decimal raw)
+    public double Scale(int channel, double raw)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(channel, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(channel, 5);
@@ -50,25 +56,35 @@ public sealed record AprsTelemetryCoefficients : AprsMessage
         double a = i < Coefficients.Count ? Coefficients[i] : 0;
         double b = i + 1 < Coefficients.Count ? Coefficients[i + 1] : 1;
         double c = i + 2 < Coefficients.Count ? Coefficients[i + 2] : 0;
-        double v = (double)raw;
-        return (a * v * v) + (b * v) + c;
+        return (a * raw * raw) + (b * raw) + c;
     }
 
     private protected override void EncodeText(InfoWriter writer)
     {
         if (Coefficients.Count is < 1 or > 15)
         {
-            throw new ArgumentException("EQNS carries 1 to 15 coefficients", nameof(Coefficients));
+            throw new AprsEncodeException("EQNS carries 1 to 15 coefficients");
         }
 
         if (Coefficients.Any(c => !double.IsFinite(c)))
         {
-            throw new ArgumentException("an EQNS coefficient is a finite number", nameof(Coefficients));
+            throw new AprsEncodeException("an EQNS coefficient is a finite number");
         }
 
-        IReadOnlyList<string>? sent = (Coefficients as EquatableList<double>)?.Text;
-        MessageCodec.WriteList(writer, "EQNS.", sent ?? Coefficients.Select(Internal.PlainNumber.Format).ToList(), this);
+        MessageCodec.WriteList(
+            writer,
+            "EQNS.",
+            [.. Coefficients.Select((c, i) => i < CoefficientsText.Count && MessageCodec.CoefficientMeans(CoefficientsText[i], c) ? CoefficientsText[i] : PlainNumber.Format(c))],
+            this);
     }
+
+    /// <summary>The same coefficients, however they were written.</summary>
+    /// <param name="other">The message to compare with.</param>
+    public bool Equals(AprsTelemetryCoefficients? other) =>
+        other is not null && base.Equals(other) && Coefficients.SequenceEqual(other.Coefficients);
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(base.GetHashCode(), Coefficients.Count);
 }
 
 /// <summary>
@@ -77,30 +93,30 @@ public sealed record AprsTelemetryCoefficients : AprsMessage
 /// </summary>
 public sealed record AprsTelemetryBitSense : AprsMessage
 {
-    /// <summary>The 8 bit-sense flags; bit 0 is B1.</summary>
-    public required byte Bits { get; init; }
+    /// <summary>The 8 bit-sense flags as sent, B1 first: eight 0 or 1 characters.</summary>
+    public required string Bits { get; init; }
 
     /// <summary>The project title, up to 23 characters (APRS12c ch. 13), or empty. Decoding accepts a longer one.</summary>
-    public string ProjectTitle { get; init; } = "";
+    public string Project { get; init; } = "";
 
     private protected override void EncodeText(InfoWriter writer)
     {
-        Internal.Text.RequireNoLineBreaks(ProjectTitle, nameof(ProjectTitle));
-        MessageCodec.RequireNoBrace(ProjectTitle, nameof(ProjectTitle));
-        if (ProjectTitle.EnumerateRunes().Count() > 23)
+        Internal.Text.RequireNoLineBreaks(Project);
+        MessageCodec.RequireNoBrace(Project);
+        if (Project.EnumerateRunes().Count() > 23)
         {
-            throw new ArgumentException("the telemetry project title is limited to 23 characters (APRS12c ch. 13)", nameof(ProjectTitle));
+            throw new AprsEncodeException("the telemetry project title is limited to 23 characters (APRS12c ch. 13)");
         }
 
-        writer.Ascii("BITS.");
-        for (int i = 0; i < 8; i++)
+        if (Bits is not { Length: 8 } || Bits.Any(c => c is not ('0' or '1')))
         {
-            writer.Char((Bits & (1 << i)) != 0 ? '1' : '0');
+            throw new AprsEncodeException("the bit sense is 8 characters, each 0 or 1, B1 first");
         }
 
-        if (ProjectTitle.Length > 0)
+        writer.Ascii("BITS.").Ascii(Bits);
+        if (Project.Length > 0)
         {
-            writer.Char(',').Utf8(ProjectTitle);
+            writer.Char(',').Utf8(Project);
         }
 
         WriteMessageId(writer);

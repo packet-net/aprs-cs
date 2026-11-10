@@ -21,7 +21,7 @@ internal static class NeutralJson
             ["source"] = packet.Source.Value,
             ["destination"] = packet.Destination.Value,
         };
-        Put(o, "path", Array(packet.Path.Select(p => (JsonNode?)(p.HasBeenRepeated ? p.Address.Value + "*" : p.Address.Value))));
+        Put(o, "path", Array(packet.Path.Select(p => (JsonNode?)(p.Used ? p.Address.Value + "*" : p.Address.Value))));
         if (packet.QConstruct is { } q)
         {
             var qo = new JsonObject { ["construct"] = q.Construct };
@@ -49,24 +49,24 @@ internal static class NeutralJson
                 Positioned(o, p);
                 break;
             case AprsMicEReport m:
-                o["mic_e_message"] = Kebab(m.Message.ToString());
-                Flag(o, "old_data", !m.IsCurrent);
+                o["mic_e_message"] = Kebab(m.MicEMessage.ToString());
+                Flag(o, "old_data", m.IsOldData);
                 Put(o, "type_code", m.TypeCode?.ToString());
                 Put(o, "device_suffix", m.DeviceSuffix);
-                Put(o, "locator", m.MaidenheadLocator);
+                Put(o, "locator", m.Locator);
                 Put(o, "legacy_telemetry", m.LegacyTelemetry is { } lt ? Array(lt.Select(v => (JsonNode?)v)) : null);
                 Put(o, "destination_ssid", m.DestinationSsid == 0 ? null : m.DestinationSsid);
                 Positioned(o, m);
                 break;
             case AprsObjectReport ob:
                 o["name"] = ob.Name;
-                Flag(o, "killed", !ob.IsAlive);
+                Flag(o, "killed", ob.IsKilled);
                 Put(o, "timestamp", ob.Timestamp?.ToString());
                 Positioned(o, ob);
                 break;
             case AprsItemReport it:
                 o["name"] = it.Name;
-                Flag(o, "killed", !it.IsAlive);
+                Flag(o, "killed", it.IsKilled);
                 Positioned(o, it);
                 break;
             case AprsMessage msg:
@@ -74,7 +74,7 @@ internal static class NeutralJson
                 break;
             case AprsStatusReport s:
                 Put(o, "timestamp", s.Timestamp?.ToString());
-                Put(o, "locator", s.MaidenheadLocator);
+                Put(o, "locator", s.Locator);
                 Put(o, "symbol", s.Symbol?.ToString());
                 if (s.BeamHeading is { } b)
                 {
@@ -86,7 +86,7 @@ internal static class NeutralJson
             case AprsTelemetryReport t:
                 o["sequence"] = t.Sequence;
                 o["analog"] = Array(t.Analog.Select(v => v is { } d ? (JsonNode?)d : null));
-                Put(o, "bits", t.Digital is { } bits ? Bits(bits) : null);
+                Put(o, "bits", t.Bits);
                 Put(o, "comment", t.Comment);
                 break;
             case AprsWeatherReport w:
@@ -238,8 +238,8 @@ internal static class NeutralJson
                 o["coefficients"] = Array(co.Coefficients.Select(c => (JsonNode?)c));
                 break;
             case AprsTelemetryBitSense bs:
-                o["bits"] = Bits(bs.Bits);
-                Put(o, "project", bs.ProjectTitle);
+                o["bits"] = bs.Bits;
+                Put(o, "project", bs.Project);
                 break;
             case AprsDirectedQuery dq:
                 o["query_type"] = dq.QueryType;
@@ -277,7 +277,7 @@ internal static class NeutralJson
             o["phg"] = p;
         }
 
-        Put(o, "range_miles", d.RadioRangeMiles);
+        Put(o, "range_miles", d.RangeMiles);
         if (d.DfSignalStrength is { } dfs)
         {
             o["dfs"] = new JsonObject { ["strength"] = dfs.StrengthCode, ["height"] = dfs.HeightCode, ["gain"] = dfs.GainCode, ["directivity"] = dfs.DirectivityCode };
@@ -376,18 +376,6 @@ internal static class NeutralJson
         return $"{field[..2]}:{field[2..4]}:{field[4..6]}{(fraction.Length > 0 ? "." + fraction : "")}";
     }
 
-    /// <summary>Digital channels as on air: B1 first, '1' for on.</summary>
-    private static string Bits(byte bits)
-    {
-        var sb = new StringBuilder(8);
-        for (int i = 0; i < 8; i++)
-        {
-            sb.Append((bits >> i & 1) == 1 ? '1' : '0');
-        }
-
-        return sb.ToString();
-    }
-
     /// <summary>Bytes as a string of code points U+0000-U+00FF, one per byte.</summary>
     private static string Latin1(IReadOnlyList<byte> bytes) => System.Text.Encoding.Latin1.GetString([.. bytes]);
 
@@ -452,14 +440,6 @@ internal static class NeutralJson
     }
 
     private static void Put(JsonObject o, string name, double? value)
-    {
-        if (value is { } v)
-        {
-            o[name] = v;
-        }
-    }
-
-    private static void Put(JsonObject o, string name, decimal? value)
     {
         if (value is { } v)
         {

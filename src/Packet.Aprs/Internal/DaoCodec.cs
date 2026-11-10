@@ -86,12 +86,12 @@ internal static class DaoCodec
 
     public static void Write(InfoWriter w, AprsPosition position, AprsDao dao)
     {
-        dao.Validate(nameof(dao));
+        dao.Validate();
         if (position.Ambiguity != 0)
         {
             // Even !W  ! reads back with dao-with-ambiguity: a DAO adds precision to an ambiguous
             // position, which contradicts it, so no clean form exists (vectors ruling F4).
-            throw new ArgumentException("a DAO contradicts position ambiguity, whatever its precision");
+            throw new AprsEncodeException("a DAO contradicts position ambiguity, whatever its precision");
         }
 
         SplitForDao(Math.Abs(position.Latitude), dao, out int lat);

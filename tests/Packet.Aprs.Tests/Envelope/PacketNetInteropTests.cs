@@ -29,7 +29,7 @@ public class PacketNetInteropTests
     [Fact]
     public void An_encoded_packet_parses_as_a_strict_packet_ax25_ui_frame()
     {
-        AprsPacket packet = AprsPacket.Create("M0LTE-9", "APZ001", new AprsStatusReport { Text = "Net Control" }, "WIDE1-1,WIDE2-1");
+        AprsPacket packet = AprsPacket.Create("M0LTE-9", new AprsStatusReport { Text = "Net Control" }, "APZ001", "WIDE1-1,WIDE2-1");
 
         Ax25Frame.TryParse(packet.ToAx25Frame(), Ax25ParseOptions.Strict, out Ax25Frame? frame).Should().BeTrue();
 

@@ -19,7 +19,7 @@ internal static class ObjectCodec
             // A name that was not padded to 9 characters: find the live/killed marker early.
             int found = info[1..Math.Min(info.Length, 10)].IndexOfAny((byte)'*', (byte)'_');
             if (found < 0 || !ctx.Tolerate(
-                    ctx.Options.AllowShortObjectName,
+                    ctx.Options.AllowObjectNameNotPadded,
                     AprsDiagnosticCode.ObjectNameNotPadded,
                     "object name is not padded to 9 characters (APRS12c ch. 11)",
                     1))
@@ -99,7 +99,7 @@ internal static class ObjectCodec
         return fields.ApplyTo(new AprsObjectReport
         {
             Name = name,
-            IsAlive = marker == (byte)'*',
+            IsKilled = marker != (byte)'*',
             Timestamp = timestamp,
             Position = fields.Position,
             Symbol = fields.Symbol,
@@ -144,28 +144,28 @@ internal static class ObjectCodec
         return fields.ApplyTo(new AprsItemReport
         {
             Name = Text.Latin1(nameBytes),
-            IsAlive = info[markerAt] == (byte)'!',
+            IsKilled = info[markerAt] != (byte)'!',
             Position = fields.Position,
             Symbol = fields.Symbol,
         });
     }
 
-    public static void ValidateObjectName(string name, string paramName)
+    public static void ValidateObjectName(string name)
     {
-        ArgumentNullException.ThrowIfNull(name, paramName);
+        ArgumentNullException.ThrowIfNull(name);
         // Any printable ASCII including spaces (APRS12c ch. 11), except trailing ones, which are padding.
         if (name.Length is < 1 or > 9 || name.Any(c => c is < ' ' or > '~') || name.EndsWith(' '))
         {
-            throw new ArgumentException("object name must be 1-9 printable ASCII characters, not ending in a space (APRS12c ch. 11)", paramName);
+            throw new AprsEncodeException("object name must be 1-9 printable ASCII characters, not ending in a space (APRS12c ch. 11)");
         }
     }
 
-    public static void ValidateItemName(string name, string paramName)
+    public static void ValidateItemName(string name)
     {
-        ArgumentNullException.ThrowIfNull(name, paramName);
+        ArgumentNullException.ThrowIfNull(name);
         if (name.Length is < 3 or > 9 || name.Any(c => c is < ' ' or > '~' or '!' or '_'))
         {
-            throw new ArgumentException("item name must be 3-9 printable ASCII characters other than ! and _ (APRS12c ch. 11)", paramName);
+            throw new AprsEncodeException("item name must be 3-9 printable ASCII characters other than ! and _ (APRS12c ch. 11)");
         }
     }
 

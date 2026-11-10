@@ -45,7 +45,7 @@ internal static class ApiView
             {
                 ["watts"] = phg.PowerWatts,
                 ["height_feet"] = phg.HeightFeet,
-                ["gain_db"] = phg.GainDbi,
+                ["gain_db"] = phg.GainDb,
                 ["directivity_degrees"] = phg.DirectivityDegrees,
             };
         }
@@ -76,7 +76,7 @@ internal static class ApiView
         {
             return Convert.ToHexStringLower(packet.ToAx25Frame());
         }
-        catch (ArgumentException)
+        catch (AprsEncodeException)
         {
             return "refused";
         }

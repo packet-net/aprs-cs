@@ -66,7 +66,7 @@ internal static class StatusCodec
         {
             Timestamp = timestamp,
             Text = decoded,
-            MaidenheadLocator = locator,
+            Locator = locator,
             Symbol = symbol,
             BeamHeading = beam,
         };
@@ -94,26 +94,26 @@ internal static class StatusCodec
 
     public static void Write(InfoWriter w, AprsStatusReport r)
     {
-        Text.RequireNoLineBreaks(r.Text, nameof(r.Text));
+        Text.RequireNoLineBreaks(r.Text);
         w.Char('>');
-        if (r.MaidenheadLocator is { } locator)
+        if (r.Locator is { } locator)
         {
             if (r.Timestamp is not null)
             {
-                throw new ArgumentException("a status report with a grid locator cannot have a timestamp (APRS12c ch. 16)", nameof(r));
+                throw new AprsEncodeException("a status report with a grid locator cannot have a timestamp (APRS12c ch. 16)");
             }
 
             if (r.Symbol is not { } symbol)
             {
-                throw new ArgumentException("a grid locator status needs a symbol", nameof(r));
+                throw new AprsEncodeException("a grid locator status needs a symbol");
             }
 
             if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator)) || locator.Length is not (4 or 6))
             {
-                throw new ArgumentException($"'{locator}' is not a 4 or 6 character Maidenhead locator", nameof(r));
+                throw new AprsEncodeException($"'{locator}' is not a 4 or 6 character Maidenhead locator");
             }
 
-            symbol.Validate(nameof(r.Symbol));
+            symbol.Validate();
             w.Ascii(locator.ToUpperInvariant()).Char(symbol.Table).Char(symbol.Code);
             if (r.Text.Length > 0 || r.BeamHeading is not null)
             {
@@ -122,27 +122,27 @@ internal static class StatusCodec
         }
         else if (r.Symbol is not null)
         {
-            throw new ArgumentException("a status symbol only goes with a grid locator", nameof(r));
+            throw new AprsEncodeException("a status symbol only goes with a grid locator");
         }
         else if (r.Timestamp is { } ts)
         {
             if (ts.Format != AprsTimestampFormat.DayHoursMinutesUtc)
             {
-                throw new ArgumentException("a status report timestamp must be DHM UTC (APRS12c ch. 16)", nameof(r));
+                throw new AprsEncodeException("a status report timestamp must be DHM UTC (APRS12c ch. 16)");
             }
 
             TimestampCodec.Write(w, ts, allowMonthDay: false);
         }
 
         byte[] text = System.Text.Encoding.UTF8.GetBytes(r.Text);
-        if (r.MaidenheadLocator is null && r.Timestamp is null && TryLocatorWithSymbol(text, out _))
+        if (r.Locator is null && r.Timestamp is null && TryLocatorWithSymbol(text, out _))
         {
-            throw new ArgumentException("status text starts with what reads as a grid locator and symbol; set MaidenheadLocator instead", nameof(r));
+            throw new AprsEncodeException("status text starts with what reads as a grid locator and symbol; set Locator instead");
         }
 
-        if (r.MaidenheadLocator is null && r.Timestamp is null && text.Length >= 7 && Text.AllDigits(text.AsSpan(0, 6)) && text[6] == (byte)'z')
+        if (r.Locator is null && r.Timestamp is null && text.Length >= 7 && Text.AllDigits(text.AsSpan(0, 6)) && text[6] == (byte)'z')
         {
-            throw new ArgumentException("status text starts with what reads as a timestamp; set Timestamp instead", nameof(r));
+            throw new AprsEncodeException("status text starts with what reads as a timestamp; set Timestamp instead");
         }
 
         w.Bytes(text);
@@ -150,14 +150,14 @@ internal static class StatusCodec
         {
             if (!beam.IsValid)
             {
-                throw new ArgumentException("beam heading code must be 0-9 or A-Z and power code 1-K", nameof(r));
+                throw new AprsEncodeException("beam heading code must be 0-9 or A-Z and power code 1-K");
             }
 
             w.Char('^').Char(beam.HeadingCode).Char(beam.PowerCode);
         }
         else if (text.Length >= 3 && text[^3] == (byte)'^' && new AprsBeamHeading((char)text[^2], (char)text[^1]).IsValid)
         {
-            throw new ArgumentException("status text ends with what reads as ^HP beam heading/power; set BeamHeading instead", nameof(r));
+            throw new AprsEncodeException("status text ends with what reads as ^HP beam heading/power; set BeamHeading instead");
         }
     }
 }
@@ -222,7 +222,7 @@ internal static class TelemetryCodec
             pos = 2 + comma + 1;
         }
 
-        var analog = new List<decimal?>(5);
+        var analog = new List<double?>(5);
         var sent = new List<string>(5);
         while (analog.Count < 5)
         {
@@ -239,7 +239,7 @@ internal static class TelemetryCodec
                 analog.Add(null);
             }
             else if (Text.IsTelemetryNumber(Text.Latin1(field))
-                && decimal.TryParse(Text.Latin1(field), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal v))
+                && double.TryParse(Text.Latin1(field), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double v))
             {
                 analog.Add(v);
             }
@@ -258,21 +258,12 @@ internal static class TelemetryCodec
             pos++; // the comma
         }
 
-        byte? digital = null;
+        string? digital = null;
         if (analog.Count == 5 && pos < info.Length)
         {
             if (info.Length >= pos + 8 && info.Slice(pos, 8).IndexOfAnyExcept((byte)'0', (byte)'1') < 0)
             {
-                byte bits = 0;
-                for (int i = 0; i < 8; i++)
-                {
-                    if (info[pos + i] == (byte)'1')
-                    {
-                        bits |= (byte)(1 << i);
-                    }
-                }
-
-                digital = bits;
+                digital = Text.Latin1(info.Slice(pos, 8));
                 pos += 8;
             }
         }
@@ -280,7 +271,7 @@ internal static class TelemetryCodec
         if (analog.Count < 5 || digital is null)
         {
             if (!ctx.Tolerate(
-                    ctx.Options.AllowIncompleteTelemetry,
+                    ctx.Options.AllowInvalidTelemetry,
                     AprsDiagnosticCode.InvalidTelemetry,
                     "telemetry report should carry 5 analog values and 8 digital bits (APRS12c ch. 13)",
                     2))
@@ -296,63 +287,70 @@ internal static class TelemetryCodec
 
         // Each value keeps its text as sent (073, 190.0, .53), so it re-encodes identical (vectors
         // README, "Numbers as sent").
-        return new AprsTelemetryReport { Sequence = sequence, Analog = EquatableList<decimal?>.WithText(analog, sent), Digital = digital, Comment = comment };
+        return new AprsTelemetryReport { Sequence = sequence, Analog = analog, AnalogText = sent, Bits = digital, Comment = comment };
     }
+
+    /// <summary>Whether <paramref name="sent"/> is a telemetry number that reads as <paramref name="value"/>.</summary>
+    private static bool TextMeans(string sent, double value) =>
+        Text.IsTelemetryNumber(sent)
+        && double.TryParse(sent, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double parsed)
+        && parsed == value;
 
     public static void Write(InfoWriter w, AprsTelemetryReport r)
     {
         if (r.Sequence.Length == 0 || !r.Sequence.All(char.IsAsciiLetterOrDigit))
         {
-            throw new ArgumentException("telemetry sequence is letters or digits", nameof(r));
+            throw new AprsEncodeException("telemetry sequence is letters or digits");
         }
 
-        if (r.Analog.Count != 5 || r.Digital is null)
+        if (r.Analog.Count != 5 || r.Bits is not { Length: 8 } bits || bits.Any(c => c is not ('0' or '1')))
         {
-            throw new ArgumentException("a telemetry report carries 5 analog values and the 8 digital bits (APRS12c ch. 13)", nameof(r));
+            throw new AprsEncodeException("a telemetry report carries 5 analog values and the 8 digital bits (APRS12c ch. 13)");
         }
 
-        Text.RequireNoLineBreaks(r.Comment, nameof(r.Comment));
-        IReadOnlyList<string>? sent = (r.Analog as EquatableList<decimal?>)?.Text;
-        if (r.Sequence == "MIC" && (sent is not null ? sent[0].Length == 0 : r.Analog[0] is null))
+        Text.RequireNoLineBreaks(r.Comment);
+        if (r.Sequence == "MIC" && r.Analog[0] is null)
         {
             // No form reads back with the first channel empty after MIC: T#MIC,,033 is read
             // otherwise (vectors ruling F12).
-            throw new ArgumentException("a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)", nameof(r));
+            throw new AprsEncodeException("a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)");
         }
 
         w.Ascii("T#");
         w.Ascii(r.Sequence);
         for (int i = 0; i < r.Analog.Count; i++)
         {
-            decimal? v = r.Analog[i];
+            double? v = r.Analog[i];
 
             // "MIC may or may not be followed by a comma" (APRS12c §13); the spec's example has none,
             // but an empty first value needs it, or the second would be read in its place.
-            if (i > 0 || r.Sequence != "MIC" || (sent is not null ? sent[0].Length == 0 : v is null))
+            if (i > 0 || r.Sequence != "MIC" || v is null)
             {
                 w.Char(',');
             }
 
-            if (sent is not null)
+            if (v is not { } value)
+            {
+                continue;
+            }
+
+            if (i < r.AnalogText.Count && TextMeans(r.AnalogText[i], value))
             {
                 // A decoded value is written as sent: a number is free-form (vectors ruling E1).
-                w.Ascii(sent[i]);
+                w.Ascii(r.AnalogText[i]);
             }
-            else if (v is { } value)
+            else
             {
                 // Built in code: a whole number 0-999 in the spec's three digits (APRS12c ch. 13,
                 // whose aaa field and examples write it so), however it is scaled (190.0 is 190),
                 // and any other number the plain shortest decimal (vectors ruling F11).
-                bool canonical = value == decimal.Truncate(value) && value is >= 0 and <= 999;
+                bool canonical = value == Math.Truncate(value) && value is >= 0 and <= 999;
                 w.Ascii(canonical ? ((int)value).ToString("000", CultureInfo.InvariantCulture) : PlainNumber.Format(value));
             }
         }
 
         w.Char(',');
-        for (int i = 0; i < 8; i++)
-        {
-            w.Char((r.Digital.Value & (1 << i)) != 0 ? '1' : '0');
-        }
+        w.Ascii(bits);
 
         w.Utf8(r.Comment);
     }

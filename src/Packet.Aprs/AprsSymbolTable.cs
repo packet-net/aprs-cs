@@ -12,7 +12,7 @@ namespace Packet.Aprs;
 public static class AprsSymbolTable
 {
     /// <summary>A short English description of the symbol, or null if it is reserved or unassigned.</summary>
-    public static string? Describe(AprsSymbol symbol)
+    internal static string? Describe(AprsSymbol symbol)
     {
         if (!symbol.IsValid)
         {

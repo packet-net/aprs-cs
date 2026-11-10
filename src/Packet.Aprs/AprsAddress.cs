@@ -24,9 +24,9 @@ namespace Packet.Aprs;
 /// </remarks>
 public readonly record struct AprsAddress
 {
-    /// <summary>The longest address <see cref="Parse"/> accepts. A TNC2 header is decoded with
-    /// APRS-IS addresses, which are at most 9 characters.</summary>
-    public const int MaxLength = 16;
+    /// <summary>The longest address <see cref="Parse"/> accepts; an implementation limit, since an
+    /// APRS-IS address is at most 9 characters.</summary>
+    internal const int MaxLength = 16;
 
     private AprsAddress(string value) => Value = value;
 

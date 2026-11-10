@@ -1,20 +1,13 @@
 namespace Packet.Aprs
 {
-    public static class Aprs
-    {
-        public const string DefaultDestination = "APZ001";
-        public static Packet.Aprs.AprsStation From(Packet.Aprs.AprsAddress source) { }
-        public static Packet.Aprs.AprsStation From(string source) { }
-    }
     public sealed class AprsAckBuilder : Packet.Aprs.AprsBuilder
     {
-        public Packet.Aprs.AprsAckBuilder ReplyAck(string theirAck) { }
+        public Packet.Aprs.AprsAckBuilder ReplyAck(string replyAck) { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
         public new virtual Packet.Aprs.AprsMessage ToData() { }
     }
     public readonly struct AprsAddress : System.IEquatable<Packet.Aprs.AprsAddress>
     {
-        public const int MaxLength = 16;
         public string Base { get; }
         public bool IsAx25 { get; }
         public int? NumericSsid { get; }
@@ -94,7 +87,7 @@ namespace Packet.Aprs
     public abstract class AprsBuilder
     {
         public Packet.Aprs.AprsStation Station { get; }
-        public virtual Packet.Aprs.AprsPacket Build() { }
+        public Packet.Aprs.AprsPacket Build() { }
         public abstract Packet.Aprs.AprsData ToData();
     }
     [System.Runtime.CompilerServices.RequiredMember]
@@ -136,6 +129,11 @@ namespace Packet.Aprs
         [System.Runtime.CompilerServices.RequiredMember]
         public int Sequence { get; init; }
     }
+    public enum AprsCompressionFix
+    {
+        Old = 0,
+        Current = 1,
+    }
     public enum AprsCompressionOrigin
     {
         Compressed = 0,
@@ -147,12 +145,19 @@ namespace Packet.Aprs
         OtherTracker = 6,
         DigipeaterConversion = 7,
     }
+    public enum AprsCompressionSource
+    {
+        Other = 0,
+        Gll = 1,
+        Gga = 2,
+        Rmc = 3,
+    }
     public readonly struct AprsCompressionType : System.IEquatable<Packet.Aprs.AprsCompressionType>
     {
-        public AprsCompressionType(Packet.Aprs.AprsGpsFix Fix, Packet.Aprs.AprsNmeaSource Source, Packet.Aprs.AprsCompressionOrigin Origin) { }
-        public Packet.Aprs.AprsGpsFix Fix { get; init; }
+        public AprsCompressionType(Packet.Aprs.AprsCompressionFix Fix, Packet.Aprs.AprsCompressionSource Source, Packet.Aprs.AprsCompressionOrigin Origin) { }
+        public Packet.Aprs.AprsCompressionFix Fix { get; init; }
         public Packet.Aprs.AprsCompressionOrigin Origin { get; init; }
-        public Packet.Aprs.AprsNmeaSource Source { get; init; }
+        public Packet.Aprs.AprsCompressionSource Source { get; init; }
         public static Packet.Aprs.AprsCompressionType Default { get; }
     }
     public readonly struct AprsDao : System.IEquatable<Packet.Aprs.AprsDao>
@@ -175,7 +180,6 @@ namespace Packet.Aprs
     }
     public sealed class AprsDataBuilder : Packet.Aprs.AprsBuilder
     {
-        public override Packet.Aprs.AprsPacket Build() { }
         public override Packet.Aprs.AprsData ToData() { }
     }
     public sealed class AprsDevice : System.IEquatable<Packet.Aprs.AprsDevice>
@@ -310,6 +314,7 @@ namespace Packet.Aprs
         public string? Target { get; init; }
         public static System.Collections.Generic.IReadOnlyList<string> KnownTypes { get; }
     }
+    public sealed class AprsEncodeException : System.ArgumentException { }
     public sealed class AprsFormatException : System.FormatException
     {
         public AprsFormatException() { }
@@ -328,14 +333,9 @@ namespace Packet.Aprs
         [System.Runtime.CompilerServices.RequiredMember]
         public string QueryType { get; init; }
     }
-    public enum AprsGpsFix
-    {
-        Old = 0,
-        Current = 1,
-    }
     public sealed class AprsItemBuilder : Packet.Aprs.AprsPositionedBuilder<Packet.Aprs.AprsItemBuilder>
     {
-        public Packet.Aprs.AprsItemBuilder Kill() { }
+        public Packet.Aprs.AprsItemBuilder Killed(bool killed = true) { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
         public virtual Packet.Aprs.AprsItemReport ToData() { }
     }
@@ -346,7 +346,7 @@ namespace Packet.Aprs
             "your compiler.", true)]
         public AprsItemReport() { }
         public override char DataTypeIdentifier { get; }
-        public bool IsAlive { get; init; }
+        public bool IsKilled { get; init; }
         [System.Runtime.CompilerServices.RequiredMember]
         public string Name { get; init; }
     }
@@ -381,10 +381,10 @@ namespace Packet.Aprs
     }
     public sealed class AprsMessageBuilder : Packet.Aprs.AprsBuilder
     {
-        public Packet.Aprs.AprsMessageBuilder ReplyAck(string theirId = "") { }
+        public Packet.Aprs.AprsMessageBuilder MessageId(string id) { }
+        public Packet.Aprs.AprsMessageBuilder ReplyAck(string replyAck = "") { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
         public new virtual Packet.Aprs.AprsTextMessage ToData() { }
-        public Packet.Aprs.AprsMessageBuilder WithId(string id) { }
     }
     [System.Runtime.CompilerServices.RequiredMember]
     public sealed class AprsMessageReject : Packet.Aprs.AprsMessage, System.IEquatable<Packet.Aprs.AprsMessageReject>
@@ -398,9 +398,8 @@ namespace Packet.Aprs
     }
     public sealed class AprsMicEBuilder : Packet.Aprs.AprsPositionedBuilder<Packet.Aprs.AprsMicEBuilder>
     {
-        public override Packet.Aprs.AprsPacket Build() { }
-        public Packet.Aprs.AprsMicEBuilder Message(Packet.Aprs.AprsMicEMessage message) { }
         public Packet.Aprs.AprsMicEBuilder Messaging(bool capable = true) { }
+        public Packet.Aprs.AprsMicEBuilder MicEMessage(Packet.Aprs.AprsMicEMessage message) { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
         public virtual Packet.Aprs.AprsMicEReport ToData() { }
     }
@@ -428,15 +427,16 @@ namespace Packet.Aprs
         [System.Obsolete("Constructors of types with required members are not supported in this version of " +
             "your compiler.", true)]
         public AprsMicEReport() { }
+        public bool AltitudeInComment { get; init; }
         public override char DataTypeIdentifier { get; }
         public int DestinationSsid { get; init; }
         public Packet.Aprs.AprsDevice? Device { get; }
         public string DeviceSuffix { get; init; }
-        public bool IsCurrent { get; init; }
+        public bool IsOldData { get; init; }
         public System.Collections.Generic.IReadOnlyList<int>? LegacyTelemetry { get; init; }
-        public string? MaidenheadLocator { get; init; }
-        public Packet.Aprs.AprsMicEMessage Message { get; init; }
+        public string? Locator { get; init; }
         public bool? MessagingCapable { get; }
+        public Packet.Aprs.AprsMicEMessage MicEMessage { get; init; }
         public char? TypeCode { get; init; }
     }
     [System.Runtime.CompilerServices.RequiredMember]
@@ -460,13 +460,6 @@ namespace Packet.Aprs
         public string? TimeText { get; init; }
         public string? WaypointName { get; init; }
     }
-    public enum AprsNmeaSource
-    {
-        Other = 0,
-        Gll = 1,
-        Gga = 2,
-        Rmc = 3,
-    }
     [System.Runtime.CompilerServices.RequiredMember]
     public sealed class AprsNwsBulletin : Packet.Aprs.AprsMessage, System.IEquatable<Packet.Aprs.AprsNwsBulletin>
     {
@@ -479,7 +472,7 @@ namespace Packet.Aprs
     }
     public sealed class AprsObjectBuilder : Packet.Aprs.AprsPositionedBuilder<Packet.Aprs.AprsObjectBuilder>
     {
-        public Packet.Aprs.AprsObjectBuilder Kill() { }
+        public Packet.Aprs.AprsObjectBuilder Killed(bool killed = true) { }
         public Packet.Aprs.AprsObjectBuilder Permanent() { }
         public Packet.Aprs.AprsObjectBuilder Timestamp(Packet.Aprs.AprsTimestamp timestamp) { }
         public Packet.Aprs.AprsObjectBuilder Timestamp(System.DateTime utc) { }
@@ -493,7 +486,7 @@ namespace Packet.Aprs
             "your compiler.", true)]
         public AprsObjectReport() { }
         public override char DataTypeIdentifier { get; }
-        public bool IsAlive { get; init; }
+        public bool IsKilled { get; init; }
         [System.Runtime.CompilerServices.RequiredMember]
         public string Name { get; init; }
         public Packet.Aprs.AprsTimestamp? Timestamp { get; init; }
@@ -515,9 +508,8 @@ namespace Packet.Aprs
         public byte[] ToAx25Frame() { }
         public override string ToString() { }
         public byte[] ToTnc2() { }
-        public static Packet.Aprs.AprsPacket Create(Packet.Aprs.AprsAddress source, Packet.Aprs.AprsAddress destination, Packet.Aprs.AprsData data, System.Collections.Generic.IEnumerable<Packet.Aprs.AprsPathEntry>? path = null) { }
-        public static Packet.Aprs.AprsPacket Create(string source, string destination, Packet.Aprs.AprsData data, string path = "") { }
-        public static Packet.Aprs.AprsPacket CreateMicE(Packet.Aprs.AprsAddress source, Packet.Aprs.AprsMicEReport report, System.Collections.Generic.IEnumerable<Packet.Aprs.AprsPathEntry>? path = null) { }
+        public static Packet.Aprs.AprsPacket Create(Packet.Aprs.AprsAddress source, Packet.Aprs.AprsData data, Packet.Aprs.AprsAddress? destination = default, System.Collections.Generic.IEnumerable<Packet.Aprs.AprsPathEntry>? path = null) { }
+        public static Packet.Aprs.AprsPacket Create(string source, Packet.Aprs.AprsData data, string? destination = null, string path = "") { }
         public static Packet.Aprs.AprsPacket Decode(System.ReadOnlySpan<byte> tnc2, Packet.Aprs.AprsParseOptions? options = null) { }
         public static Packet.Aprs.AprsPacket Decode(string tnc2, Packet.Aprs.AprsParseOptions? options = null) { }
         public static Packet.Aprs.AprsPacket Decode(Packet.Aprs.AprsAddress source, Packet.Aprs.AprsAddress destination, System.Collections.Generic.IEnumerable<Packet.Aprs.AprsPathEntry> path, System.ReadOnlySpan<byte> information, Packet.Aprs.AprsParseOptions? options = null) { }
@@ -534,43 +526,43 @@ namespace Packet.Aprs
         public bool AllowBraceInMessageText { get; init; }
         public bool AllowCompressionTypeReservedBits { get; init; }
         public bool AllowDaoWithAmbiguity { get; init; }
+        public bool AllowDataExtensionInComment { get; init; }
         public bool AllowEmptyDestination { get; init; }
         public bool AllowEmptyPathEntry { get; init; }
         public bool AllowFreeTextCapabilities { get; init; }
-        public bool AllowIncompleteTelemetry { get; init; }
         public bool AllowIncompleteWeather { get; init; }
         public bool AllowInvalidAddresseeCharacters { get; init; }
         public bool AllowInvalidAx25AddressCharacters { get; init; }
+        public bool AllowInvalidTelemetry { get; init; }
         public bool AllowInvalidTimestamp { get; init; }
         public bool AllowKenwoodFfPadding { get; init; }
         public bool AllowLetterGroupBulletin { get; init; }
         public bool AllowLowercaseHemisphere { get; init; }
         public bool AllowMalformedTimestamp { get; init; }
         public bool AllowMessageIdOnAck { get; init; }
-        public bool AllowMicEAltitudeAnywhere { get; init; }
+        public bool AllowMicEAltitudeNotFirst { get; init; }
         public bool AllowMissingSpaceAfterLocator { get; init; }
         public bool AllowMultipleUsedMarkers { get; init; }
-        public bool AllowNonStandardWeatherFieldWidths { get; init; }
+        public bool AllowNonStandardWeatherFieldWidth { get; init; }
         public bool AllowNonUtf8Text { get; init; }
         public bool AllowNulPaddedAddress { get; init; }
+        public bool AllowObjectNameNotPadded { get; init; }
         public bool AllowObjectWithoutTimestamp { get; init; }
-        public bool AllowOutOfRangeValues { get; init; }
+        public bool AllowOutOfRangeValue { get; init; }
         public bool AllowPositionNotAtStart { get; init; }
-        public bool AllowShortObjectName { get; init; }
+        public bool AllowTrailingLineBreak { get; init; }
         public bool AllowUnpaddedAddressee { get; init; }
         public bool AllowWeatherComment { get; init; }
         public bool AllowWindExtensionAfterCompressed { get; init; }
-        public bool AllowWindFieldsInPositionWeather { get; init; }
-        public bool RecognizeDataExtensionInComment { get; init; }
-        public bool StripTrailingLineBreaks { get; init; }
+        public bool AllowWindFieldsInsteadOfExtension { get; init; }
         public static Packet.Aprs.AprsParseOptions Lenient { get; }
         public static Packet.Aprs.AprsParseOptions Strict { get; }
     }
     public readonly struct AprsPathEntry : System.IEquatable<Packet.Aprs.AprsPathEntry>
     {
-        public AprsPathEntry(Packet.Aprs.AprsAddress Address, bool HasBeenRepeated = false) { }
+        public AprsPathEntry(Packet.Aprs.AprsAddress Address, bool Used = false) { }
         public Packet.Aprs.AprsAddress Address { get; init; }
-        public bool HasBeenRepeated { get; init; }
+        public bool Used { get; init; }
         public override string ToString() { }
         public static string FormatList(System.Collections.Generic.IEnumerable<Packet.Aprs.AprsPathEntry> path) { }
         public static System.Collections.Generic.IReadOnlyList<Packet.Aprs.AprsPathEntry> ParseList(string path) { }
@@ -582,7 +574,7 @@ namespace Packet.Aprs
         public int DirectivityCode { get; init; }
         public int? DirectivityDegrees { get; }
         public int GainCode { get; init; }
-        public int GainDbi { get; }
+        public int GainDb { get; }
         public int HeightCode { get; init; }
         public double HeightFeet { get; }
         public int PowerCode { get; init; }
@@ -618,21 +610,21 @@ namespace Packet.Aprs
     public abstract class AprsPositionedBuilder<TSelf> : Packet.Aprs.AprsBuilder
         where TSelf : Packet.Aprs.AprsPositionedBuilder<TSelf>
     {
-        public TSelf Altitude(double feet) { }
+        public TSelf AltitudeFeet(double feet) { }
         public TSelf AltitudeMetres(double metres) { }
         public TSelf Ambiguity(int digits) { }
         public TSelf At(Packet.Aprs.AprsPosition position) { }
         public TSelf At(double latitude, double longitude) { }
         public TSelf Comment(string text) { }
         public TSelf Compressed(bool compressed = true) { }
-        public TSelf Course(double degrees) { }
+        public TSelf CourseDegrees(double degrees) { }
         public TSelf Dao(Packet.Aprs.AprsDao? dao = default) { }
         public TSelf Frequency(Packet.Aprs.AprsVoiceFrequency frequency) { }
-        public TSelf Frequency(double mhz, double? tone = default, int? offsetKHz = default) { }
+        public TSelf Frequency(double mhz, Packet.Aprs.AprsToneType? tone = default, int? toneValue = default, int? offsetKHz = default) { }
         public TSelf Phg(Packet.Aprs.AprsPhg phg) { }
-        public TSelf Range(double miles) { }
-        public TSelf Speed(double knots) { }
+        public TSelf RangeMiles(double miles) { }
         public TSelf SpeedKmh(double kilometresPerHour) { }
+        public TSelf SpeedKnots(double knots) { }
         public TSelf Symbol(Packet.Aprs.AprsSymbol symbol) { }
         public TSelf Telemetry(Packet.Aprs.AprsCommentTelemetry telemetry) { }
         public TSelf Telemetry(int sequence, params int[] analog) { }
@@ -656,7 +648,7 @@ namespace Packet.Aprs
         public Packet.Aprs.AprsPhg? Phg { get; init; }
         [System.Runtime.CompilerServices.RequiredMember]
         public Packet.Aprs.AprsPosition Position { get; init; }
-        public double? RadioRangeMiles { get; init; }
+        public double? RangeMiles { get; init; }
         public string? SignpostText { get; init; }
         public double? SpeedKnots { get; init; }
         public Packet.Aprs.AprsStorm? Storm { get; init; }
@@ -675,10 +667,12 @@ namespace Packet.Aprs
     }
     public readonly struct AprsQueryFootprint : System.IEquatable<Packet.Aprs.AprsQueryFootprint>
     {
-        public AprsQueryFootprint(decimal Latitude, decimal Longitude, int RadiusMiles) { }
-        public decimal Latitude { get; init; }
-        public decimal Longitude { get; init; }
-        public int RadiusMiles { get; init; }
+        public AprsQueryFootprint(double Latitude, double Longitude, double RadiusMiles) { }
+        public double Latitude { get; init; }
+        public string? LatitudeText { get; init; }
+        public double Longitude { get; init; }
+        public string? LongitudeText { get; init; }
+        public double RadiusMiles { get; init; }
         public bool Equals(Packet.Aprs.AprsQueryFootprint other) { }
         public override int GetHashCode() { }
     }
@@ -703,6 +697,7 @@ namespace Packet.Aprs
     }
     public sealed class AprsStation
     {
+        public const string DefaultDestination = "APZ001";
         public Packet.Aprs.AprsAddress Destination { get; }
         public System.Collections.Generic.IReadOnlyList<Packet.Aprs.AprsPathEntry> Path { get; }
         public Packet.Aprs.AprsAddress Source { get; }
@@ -719,10 +714,10 @@ namespace Packet.Aprs
         public Packet.Aprs.AprsAckBuilder Reject(string addressee, string messageId) { }
         public Packet.Aprs.AprsStatusBuilder Status(string text = "") { }
         public Packet.Aprs.AprsTelemetryBuilder Telemetry(int sequence) { }
-        public Packet.Aprs.AprsDataBuilder TelemetryBits(byte bits, string projectTitle = "") { }
-        public Packet.Aprs.AprsDataBuilder TelemetryCoefficients(params double[] coefficients) { }
-        public Packet.Aprs.AprsDataBuilder TelemetryNames(params string[] names) { }
-        public Packet.Aprs.AprsDataBuilder TelemetryUnits(params string[] units) { }
+        public Packet.Aprs.AprsTelemetryMetadataBuilder TelemetryBits(string bits, string project = "") { }
+        public Packet.Aprs.AprsTelemetryMetadataBuilder TelemetryCoefficients(params double[] coefficients) { }
+        public Packet.Aprs.AprsTelemetryMetadataBuilder TelemetryNames(params string[] names) { }
+        public Packet.Aprs.AprsTelemetryMetadataBuilder TelemetryUnits(params string[] units) { }
         public Packet.Aprs.AprsStation To(string destination) { }
         public Packet.Aprs.AprsStation Via(params string[] path) { }
         public Packet.Aprs.AprsWeatherBuilder Weather() { }
@@ -742,7 +737,8 @@ namespace Packet.Aprs
     public sealed class AprsStatusBuilder : Packet.Aprs.AprsBuilder
     {
         public Packet.Aprs.AprsStatusBuilder Beam(Packet.Aprs.AprsBeamHeading beam) { }
-        public Packet.Aprs.AprsStatusBuilder Locator(string maidenheadLocator, Packet.Aprs.AprsSymbol symbol) { }
+        public Packet.Aprs.AprsStatusBuilder Locator(string locator) { }
+        public Packet.Aprs.AprsStatusBuilder Symbol(Packet.Aprs.AprsSymbol symbol) { }
         public Packet.Aprs.AprsStatusBuilder Timestamp(Packet.Aprs.AprsTimestamp timestamp) { }
         public Packet.Aprs.AprsStatusBuilder Timestamp(System.DateTime utc) { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
@@ -753,7 +749,7 @@ namespace Packet.Aprs
         public AprsStatusReport() { }
         public Packet.Aprs.AprsBeamHeading? BeamHeading { get; init; }
         public override char DataTypeIdentifier { get; }
-        public string? MaidenheadLocator { get; init; }
+        public string? Locator { get; init; }
         public Packet.Aprs.AprsSymbol? Symbol { get; init; }
         public string Text { get; init; }
         public Packet.Aprs.AprsTimestamp? Timestamp { get; init; }
@@ -960,7 +956,6 @@ namespace Packet.Aprs
     }
     public static class AprsSymbolTable
     {
-        public static string? Describe(Packet.Aprs.AprsSymbol symbol) { }
         public static Packet.Aprs.AprsSymbol? FromDestination(Packet.Aprs.AprsAddress destination) { }
         public static Packet.Aprs.AprsSymbol? FromSourceSsid(int ssid) { }
     }
@@ -971,16 +966,14 @@ namespace Packet.Aprs
             "your compiler.", true)]
         public AprsTelemetryBitSense() { }
         [System.Runtime.CompilerServices.RequiredMember]
-        public byte Bits { get; init; }
-        public string ProjectTitle { get; init; }
+        public string Bits { get; init; }
+        public string Project { get; init; }
     }
     public sealed class AprsTelemetryBuilder : Packet.Aprs.AprsBuilder
     {
-        public Packet.Aprs.AprsTelemetryBuilder Analog(params decimal[] values) { }
-        public Packet.Aprs.AprsTelemetryBuilder Analog(params decimal?[] values) { }
+        public Packet.Aprs.AprsTelemetryBuilder Analog(params double?[] values) { }
+        public Packet.Aprs.AprsTelemetryBuilder Bits(string bits) { }
         public Packet.Aprs.AprsTelemetryBuilder Comment(string text) { }
-        public Packet.Aprs.AprsTelemetryBuilder Digital(byte bits) { }
-        public Packet.Aprs.AprsTelemetryBuilder Digital(string bits) { }
         [System.Runtime.CompilerServices.PreserveBaseOverrides]
         public new virtual Packet.Aprs.AprsTelemetryReport ToData() { }
     }
@@ -992,7 +985,16 @@ namespace Packet.Aprs
         public AprsTelemetryCoefficients() { }
         [System.Runtime.CompilerServices.RequiredMember]
         public System.Collections.Generic.IReadOnlyList<double> Coefficients { get; init; }
-        public double Scale(int channel, decimal raw) { }
+        public System.Collections.Generic.IReadOnlyList<string> CoefficientsText { get; init; }
+        public bool Equals(Packet.Aprs.AprsTelemetryCoefficients? other) { }
+        public override int GetHashCode() { }
+        public double Scale(int channel, double raw) { }
+    }
+    public sealed class AprsTelemetryMetadataBuilder : Packet.Aprs.AprsBuilder
+    {
+        public Packet.Aprs.AprsTelemetryMetadataBuilder Addressee(string addressee) { }
+        [System.Runtime.CompilerServices.PreserveBaseOverrides]
+        public new virtual Packet.Aprs.AprsMessage ToData() { }
     }
     [System.Runtime.CompilerServices.RequiredMember]
     public sealed class AprsTelemetryParameterNames : Packet.Aprs.AprsMessage, System.IEquatable<Packet.Aprs.AprsTelemetryParameterNames>
@@ -1010,12 +1012,15 @@ namespace Packet.Aprs
             "your compiler.", true)]
         public AprsTelemetryReport() { }
         [System.Runtime.CompilerServices.RequiredMember]
-        public System.Collections.Generic.IReadOnlyList<decimal?> Analog { get; init; }
+        public System.Collections.Generic.IReadOnlyList<double?> Analog { get; init; }
+        public System.Collections.Generic.IReadOnlyList<string> AnalogText { get; init; }
+        public string? Bits { get; init; }
         public string Comment { get; init; }
         public override char DataTypeIdentifier { get; }
-        public byte? Digital { get; init; }
         [System.Runtime.CompilerServices.RequiredMember]
         public string Sequence { get; init; }
+        public bool Equals(Packet.Aprs.AprsTelemetryReport? other) { }
+        public override int GetHashCode() { }
     }
     [System.Runtime.CompilerServices.RequiredMember]
     public sealed class AprsTelemetryUnits : Packet.Aprs.AprsMessage, System.IEquatable<Packet.Aprs.AprsTelemetryUnits>
@@ -1118,10 +1123,10 @@ namespace Packet.Aprs
         public AprsUserDefinedData() { }
         [System.Runtime.CompilerServices.RequiredMember]
         public System.Collections.Generic.IReadOnlyList<byte> Data { get; init; }
-        public string DataText { get; }
         public override char DataTypeIdentifier { get; }
         [System.Runtime.CompilerServices.RequiredMember]
         public char PacketType { get; init; }
+        public string Text { get; }
         [System.Runtime.CompilerServices.RequiredMember]
         public char UserId { get; init; }
     }
@@ -1132,7 +1137,7 @@ namespace Packet.Aprs
             "your compiler.", true)]
         public AprsVoiceFrequency() { }
         [System.Runtime.CompilerServices.RequiredMember]
-        public decimal FrequencyMHz { get; init; }
+        public double FrequencyMHz { get; init; }
         public bool Narrow { get; init; }
         public int? OffsetKHz { get; init; }
         public int? Range { get; init; }
@@ -1152,7 +1157,7 @@ namespace Packet.Aprs
         public double? RainLastHourInches { get; init; }
         public int? RainRawCounter { get; init; }
         public double? RainSinceMidnightInches { get; init; }
-        public decimal? SnowfallLast24HoursInches { get; init; }
+        public double? SnowfallLast24HoursInches { get; init; }
         public char? SoftwareType { get; init; }
         public double? TemperatureFahrenheit { get; init; }
         public string? UnitType { get; init; }
@@ -1166,22 +1171,27 @@ namespace Packet.Aprs
         public Packet.Aprs.AprsWeatherBuilder At(double latitude, double longitude) { }
         public Packet.Aprs.AprsWeatherBuilder Compressed(bool compressed = true) { }
         public Packet.Aprs.AprsWeatherBuilder Dao(Packet.Aprs.AprsDao? dao = default) { }
-        public Packet.Aprs.AprsWeatherBuilder Gust(double mph) { }
-        public Packet.Aprs.AprsWeatherBuilder Humidity(double percent) { }
-        public Packet.Aprs.AprsWeatherBuilder Luminosity(double wattsPerSquareMetre) { }
+        public Packet.Aprs.AprsWeatherBuilder HumidityPercent(double percent) { }
+        public Packet.Aprs.AprsWeatherBuilder LuminosityWattsPerSquareMetre(double wattsPerSquareMetre) { }
         public Packet.Aprs.AprsWeatherBuilder Messaging(bool capable = true) { }
         public Packet.Aprs.AprsWeatherBuilder Observations(Packet.Aprs.AprsWeather weather) { }
-        public Packet.Aprs.AprsWeatherBuilder Pressure(double millibars) { }
-        public Packet.Aprs.AprsWeatherBuilder Rain(double? lastHour = default, double? last24Hours = default, double? sinceMidnight = default) { }
-        public Packet.Aprs.AprsWeatherBuilder RainMillimetres(double? lastHour = default, double? last24Hours = default, double? sinceMidnight = default) { }
-        public Packet.Aprs.AprsWeatherBuilder Snowfall(decimal inches) { }
+        public Packet.Aprs.AprsWeatherBuilder PressureMillibars(double millibars) { }
+        public Packet.Aprs.AprsWeatherBuilder RainLast24HoursInches(double inches) { }
+        public Packet.Aprs.AprsWeatherBuilder RainLast24HoursMillimetres(double millimetres) { }
+        public Packet.Aprs.AprsWeatherBuilder RainLastHourInches(double inches) { }
+        public Packet.Aprs.AprsWeatherBuilder RainLastHourMillimetres(double millimetres) { }
+        public Packet.Aprs.AprsWeatherBuilder RainSinceMidnightInches(double inches) { }
+        public Packet.Aprs.AprsWeatherBuilder RainSinceMidnightMillimetres(double millimetres) { }
+        public Packet.Aprs.AprsWeatherBuilder SnowfallLast24HoursInches(double inches) { }
         public Packet.Aprs.AprsWeatherBuilder Symbol(Packet.Aprs.AprsSymbol symbol) { }
-        public Packet.Aprs.AprsWeatherBuilder Temperature(double fahrenheit) { }
         public Packet.Aprs.AprsWeatherBuilder TemperatureCelsius(double celsius) { }
+        public Packet.Aprs.AprsWeatherBuilder TemperatureFahrenheit(double fahrenheit) { }
         public Packet.Aprs.AprsWeatherBuilder Timestamp(Packet.Aprs.AprsTimestamp timestamp) { }
         public Packet.Aprs.AprsWeatherBuilder Timestamp(System.DateTime utc) { }
         public override Packet.Aprs.AprsData ToData() { }
-        public Packet.Aprs.AprsWeatherBuilder Wind(double directionDegrees, double speedMph, double? gust = default) { }
+        public Packet.Aprs.AprsWeatherBuilder WindDirectionDegrees(double degrees) { }
+        public Packet.Aprs.AprsWeatherBuilder WindGustMph(double mph) { }
+        public Packet.Aprs.AprsWeatherBuilder WindSpeedMph(double mph) { }
     }
     public readonly struct AprsWeatherField : System.IEquatable<Packet.Aprs.AprsWeatherField>
     {

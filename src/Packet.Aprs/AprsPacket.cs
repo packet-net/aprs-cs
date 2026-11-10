@@ -16,8 +16,8 @@ namespace Packet.Aprs;
 /// <see cref="Diagnostics"/> says what was wrong.
 /// </para>
 /// <para>
-/// Build a packet to send with <see cref="Create(AprsAddress, AprsAddress, AprsData, IEnumerable{AprsPathEntry}?)"/>
-/// (or <see cref="CreateMicE"/>), then write it with <see cref="ToTnc2"/> or <see cref="ToAx25Frame"/>.
+/// Build a packet to send with <see cref="Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>,
+/// then write it with <see cref="ToTnc2"/> or <see cref="ToAx25Frame"/>.
 /// </para>
 /// </remarks>
 public sealed class AprsPacket : IEquatable<AprsPacket>
@@ -176,43 +176,50 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     /// <summary>
     /// Builds a packet from data, encoding its information field. <paramref name="destination"/> is
     /// normally your software's registered identifier (<c>APxxxx</c>, or <c>APZxxx</c> while
-    /// experimenting; APRS12c §4). For Mic-E use <see cref="CreateMicE"/>, since Mic-E puts
-    /// part of the position in the destination.
+    /// experimenting; APRS12c §4); when null it is <see cref="AprsStation.DefaultDestination"/>. A
+    /// Mic-E report puts part of its position in the destination, so its destination is computed
+    /// from it, and giving one is refused. Throws <see cref="AprsEncodeException"/> for anything the
+    /// library will not write.
     /// </summary>
-    public static AprsPacket Create(AprsAddress source, AprsAddress destination, AprsData data, IEnumerable<AprsPathEntry>? path = null)
+    public static AprsPacket Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
     {
         ArgumentNullException.ThrowIfNull(data);
-        if (data is AprsMicEReport)
+        RequireAddress(source);
+        if (data is AprsMicEReport micE)
         {
-            throw new ArgumentException("Mic-E encodes part of its data in the destination address; use CreateMicE", nameof(data));
+            if (destination is not null)
+            {
+                throw new AprsEncodeException("a Mic-E report computes its destination address, so none can be given");
+            }
+
+            return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micE.EncodeInformation(), micE, []);
         }
 
-        RequireAddress(source, nameof(source));
-        RequireAddress(destination, nameof(destination));
-        return new AprsPacket(source, destination, path?.ToList() ?? [], data.ToInformationField(), data, []);
+        AprsAddress to = destination ?? AprsAddress.Parse(AprsStation.DefaultDestination);
+        RequireAddress(to);
+        return new AprsPacket(source, to, path?.ToList() ?? [], data.EncodeInformation(), data, []);
     }
-
-    /// <summary>Builds a packet from text addresses and a TNC2 path such as <c>WIDE1-1,WIDE2-1</c>.</summary>
-    public static AprsPacket Create(string source, string destination, AprsData data, string path = "") =>
-        Create(AprsAddress.Parse(source), AprsAddress.Parse(destination), data, AprsPathEntry.ParseList(path));
 
     /// <summary>
-    /// Builds a Mic-E packet. The destination address is computed from the report (latitude,
-    /// message bits, hemisphere and longitude offset; APRS12c §10).
+    /// Builds a packet from text addresses and a TNC2 path such as <c>WIDE1-1,WIDE2-1</c>. A text
+    /// that is not an address is an <see cref="AprsEncodeException"/>.
     /// </summary>
-    public static AprsPacket CreateMicE(AprsAddress source, AprsMicEReport report, IEnumerable<AprsPathEntry>? path = null)
+    public static AprsPacket Create(string source, AprsData data, string? destination = null, string path = "")
     {
-        ArgumentNullException.ThrowIfNull(report);
-        RequireAddress(source, nameof(source));
-        AprsAddress destination = MicECodec.EncodeDestination(report);
-        return new AprsPacket(source, destination, path?.ToList() ?? [], report.ToInformationField(), report, []);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(path);
+        return Create(
+            AprsStation.ParseAddress(source),
+            data,
+            destination is null ? null : AprsStation.ParseAddress(destination),
+            AprsStation.ParsePath(path));
     }
 
-    private static void RequireAddress(AprsAddress address, string paramName)
+    private static void RequireAddress(AprsAddress address)
     {
         if (string.IsNullOrEmpty(address.Value))
         {
-            throw new ArgumentException("address is empty", paramName);
+            throw new AprsEncodeException("address is empty");
         }
     }
 

@@ -45,19 +45,19 @@ public abstract record AprsMessage : AprsData
         {
             if (replyAck is not null)
             {
-                throw new ArgumentException("a reply-ack needs a message ID", nameof(replyAck));
+                throw new AprsEncodeException("a reply-ack needs a message ID");
             }
 
             return;
         }
 
-        MessageCodec.ValidateId(MessageId, nameof(MessageId));
+        MessageCodec.ValidateId(MessageId);
         writer.Char('{').Ascii(MessageId);
         if (replyAck is not null)
         {
             if (replyAck.Length > 0)
             {
-                MessageCodec.ValidateId(replyAck, nameof(replyAck));
+                MessageCodec.ValidateId(replyAck);
             }
 
             writer.Char('}').Ascii(replyAck);
@@ -85,7 +85,7 @@ public sealed record AprsTextMessage : AprsMessage
 
     private protected override void EncodeText(InfoWriter writer)
     {
-        MessageCodec.ValidateText(Text, nameof(Text));
+        MessageCodec.ValidateText(Text);
         writer.Utf8(Text);
         WriteMessageId(writer, ReplyAck);
     }
@@ -105,10 +105,10 @@ public sealed record AprsMessageAck : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new ArgumentException("an ack must not carry its own message ID (UAP 5.32)", nameof(MessageId));
+            throw new AprsEncodeException("an ack must not carry its own message ID (UAP 5.32)");
         }
 
-        MessageCodec.ValidateId(AcknowledgedId, nameof(AcknowledgedId));
+        MessageCodec.ValidateId(AcknowledgedId);
         writer.Ascii("ack").Ascii(AcknowledgedId);
         if (ReplyAck is not null)
         {
@@ -130,10 +130,10 @@ public sealed record AprsMessageReject : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new ArgumentException("a reject must not carry its own message ID", nameof(MessageId));
+            throw new AprsEncodeException("a reject must not carry its own message ID");
         }
 
-        MessageCodec.ValidateId(RejectedId, nameof(RejectedId));
+        MessageCodec.ValidateId(RejectedId);
         writer.Ascii("rej").Ascii(RejectedId);
         if (ReplyAck is not null)
         {
@@ -185,15 +185,15 @@ public sealed record AprsBulletin : AprsMessage
     {
         if (!MessageCodec.IsBulletinAddressee(Addressee))
         {
-            throw new ArgumentException("a bulletin addressee is BLN, then 0-9 or A-Z, then an optional 1-5 character group name", nameof(Addressee));
+            throw new AprsEncodeException("a bulletin addressee is BLN, then 0-9 or A-Z, then an optional 1-5 character group name");
         }
 
         if (GroupName is not null && !char.IsAsciiDigit(Id))
         {
-            throw new ArgumentException("a group bulletin identifier is a digit (APRS12c ch. 14)", nameof(Addressee));
+            throw new AprsEncodeException("a group bulletin identifier is a digit (APRS12c ch. 14)");
         }
 
-        MessageCodec.ValidateText(Text, nameof(Text));
+        MessageCodec.ValidateText(Text);
         writer.Utf8(Text);
         WriteMessageId(writer);
     }
@@ -217,13 +217,13 @@ public sealed record AprsNwsBulletin : AprsMessage
     {
         if (!MessageCodec.IsNwsAddressee(Addressee))
         {
-            throw new ArgumentException("an NWS bulletin is addressed NWS- or NWS_ (APRS12c ch. 14)", nameof(Addressee));
+            throw new AprsEncodeException("an NWS bulletin is addressed NWS- or NWS_ (APRS12c ch. 14)");
         }
 
         // No length limit, unlike other bulletins (APRS12c ch. 14), but no '{' either: it would read
         // back as brace-in-message-text.
-        Internal.Text.RequireNoLineBreaks(Text, nameof(Text));
-        MessageCodec.RequireNoBrace(Text, nameof(Text));
+        Internal.Text.RequireNoLineBreaks(Text);
+        MessageCodec.RequireNoBrace(Text);
         writer.Utf8(Text);
         WriteMessageId(writer);
     }
@@ -250,13 +250,13 @@ public sealed record AprsDirectedQuery : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new ArgumentException("a directed query never has a message ID (APRS12c ch. 15)", nameof(MessageId));
+            throw new AprsEncodeException("a directed query never has a message ID (APRS12c ch. 15)");
         }
 
         bool known = KnownTypes.Contains(QueryType);
         if (!known && !QueryCodec.IsQueryType(QueryType))
         {
-            throw new ArgumentException("a query type is upper-case letters (APRS12c ch. 15)", nameof(QueryType));
+            throw new AprsEncodeException("a query type is upper-case letters (APRS12c ch. 15)");
         }
 
         writer.Char('?').Ascii(QueryType);
@@ -264,7 +264,7 @@ public sealed record AprsDirectedQuery : AprsMessage
         {
             if (!MessageCodec.IsCallsign(Target))
             {
-                throw new ArgumentException("a query target is one callsign: 1-9 letters, digits or -", nameof(Target));
+                throw new AprsEncodeException("a query target is one callsign: 1-9 letters, digits or -");
             }
 
             // A defined type is followed straight by its target, APRSH's padded to 9 characters
