@@ -92,8 +92,8 @@ dotnet run -c Release --no-build --project tools/Packet.Aprs.Corpus -- diff buil
 ```
 
 - `dump` decodes each hex TNC2 line, leniently and strictly, and records the bytes re-encoding writes (`written`, and `written_destination` for Mic-E) and the API view: what the public API offers beyond the neutral form (addresses, path, q-construct, diagnostics flags, TNC2 and AX.25 forms, device, symbol description, PHG figures, and the same for a third-party packet's inner packet).
-- `encode` reads neutral data as the vectors' encode cases are read, encodes it and decodes the bytes again; `unsupported` means `Packet.Aprs` data cannot hold the value (a fractional course, say).
-- `build` builds each recipe with the fluent builders; a recipe key the builders cannot express is reported `unsupported`, naming it.
+- `encode` reads neutral data as the vectors' encode cases are read, encodes it and decodes the bytes again; `unsupported` means `Packet.Aprs` data cannot hold the value (a third-party packet with no inner destination, say). A number between steps for a field `Packet.Aprs` holds in whole units (a course of 360.4, a humidity of 99.7) is read rounded to the nearest whole unit, halves away from zero, as the encoder rounds any value (vectors ruling F2), so the encoder's own checks then decide it.
+- `build` builds each recipe with the fluent builders; a recipe key the builders cannot express is reported `unsupported`, naming it. The builders take a course, a wind direction or gust, a temperature in Fahrenheit, a humidity and a luminosity as whole numbers, so a fractional one is `unsupported`.
 
 `--limit <n>` takes only the first n input lines. Compare the dumps with the vectors' `tools/compare.py`.
 
