@@ -136,6 +136,36 @@ public sealed record AprsNmeaReport : AprsData
         }
 
         writer.Char('$').Ascii(Sentence).Utf8(Comment);
+        VerifyReadsBack();
+    }
+
+    /// <summary>
+    /// The sentence is what is sent; the values read from it (position, fix, course, speed,
+    /// altitude, time, waypoint) are not written. Any of them given must be what the sentence
+    /// reads back as, or the report would read back as different data (vectors README, Encoding).
+    /// The time is compared as a time: <see cref="TimeText"/> is its text, which the sentence holds.
+    /// </summary>
+    private void VerifyReadsBack()
+    {
+        byte[] info = [(byte)'$', .. System.Text.Encoding.Latin1.GetBytes(Sentence)];
+        var back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], info).Data as AprsNmeaReport;
+        string? differs =
+            back is null ? "the sentence"
+            : Position is { } p && (back.Position is not { } q || p.Ambiguity != q.Ambiguity || !Near(p.Latitude, q.Latitude) || !Near(p.Longitude, q.Longitude)) ? nameof(Position)
+            : FixValid is not null && FixValid != back.FixValid ? nameof(FixValid)
+            : CourseDegrees is { } c && (back.CourseDegrees is not { } c2 || !Near(c, c2)) ? nameof(CourseDegrees)
+            : SpeedKnots is { } s && (back.SpeedKnots is not { } s2 || !Near(s, s2)) ? nameof(SpeedKnots)
+            : AltitudeMetres is { } a && (back.AltitudeMetres is not { } a2 || !Near(a, a2)) ? nameof(AltitudeMetres)
+            : Time is not null && Time != back.Time ? nameof(Time)
+            : WaypointName is not null && WaypointName != back.WaypointName ? nameof(WaypointName)
+            : null;
+        if (differs is not null)
+        {
+            throw new ArgumentException($"{differs} is not what the sentence reads back as; the sentence is what is sent", differs);
+        }
+
+        // The same value, but for the last bits a different computation of it may differ in.
+        static bool Near(double x, double y) => Math.Abs(x - y) <= 1e-9 * Math.Max(1, Math.Abs(x));
     }
 }
 
@@ -166,10 +196,31 @@ public sealed record AprsMaidenheadBeacon : AprsData
 }
 
 /// <summary>The target area of a general query: floating-point degrees and a radius in miles (APRS12c §15).</summary>
+/// <remarks>
+/// A decoded footprint is written back with its coordinates as sent (<c>-.1715</c>, <c>34.0</c>,
+/// with or without the leading space before a positive value); one built in code gets the spec's
+/// form, a leading space in place of a plus sign. How a coordinate was written is not part of
+/// equality.
+/// </remarks>
 /// <param name="Latitude">Degrees, positive north.</param>
 /// <param name="Longitude">Degrees, positive east.</param>
 /// <param name="RadiusMiles">Radius, 0-9999 whole miles.</param>
-public readonly record struct AprsQueryFootprint(decimal Latitude, decimal Longitude, int RadiusMiles);
+public readonly record struct AprsQueryFootprint(decimal Latitude, decimal Longitude, int RadiusMiles)
+{
+    /// <summary>The latitude's text as received, when decoded; null for one built in code.</summary>
+    internal string? LatitudeText { get; init; }
+
+    /// <summary>The longitude's text as received, when decoded; null for one built in code.</summary>
+    internal string? LongitudeText { get; init; }
+
+    /// <summary>The same place and radius, however the coordinates were written.</summary>
+    /// <param name="other">The footprint to compare with.</param>
+    public bool Equals(AprsQueryFootprint other) =>
+        Latitude == other.Latitude && Longitude == other.Longitude && RadiusMiles == other.RadiusMiles;
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(Latitude, Longitude, RadiusMiles);
+}
 
 /// <summary>
 /// A general query to all stations, data type <c>?</c>: <c>?APRS?</c>, <c>?IGATE?</c> or
@@ -297,6 +348,12 @@ public sealed record AprsUserDefinedData : AprsData
         if (UserId > '\xFF' || PacketType > '\xFF')
         {
             throw new ArgumentException("user ID and packet type are single bytes (U+0000-U+00FF)");
+        }
+
+        // A trailing line break is a tolerated defect a decoder strips, not data.
+        if ((Data.Count > 0 ? Data[^1] : (byte)PacketType) is (byte)'\r' or (byte)'\n')
+        {
+            throw new ArgumentException("user-defined data that ends with a carriage return or line feed would read back without it", nameof(Data));
         }
 
         writer.Char('{').Char(UserId).Char(PacketType).Bytes(Data.ToArray());
