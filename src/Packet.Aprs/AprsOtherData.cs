@@ -265,29 +265,27 @@ public sealed record AprsStationCapabilities : AprsData
             throw new AprsEncodeException(AprsRefusalCode.MissingField, "a capabilities report lists at least one capability (APRS12c ch. 15)");
         }
 
+        // The first fault in the shared order: a value's characters, then a value's padding, then a
+        // token (fixed-form text), whichever capability holds it.
+        if (Capabilities.Any(c => c.Value is { } v && v.Any(ch => ch is < ' ' or '\x7F' or ',')))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "a capability value is text without ',' or control characters");
+        }
+
+        if (Capabilities.Any(c => c.Value is { } v && (v.StartsWith(' ') || v.EndsWith(' '))))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.PaddingSpace, "a capability value does not start or end with a space");
+        }
+
+        if (Capabilities.Any(c => c.Token.Length == 0 || c.Token.Any(ch => ch is <= ' ' or '\x7F' or ',' or '=')))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.Malformed, "a capability token is not empty and has no spaces, ',', '=' or control characters");
+        }
+
         writer.Char('<');
         for (int i = 0; i < Capabilities.Count; i++)
         {
             AprsCapability c = Capabilities[i];
-            // Anything else would not read back the same (vectors interpretations.md, "Station
-            // capabilities: items, tokens and values"): spaces around a value are padding.
-            if (c.Token.Length == 0)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.TooLong, "a capability token is not empty");
-            }
-
-            if (c.Value is { } padded && (padded.StartsWith(' ') || padded.EndsWith(' '))
-                && !c.Token.Any(ch => ch is <= ' ' or '\x7F' or ',' or '=') && !padded.Any(ch => ch is < ' ' or '\x7F' or ','))
-            {
-                throw new AprsEncodeException(AprsRefusalCode.PaddingSpace, "a capability value does not start or end with a space");
-            }
-
-            if (c.Token.Any(ch => ch is <= ' ' or '\x7F' or ',' or '=')
-                || (c.Value is { } v && (v.Any(ch => ch is < ' ' or '\x7F' or ',') || v.StartsWith(' ') || v.EndsWith(' '))))
-            {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "capability tokens and values are text without ',' or control characters, tokens without '=' or spaces, and values that do not start or end with a space");
-            }
-
             if (i > 0)
             {
                 writer.Char(',');

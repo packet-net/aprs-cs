@@ -429,7 +429,7 @@ internal static class WeatherCodec
             if (!TryReadRun(written, ref pos, probe, ref back, positionless, positionless, out _, out _, out _)
                 || pos != fieldsEnd - start || !CommentCodec.IsSoftwareAndUnit(written.AsSpan(pos)))
             {
-                throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, $"the software type and unit '{sw}{weather.UnitType}' would read back as weather fields or comment text (APRS12c ch. 12)");
+                w.Defer(AprsRefusalCode.TextReadsAsField, $"the software type and unit '{sw}{weather.UnitType}' would read back as weather fields or comment text (APRS12c ch. 12)");
             }
         }
     }

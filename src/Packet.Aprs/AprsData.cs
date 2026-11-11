@@ -47,9 +47,10 @@ public abstract record AprsData
             throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "the information field would end with a line break, which a decoder strips with a warning");
         }
 
+        writer.ThrowDeferred();
         if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)
         {
-            CommentCodec.VerifyReadsBack(positioned, info, problem);
+            CommentCodec.VerifyReadsBack(positioned, info, problem, writer.ReadBackCode);
         }
 
         if (this is AprsMessage message)

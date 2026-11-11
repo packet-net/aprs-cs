@@ -176,14 +176,9 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
     public AprsTelemetryBuilder Bits(string bits)
     {
         ArgumentNullException.ThrowIfNull(bits);
-        if (bits.Length != 8)
+        if (bits.Length != 8 || bits.Any(c => c is not ('0' or '1')))
         {
             throw new AprsEncodeException(AprsRefusalCode.Malformed, "the digital channels are 8 characters, each 0 or 1, B1 first");
-        }
-
-        if (bits.Any(c => c is not ('0' or '1')))
-        {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "the digital channels are 8 characters, each 0 or 1, B1 first");
         }
 
         this.bits = bits;

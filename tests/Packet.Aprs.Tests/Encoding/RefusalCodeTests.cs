@@ -35,6 +35,11 @@ public class RefusalCodeTests
         { "query-type", AprsRefusalCode.InvalidCode },
         { "nmea-checksum", AprsRefusalCode.InvalidNmea },
         { "mic-e-no-destination", AprsRefusalCode.NotEncodable },
+        { "nan", AprsRefusalCode.NotANumber },
+        { "humidity-zero", AprsRefusalCode.ValueHasNoForm },
+        { "capability-token", AprsRefusalCode.Malformed },
+        { "single-field-before-relation", AprsRefusalCode.InvalidCharacter },
+        { "relation-order", AprsRefusalCode.FieldNotAllowed },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -63,6 +68,11 @@ public class RefusalCodeTests
             "query-type" => () => new AprsGeneralQuery { QueryType = "lower" }.ToInformationField(),
             "nmea-checksum" => () => new AprsNmeaReport { Sentence = "$GPGGA,1*00" }.ToInformationField(),
             "mic-e-no-destination" => () => new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car }.ToInformationField(),
+            "nan" => () => (Report() with { Position = new AprsPosition(double.NaN, 0) }).ToInformationField(),
+            "humidity-zero" => () => (Report() with { Symbol = AprsSymbol.WeatherStation, Weather = new AprsWeather { HumidityPercent = 0.4 } }).ToInformationField(),
+            "capability-token" => () => new AprsStationCapabilities { Capabilities = [new AprsCapability("A B", null)] }.ToInformationField(),
+            "single-field-before-relation" => () => (Report() with { Symbol = AprsSymbol.WeatherStation, Comment = "a\nb" }).ToInformationField(),
+            "relation-order" => () => (Report() with { Symbol = AprsSymbol.WeatherStation, Position = new AprsPosition(51, 0, 1), Dao = new AprsDao('W', AprsDaoPrecision.Base91) }).ToInformationField(),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;

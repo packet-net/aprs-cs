@@ -40,12 +40,14 @@ public readonly record struct AprsPosition(double Latitude, double Longitude, in
 
     internal void Validate()
     {
-        if (!double.IsFinite(Latitude) || Latitude is < -90 or > 90)
+        Internal.NotANumber.Refuse(Latitude, "latitude", orInfinity: true);
+        Internal.NotANumber.Refuse(Longitude, "longitude", orInfinity: true);
+        if (Latitude is < -90 or > 90)
         {
             throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "latitude must be between -90 and 90 degrees");
         }
 
-        if (!double.IsFinite(Longitude) || Longitude is < -180 or > 180)
+        if (Longitude is < -180 or > 180)
         {
             throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "longitude must be between -180 and 180 degrees");
         }

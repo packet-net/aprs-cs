@@ -59,17 +59,21 @@ public sealed record AprsVoiceFrequency
     public bool RangeInKilometres { get; init; }
 
     /// <summary>The frequency as the encoder writes it: <see cref="FrequencyMHz"/> rounded once to the field's step, a half going up (15 significant digits, so 145.7255 is a half).</summary>
-    internal decimal RoundedMHz() =>
-        double.IsFinite(FrequencyMHz) && Math.Abs(FrequencyMHz) < 1e9
+    internal decimal RoundedMHz()
+    {
+        Internal.NotANumber.Refuse(FrequencyMHz, "frequency", orInfinity: true);
+        return Math.Abs(FrequencyMHz) < 1e9
             ? decimal.Round((decimal)FrequencyMHz, TenKilohertzResolution ? 2 : 3, MidpointRounding.AwayFromZero)
             : throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "frequency must be 0 to below 24300 MHz");
+    }
 
     /// <summary>This frequency with <see cref="FrequencyMHz"/> rounded as the encoder writes it, which is what decoding the written form gives back.</summary>
     internal AprsVoiceFrequency Rounded() => this with { FrequencyMHz = (double)RoundedMHz() };
 
     internal void Validate()
     {
-        if (!double.IsFinite(FrequencyMHz) || FrequencyMHz is < 0 or >= 24300)
+        Internal.NotANumber.Refuse(FrequencyMHz, "frequency", orInfinity: true);
+        if (FrequencyMHz is < 0 or >= 24300)
         {
             throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "frequency must be 0 to below 24300 MHz");
         }

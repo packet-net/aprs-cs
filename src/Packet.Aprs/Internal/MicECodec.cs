@@ -612,7 +612,13 @@ internal static class MicECodec
         r.Symbol.Validate();
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
         {
-            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
+            w.Defer(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
+        }
+
+        if (r.Symbol.IsWeatherStation && r.Weather is null)
+        {
+            // Written as it is when it reads back; when the read-back refuses, the symbol is the reason.
+            w.ReadBackCode = AprsRefusalCode.SymbolMismatch;
         }
 
         string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity);
@@ -646,6 +652,8 @@ internal static class MicECodec
         }
 
         // Rounded to whole knots, then checked (vectors ruling F2).
+        NotANumber.Refuse(r.SpeedKnots, "Mic-E speed");
+        NotANumber.Refuse(r.CourseDegrees, "Mic-E course");
         double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
         int speed = double.IsNaN(speedKnots) || speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
         double courseDegrees = r.CourseDegrees is { } cd ? Steps.Whole(cd) : 0;
@@ -713,10 +721,10 @@ internal static class MicECodec
         }
         else if (r.DeviceSuffix.Length > 0)
         {
-            throw new AprsEncodeException(AprsRefusalCode.MissingField, "a Mic-E device suffix needs a type code");
+            w.Defer(AprsRefusalCode.MissingField, "a Mic-E device suffix needs a type code");
         }
 
-        if (r.DeviceSuffix.Length > 0)
+        if (r.DeviceSuffix.Length > 0 && r.TypeCode is not null)
         {
             // A decoder matches only the suffixes the device database lists for the type code; any
             // other is comment text. Whether the text before it joins a longer suffix is checked
@@ -729,7 +737,7 @@ internal static class MicECodec
             };
             if (!known.Contains(r.DeviceSuffix, StringComparer.Ordinal))
             {
-                throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, $"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCode, $"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text");
             }
 
             w.CommentCheck ??= "the Mic-E status text would read back with a different device suffix";
@@ -755,7 +763,7 @@ internal static class MicECodec
                 char first = (char)((value / (91 * 91)) + 33);
                 if (r.TypeCode is null && first is '`' or '\'' or '>' or ']')
                 {
-                    throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, "without a TypeCode this Mic-E altitude would decode as a device type code; set TypeCode");
+                    w.Defer(AprsRefusalCode.TextReadsAsField, "without a TypeCode this Mic-E altitude would decode as a device type code; set TypeCode");
                 }
 
                 w.Base91(value, 3).Char('}');
@@ -784,7 +792,7 @@ internal static class MicECodec
         {
             // A decoder lifts one data extension from the status text (vectors interpretations.md,
             // "A late data extension is the first well-formed one"); a second would stay as text.
-            throw new AprsEncodeException(AprsRefusalCode.ExtensionConflict, "a Mic-E report carries at most one of PHG, RNG and DFS");
+            w.Defer(AprsRefusalCode.ExtensionConflict, "a Mic-E report carries at most one of PHG, RNG and DFS");
         }
 
         if (r.Phg is { } phg)
@@ -794,8 +802,9 @@ internal static class MicECodec
         else if (r.RangeMiles is { } range)
         {
             // Rounded to whole miles, then checked (vectors ruling F2).
+            NotANumber.Refuse(range, "RNG");
             double miles = Steps.Whole(range);
-            if (double.IsNaN(miles) || miles is < 0 or > 9999)
+            if (miles is < 0 or > 9999)
             {
                 throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999");
             }

@@ -61,14 +61,14 @@ public sealed record AprsTelemetryCoefficients : AprsMessage
 
     private protected override void EncodeText(InfoWriter writer)
     {
+        if (Coefficients.Any(c => !double.IsFinite(c)))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.NotANumber, "an EQNS coefficient is a finite number");
+        }
+
         if (Coefficients.Count is < 1 or > 15)
         {
             throw new AprsEncodeException(AprsRefusalCode.Malformed, "EQNS carries 1 to 15 coefficients");
-        }
-
-        if (Coefficients.Any(c => !double.IsFinite(c)))
-        {
-            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "an EQNS coefficient is a finite number");
         }
 
         MessageCodec.WriteList(
@@ -105,17 +105,12 @@ public sealed record AprsTelemetryBitSense : AprsMessage
         MessageCodec.RequireNoBrace(Project);
         if (Project.EnumerateRunes().Count() > 23)
         {
-            throw new AprsEncodeException(AprsRefusalCode.Malformed, "the telemetry project title is limited to 23 characters (APRS12c ch. 13)");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, "the telemetry project title is limited to 23 characters (APRS12c ch. 13)");
         }
 
-        if (Bits is not { Length: 8 })
+        if (Bits is not { Length: 8 } || Bits.Any(c => c is not ('0' or '1')))
         {
             throw new AprsEncodeException(AprsRefusalCode.Malformed, "the bit sense is 8 characters, each 0 or 1, B1 first");
-        }
-
-        if (Bits.Any(c => c is not ('0' or '1')))
-        {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "the bit sense is 8 characters, each 0 or 1, B1 first");
         }
 
         writer.Ascii("BITS.").Ascii(Bits);

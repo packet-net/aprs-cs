@@ -18,6 +18,45 @@ internal sealed class InfoWriter
     /// </summary>
     public string? CommentCheck { get; set; }
 
+    /// <summary>The code a refusal from the read-back of the finished field carries.</summary>
+    public AprsRefusalCode ReadBackCode { get; set; } = AprsRefusalCode.TextReadsAsField;
+
+    private AprsEncodeException? deferred;
+
+    /// <summary>
+    /// A refusal that comes from how the parts of a report relate (a symbol that does not fit the
+    /// data, two things wanting one field, a companion that is missing) is held until the whole report
+    /// has been written, so that a fault in a single field, which is wrong whatever else is given,
+    /// is reported first, and the held ones are then reported in a fixed order (the vectors'
+    /// reason-code order). The first of the highest-ranked code is kept.
+    /// </summary>
+    public void Defer(AprsRefusalCode code, string message)
+    {
+        if (deferred is null || Rank(code) < Rank(deferred.Code))
+        {
+            deferred = new AprsEncodeException(code, message);
+        }
+    }
+
+    /// <summary>Throws the refusal held by <see cref="Defer"/>, if there is one.</summary>
+    public void ThrowDeferred()
+    {
+        if (deferred is not null)
+        {
+            throw deferred;
+        }
+    }
+
+    private static int Rank(AprsRefusalCode code) => code switch
+    {
+        AprsRefusalCode.ExtensionConflict => 0,
+        AprsRefusalCode.FieldNotAllowed => 1,
+        AprsRefusalCode.SymbolMismatch => 2,
+        AprsRefusalCode.MissingField => 3,
+        AprsRefusalCode.ValueGivenTwice => 4,
+        _ => 5,
+    };
+
     public ReadOnlySpan<byte> Written => buffer.WrittenSpan;
 
     public InfoWriter Byte(byte b)

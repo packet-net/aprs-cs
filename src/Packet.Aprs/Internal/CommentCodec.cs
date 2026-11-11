@@ -514,7 +514,7 @@ internal static class CommentCodec
         {
             // A compressed weather report's GGA altitude goes in the cs bytes as the nearest step,
             // with no /A= beside it (vectors ruling F14).
-            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
+            w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
         if (d.Telemetry is { } t)
@@ -554,8 +554,9 @@ internal static class CommentCodec
     internal static void WriteAltitude(InfoWriter w, double feet)
     {
         // Rounded to whole feet, halves away from zero, then checked (vectors ruling F2).
+        NotANumber.Refuse(feet, "altitude");
         double rounded = Steps.Whole(feet);
-        if (double.IsNaN(rounded) || rounded is < -99999 or > 999999)
+        if (rounded is < -99999 or > 999999)
         {
             throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "/A= altitude must fit in 6 digits (or - and 5 digits)");
         }
@@ -571,7 +572,7 @@ internal static class CommentCodec
         {
             if (d.Symbol is not { Table: '\\', Code: 'm' })
             {
-                throw new AprsEncodeException(AprsRefusalCode.SymbolMismatch, "signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)");
+                w.Defer(AprsRefusalCode.SymbolMismatch, "signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)");
             }
 
             if (sign.Length is < 1 or > 3)
@@ -591,7 +592,7 @@ internal static class CommentCodec
         {
             if (area.Shape is not (AprsAreaShape.LineDownRight or AprsAreaShape.LineDownLeft))
             {
-                throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a corridor width only applies to line area objects (APRS12c ch. 11)");
+                w.Defer(AprsRefusalCode.FieldNotAllowed, "a corridor width only applies to line area objects (APRS12c ch. 11)");
             }
 
             w.Char('{').Ascii(corridor.ToString(CultureInfo.InvariantCulture)).Char('}');
@@ -626,13 +627,13 @@ internal static class CommentCodec
     /// Decodes an encoded field and throws <paramref name="problem"/> unless the comment, and
     /// everything text in the comment could turn into, reads back as it was sent.
     /// </summary>
-    internal static void VerifyReadsBack(AprsPositionedData sent, byte[] info, string problem)
+    internal static void VerifyReadsBack(AprsPositionedData sent, byte[] info, string problem, AprsRefusalCode code = AprsRefusalCode.TextReadsAsField)
     {
         AprsAddress destination = sent is AprsMicEReport mic ? MicECodec.EncodeDestination(mic) : AprsAddress.Parse("APZ001");
         AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), destination, [], info);
         if (back.HasWarnings || back.HasErrors || back.Data is not AprsPositionedData b || !ReadsBackTheSame(sent, b))
         {
-            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, problem);
+            throw new AprsEncodeException(code, problem);
         }
     }
 

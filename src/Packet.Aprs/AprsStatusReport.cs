@@ -121,13 +121,13 @@ public sealed record AprsWeatherReport : AprsData
             throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "a positionless weather report uses an MDHM timestamp (APRS12c ch. 12)");
         }
 
-        if (Comment.Length > 0)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12)");
-        }
-
         writer.Char('_');
         TimestampCodec.Write(writer, Timestamp, allowMonthDay: true);
+        if (Comment.Length > 0)
+        {
+            writer.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12)");
+        }
+
         WeatherCodec.WriteFields(writer, Weather, positionless: true);
     }
 }
