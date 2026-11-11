@@ -153,7 +153,7 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
         // wrapped (vectors rulings B6, B8).
         if (sequence is < 0 or > 999)
         {
-            throw new AprsEncodeException("a telemetry sequence number is 0-999 (APRS12c ch. 13)");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a telemetry sequence number is 0-999 (APRS12c ch. 13)");
         }
 
         this.sequence = sequence.ToString("000", System.Globalization.CultureInfo.InvariantCulture);
@@ -165,7 +165,7 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
         ArgumentNullException.ThrowIfNull(values);
         if (values.Length > 5)
         {
-            throw new AprsEncodeException("a telemetry report carries at most 5 analog values (APRS12c ch. 13)");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, "a telemetry report carries at most 5 analog values (APRS12c ch. 13)");
         }
 
         analog = [.. values, .. Enumerable.Repeat<double?>(null, 5 - values.Length)];
@@ -176,9 +176,14 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
     public AprsTelemetryBuilder Bits(string bits)
     {
         ArgumentNullException.ThrowIfNull(bits);
-        if (bits.Length != 8 || bits.Any(c => c is not ('0' or '1')))
+        if (bits.Length != 8)
         {
-            throw new AprsEncodeException("the digital channels are 8 characters, each 0 or 1, B1 first");
+            throw new AprsEncodeException(AprsRefusalCode.Malformed, "the digital channels are 8 characters, each 0 or 1, B1 first");
+        }
+
+        if (bits.Any(c => c is not ('0' or '1')))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "the digital channels are 8 characters, each 0 or 1, B1 first");
         }
 
         this.bits = bits;

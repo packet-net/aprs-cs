@@ -314,7 +314,10 @@ namespace Packet.Aprs
         public string? Target { get; init; }
         public static System.Collections.Generic.IReadOnlyList<string> KnownTypes { get; }
     }
-    public sealed class AprsEncodeException : System.ArgumentException { }
+    public sealed class AprsEncodeException : System.ArgumentException
+    {
+        public Packet.Aprs.AprsRefusalCode Code { get; }
+    }
     public sealed class AprsFormatException : System.FormatException
     {
         public AprsFormatException() { }
@@ -694,6 +697,35 @@ namespace Packet.Aprs
         public override char DataTypeIdentifier { get; }
         [System.Runtime.CompilerServices.RequiredMember]
         public Packet.Aprs.AprsRawWeatherFormat Format { get; init; }
+    }
+    public enum AprsRefusalCode
+    {
+        InvalidAddress = 1,
+        Ax25CannotCarry = 2,
+        Tnc2CannotCarry = 3,
+        InvalidThirdPartyHeader = 4,
+        InvalidAddressee = 5,
+        InvalidName = 6,
+        InvalidMessageId = 7,
+        PaddingSpace = 8,
+        TooLong = 9,
+        Malformed = 10,
+        InvalidCharacter = 11,
+        TextReadsAsField = 12,
+        NotANumber = 13,
+        ValueOutOfRange = 14,
+        ValueHasNoForm = 15,
+        ValueGivenTwice = 16,
+        InvalidTimestamp = 17,
+        MissingField = 18,
+        InvalidSymbol = 19,
+        SymbolMismatch = 20,
+        ExtensionConflict = 21,
+        FieldNotAllowed = 22,
+        InvalidCode = 23,
+        InvalidNmea = 24,
+        NotEncodable = 25,
+        DoesNotReadBack = 26,
     }
     public sealed class AprsStation
     {

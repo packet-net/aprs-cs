@@ -37,7 +37,7 @@ internal static class Base91
 
         if (value != 0)
         {
-            throw new AprsEncodeException("value does not fit in the requested number of base-91 digits");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "value does not fit in the requested number of base-91 digits");
         }
     }
 

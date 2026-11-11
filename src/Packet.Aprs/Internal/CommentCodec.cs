@@ -514,7 +514,7 @@ internal static class CommentCodec
         {
             // A compressed weather report's GGA altitude goes in the cs bytes as the nearest step,
             // with no /A= beside it (vectors ruling F14).
-            throw new AprsEncodeException("a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
+            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
         if (d.Telemetry is { } t)
@@ -557,7 +557,7 @@ internal static class CommentCodec
         double rounded = Steps.Whole(feet);
         if (double.IsNaN(rounded) || rounded is < -99999 or > 999999)
         {
-            throw new AprsEncodeException("/A= altitude must fit in 6 digits (or - and 5 digits)");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "/A= altitude must fit in 6 digits (or - and 5 digits)");
         }
 
         int alt = (int)rounded;
@@ -569,9 +569,19 @@ internal static class CommentCodec
     {
         if (d.SignpostText is { } sign)
         {
-            if (d.Symbol is not { Table: '\\', Code: 'm' } || sign.Length is < 1 or > 3 || sign.Any(ch => ch is < ' ' or > '~' or '{' or '}'))
+            if (d.Symbol is not { Table: '\\', Code: 'm' })
             {
-                throw new AprsEncodeException("signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)");
+                throw new AprsEncodeException(AprsRefusalCode.SymbolMismatch, "signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)");
+            }
+
+            if (sign.Length is < 1 or > 3)
+            {
+                throw new AprsEncodeException(AprsRefusalCode.Malformed, "signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)");
+            }
+
+            if (sign.Any(ch => ch is < ' ' or > '~' or '{' or '}'))
+            {
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "signpost text is 1-3 printable characters on the \\m symbol (APRS12c ch. 11)");
             }
 
             w.Char('{').Ascii(sign).Char('}');
@@ -581,7 +591,7 @@ internal static class CommentCodec
         {
             if (area.Shape is not (AprsAreaShape.LineDownRight or AprsAreaShape.LineDownLeft))
             {
-                throw new AprsEncodeException("a corridor width only applies to line area objects (APRS12c ch. 11)");
+                throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a corridor width only applies to line area objects (APRS12c ch. 11)");
             }
 
             w.Char('{').Ascii(corridor.ToString(CultureInfo.InvariantCulture)).Char('}');
@@ -622,7 +632,7 @@ internal static class CommentCodec
         AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), destination, [], info);
         if (back.HasWarnings || back.HasErrors || back.Data is not AprsPositionedData b || !ReadsBackTheSame(sent, b))
         {
-            throw new AprsEncodeException(problem);
+            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, problem);
         }
     }
 

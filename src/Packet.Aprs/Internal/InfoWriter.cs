@@ -31,7 +31,7 @@ internal sealed class InfoWriter
     {
         if (c > 0xFF)
         {
-            throw new AprsEncodeException($"'{c}' is not a single-byte character");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, $"'{c}' is not a single-byte character");
         }
 
         return Byte((byte)c);
@@ -50,7 +50,7 @@ internal sealed class InfoWriter
         {
             if (c is < ' ' or > '~')
             {
-                throw new AprsEncodeException($"'{text}' contains a character that is not printable ASCII");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, $"'{text}' contains a character that is not printable ASCII");
             }
 
             Byte((byte)c);
@@ -72,7 +72,7 @@ internal sealed class InfoWriter
         string s = value.ToString(CultureInfo.InvariantCulture).PadLeft(width, '0');
         if (value < 0 || s.Length != width)
         {
-            throw new AprsEncodeException($"{value} does not fit in {width} digits");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, $"{value} does not fit in {width} digits");
         }
 
         return Ascii(s);

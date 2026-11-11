@@ -110,7 +110,7 @@ internal static class Text
     {
         if (text.AsSpan().IndexOfAny('\r', '\n') >= 0)
         {
-            throw new AprsEncodeException("text must not contain carriage return or line feed");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "text must not contain carriage return or line feed");
         }
     }
 }

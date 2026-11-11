@@ -121,18 +121,18 @@ public sealed record AprsNmeaReport : AprsData
         byte[] sentence = System.Text.Encoding.Latin1.GetBytes(Sentence);
         if (Sentence.Any(c => c > 0xFF) || Internal.NmeaCodec.SentenceLength(sentence) != sentence.Length)
         {
-            throw new AprsEncodeException("an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, "an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum");
         }
 
         if (Internal.NmeaCodec.TryReadChecksum(Sentence, out _, out byte expected, out byte sum) && sum != expected)
         {
-            throw new AprsEncodeException($"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, $"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
         }
 
         Internal.Text.RequireNoLineBreaks(Comment);
         if (Comment.Length > 0 && !HasChecksum)
         {
-            throw new AprsEncodeException("a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence");
+            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, "a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence");
         }
 
         writer.Char('$').Ascii(Sentence).Utf8(Comment);
@@ -161,7 +161,7 @@ public sealed record AprsNmeaReport : AprsData
             : null;
         if (differs is not null)
         {
-            throw new AprsEncodeException($"{differs} is not what the sentence reads back as; the sentence is what is sent");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, $"{differs} is not what the sentence reads back as; the sentence is what is sent");
         }
 
         // The same value, but for the last bits a different computation of it may differ in.
@@ -187,7 +187,7 @@ public sealed record AprsMaidenheadBeacon : AprsData
     {
         if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(Locator)))
         {
-            throw new AprsEncodeException($"'{Locator}' is not a 4 or 6 character Maidenhead locator");
+            throw new AprsEncodeException(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator");
         }
 
         Internal.Text.RequireNoLineBreaks(Comment);
@@ -262,7 +262,7 @@ public sealed record AprsStationCapabilities : AprsData
     {
         if (Capabilities.Count == 0)
         {
-            throw new AprsEncodeException("a capabilities report lists at least one capability (APRS12c ch. 15)");
+            throw new AprsEncodeException(AprsRefusalCode.MissingField, "a capabilities report lists at least one capability (APRS12c ch. 15)");
         }
 
         writer.Char('<');
@@ -271,10 +271,21 @@ public sealed record AprsStationCapabilities : AprsData
             AprsCapability c = Capabilities[i];
             // Anything else would not read back the same (vectors interpretations.md, "Station
             // capabilities: items, tokens and values"): spaces around a value are padding.
-            if (c.Token.Length == 0 || c.Token.Any(ch => ch is <= ' ' or '\x7F' or ',' or '=')
+            if (c.Token.Length == 0)
+            {
+                throw new AprsEncodeException(AprsRefusalCode.TooLong, "a capability token is not empty");
+            }
+
+            if (c.Value is { } padded && (padded.StartsWith(' ') || padded.EndsWith(' '))
+                && !c.Token.Any(ch => ch is <= ' ' or '\x7F' or ',' or '=') && !padded.Any(ch => ch is < ' ' or '\x7F' or ','))
+            {
+                throw new AprsEncodeException(AprsRefusalCode.PaddingSpace, "a capability value does not start or end with a space");
+            }
+
+            if (c.Token.Any(ch => ch is <= ' ' or '\x7F' or ',' or '=')
                 || (c.Value is { } v && (v.Any(ch => ch is < ' ' or '\x7F' or ',') || v.StartsWith(' ') || v.EndsWith(' '))))
             {
-                throw new AprsEncodeException("capability tokens and values are text without ',' or control characters, tokens without '=' or spaces, and values that do not start or end with a space");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "capability tokens and values are text without ',' or control characters, tokens without '=' or spaces, and values that do not start or end with a space");
             }
 
             if (i > 0)
@@ -313,7 +324,7 @@ public sealed record AprsThirdPartyTraffic : AprsData
         byte[] inner = Packet.ToTnc2();
         if (!ThirdPartyCodec.CanWrite(Packet, inner))
         {
-            throw new AprsEncodeException("the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)");
         }
 
         writer.Char('}').Bytes(inner);
@@ -347,13 +358,13 @@ public sealed record AprsUserDefinedData : AprsData
         // included, so any byte is written back as it came.
         if (UserId > '\xFF' || PacketType > '\xFF')
         {
-            throw new AprsEncodeException("user ID and packet type are single bytes (U+0000-U+00FF)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "user ID and packet type are single bytes (U+0000-U+00FF)");
         }
 
         // A trailing line break is a tolerated defect a decoder strips, not data.
         if ((Data.Count > 0 ? Data[^1] : (byte)PacketType) is (byte)'\r' or (byte)'\n')
         {
-            throw new AprsEncodeException("user-defined data that ends with a carriage return or line feed would read back without it");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "user-defined data that ends with a carriage return or line feed would read back without it");
         }
 
         writer.Char('{').Char(UserId).Char(PacketType).Bytes(Data.ToArray());
@@ -392,7 +403,7 @@ public sealed record AprsAgreloDfReport : AprsData
     {
         if (BearingDegrees is < 0 or > 360 || Quality is < 0 or > 9)
         {
-            throw new AprsEncodeException("bearing 0-360, quality 0-9");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "bearing 0-360, quality 0-9");
         }
 
         writer.Char('%').Digits(BearingDegrees, 3).Char('/').Digits(Quality, 1);

@@ -189,7 +189,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
         {
             if (destination is not null)
             {
-                throw new AprsEncodeException("a Mic-E report computes its destination address, so none can be given");
+                throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a Mic-E report computes its destination address, so none can be given");
             }
 
             return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micE.EncodeInformation(), micE, []);
@@ -219,7 +219,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     {
         if (string.IsNullOrEmpty(address.Value))
         {
-            throw new AprsEncodeException("address is empty");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddress, "address is empty");
         }
     }
 

@@ -42,17 +42,17 @@ public readonly record struct AprsPosition(double Latitude, double Longitude, in
     {
         if (!double.IsFinite(Latitude) || Latitude is < -90 or > 90)
         {
-            throw new AprsEncodeException("latitude must be between -90 and 90 degrees");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "latitude must be between -90 and 90 degrees");
         }
 
         if (!double.IsFinite(Longitude) || Longitude is < -180 or > 180)
         {
-            throw new AprsEncodeException("longitude must be between -180 and 180 degrees");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "longitude must be between -180 and 180 degrees");
         }
 
         if (Ambiguity is < 0 or > 4)
         {
-            throw new AprsEncodeException("ambiguity must be 0 to 4");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "ambiguity must be 0 to 4");
         }
     }
 }

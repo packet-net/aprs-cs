@@ -405,7 +405,7 @@ internal static class WeatherCodec
 
         if (weather.SnowfallLast24HoursInches is { } snow)
         {
-            w.Char('s').Ascii(Snowfall(snow) ?? throw new AprsEncodeException("snowfall is written in three characters, so it is at most 999 inches"));
+            w.Char('s').Ascii(Snowfall(snow) ?? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "snowfall is written in three characters, so it is at most 999 inches"));
         }
 
         Field(w, '#', weather.RainRawCounter, 3);
@@ -429,7 +429,7 @@ internal static class WeatherCodec
             if (!TryReadRun(written, ref pos, probe, ref back, positionless, positionless, out _, out _, out _)
                 || pos != fieldsEnd - start || !CommentCodec.IsSoftwareAndUnit(written.AsSpan(pos)))
             {
-                throw new AprsEncodeException($"the software type and unit '{sw}{weather.UnitType}' would read back as weather fields or comment text (APRS12c ch. 12)");
+                throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, $"the software type and unit '{sw}{weather.UnitType}' would read back as weather fields or comment text (APRS12c ch. 12)");
             }
         }
     }

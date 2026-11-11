@@ -1,0 +1,85 @@
+using System.Text.Json.Nodes;
+using Packet.Aprs.Tests.Vectors;
+
+namespace Packet.Aprs.Tests.Encoding;
+
+/// <summary>A refusal carries the shared reason code for the rule it broke (1.0.1).</summary>
+public class RefusalCodeTests
+{
+    private static readonly AprsStation Me = AprsStation.From("M0LTE");
+
+    private static AprsPositionReport Report(Action<AprsPositionReport>? _ = null) =>
+        new() { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car };
+
+    public static TheoryData<string, AprsRefusalCode> Refusals => new()
+    {
+        { "invalid-address", AprsRefusalCode.InvalidAddress },
+        { "ax25-address", AprsRefusalCode.Ax25CannotCarry },
+        { "ax25-path", AprsRefusalCode.Ax25CannotCarry },
+        { "addressee", AprsRefusalCode.InvalidAddressee },
+        { "message-id", AprsRefusalCode.InvalidMessageId },
+        { "object-name", AprsRefusalCode.InvalidName },
+        { "object-padding", AprsRefusalCode.PaddingSpace },
+        { "message-too-long", AprsRefusalCode.TooLong },
+        { "locator", AprsRefusalCode.Malformed },
+        { "brace", AprsRefusalCode.InvalidCharacter },
+        { "comment-reads-as-field", AprsRefusalCode.TextReadsAsField },
+        { "latitude", AprsRefusalCode.ValueOutOfRange },
+        { "mic-e-course-0", AprsRefusalCode.ValueHasNoForm },
+        { "timestamp", AprsRefusalCode.InvalidTimestamp },
+        { "object-no-timestamp", AprsRefusalCode.MissingField },
+        { "symbol", AprsRefusalCode.InvalidSymbol },
+        { "symbol-mismatch", AprsRefusalCode.SymbolMismatch },
+        { "extension-conflict", AprsRefusalCode.ExtensionConflict },
+        { "weather-comment", AprsRefusalCode.FieldNotAllowed },
+        { "query-type", AprsRefusalCode.InvalidCode },
+        { "nmea-checksum", AprsRefusalCode.InvalidNmea },
+        { "mic-e-no-destination", AprsRefusalCode.NotEncodable },
+    };
+
+    private static AprsEncodeException Refusal(string what)
+    {
+        Action act = what switch
+        {
+            "invalid-address" => () => AprsStation.From("not a callsign!"),
+            "ax25-address" => () => AprsPacket.Create("M0LTE", new AprsStatusReport { Text = "x" }, "APZ001", "wide1-1").ToAx25Frame(),
+            "ax25-path" => () => AprsPacket.Create("M0LTE", new AprsStatusReport { Text = "x" }, "APZ001", "A,B,C,D,E,F,G,H,I").ToAx25Frame(),
+            "addressee" => () => new AprsTextMessage { Addressee = "TOOLONGADDRESSEE", Text = "hi" }.ToInformationField(),
+            "message-id" => () => new AprsTextMessage { Addressee = "G0ABC", Text = "hi", MessageId = "TOOLONG" }.ToInformationField(),
+            "object-name" => () => new AprsObjectReport { Name = "", Timestamp = AprsTimestamp.DayHoursMinutes(1, 2, 3), Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car }.ToInformationField(),
+            "object-padding" => () => new AprsObjectReport { Name = "ab ", Timestamp = AprsTimestamp.DayHoursMinutes(1, 2, 3), Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car }.ToInformationField(),
+            "message-too-long" => () => new AprsTextMessage { Addressee = "G0ABC", Text = new string('x', 68) }.ToInformationField(),
+            "locator" => () => new AprsStatusReport { Text = "x", Locator = "ZZ99", Symbol = AprsSymbol.Car }.ToInformationField(),
+            "brace" => () => new AprsTextMessage { Addressee = "G0ABC", Text = "a{b" }.ToInformationField(),
+            "comment-reads-as-field" => () => (Report() with { Comment = "/A=000100" }).ToInformationField(),
+            "latitude" => () => (Report() with { Position = new AprsPosition(95, 0) }).ToInformationField(),
+            "mic-e-course-0" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, CourseDegrees = 0, SpeedKnots = 1 }),
+            "timestamp" => () => new AprsStatusReport { Text = "x", Timestamp = AprsTimestamp.MonthDayHoursMinutes(1, 2, 3, 4) }.ToInformationField(),
+            "object-no-timestamp" => () => new AprsObjectReport { Name = "abc", Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car }.ToInformationField(),
+            "symbol" => () => (Report() with { Symbol = new AprsSymbol('x', '!') }).ToInformationField(),
+            "symbol-mismatch" => () => (Report() with { Weather = new AprsWeather { TemperatureFahrenheit = 50 } }).ToInformationField(),
+            "extension-conflict" => () => (Report() with { CourseDegrees = 10, SpeedKnots = 5, Phg = new AprsPhg(1, 2, 3, 4) }).ToInformationField(),
+            "weather-comment" => () => (Report() with { Symbol = AprsSymbol.WeatherStation, Weather = new AprsWeather { TemperatureFahrenheit = 50 }, Comment = "hello" }).ToInformationField(),
+            "query-type" => () => new AprsGeneralQuery { QueryType = "lower" }.ToInformationField(),
+            "nmea-checksum" => () => new AprsNmeaReport { Sentence = "$GPGGA,1*00" }.ToInformationField(),
+            "mic-e-no-destination" => () => new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car }.ToInformationField(),
+            _ => throw new ArgumentException(what),
+        };
+        return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;
+    }
+
+    [Theory]
+    [MemberData(nameof(Refusals))]
+    public void A_refusal_carries_the_code_of_its_rule(string what, AprsRefusalCode expected) =>
+        Refusal(what).Code.Should().Be(expected);
+
+    [Fact]
+    public void Every_code_is_in_the_vectors_list_under_its_kebab_case_name()
+    {
+        string[] listed = [.. JsonNode.Parse(File.ReadAllText(Path.Combine(VectorCases.Directory, "codes.json")))!["refusals"]!.AsArray().Select(n => (string)n!["id"]!)];
+        string[] ours = [.. Enum.GetValues<AprsRefusalCode>().Select(c => NeutralJson.Kebab(c.ToString()))];
+
+        ours.Should().BeEquivalentTo(listed);
+        ((int)AprsRefusalCode.DoesNotReadBack).Should().Be(listed.Length);
+    }
+}

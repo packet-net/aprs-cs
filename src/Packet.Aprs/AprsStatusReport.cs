@@ -118,12 +118,12 @@ public sealed record AprsWeatherReport : AprsData
     {
         if (Timestamp.Format != AprsTimestampFormat.MonthDayHoursMinutesUtc)
         {
-            throw new AprsEncodeException("a positionless weather report uses an MDHM timestamp (APRS12c ch. 12)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "a positionless weather report uses an MDHM timestamp (APRS12c ch. 12)");
         }
 
         if (Comment.Length > 0)
         {
-            throw new AprsEncodeException("a weather report has no comment field (APRS12c ch. 12)");
+            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12)");
         }
 
         writer.Char('_');

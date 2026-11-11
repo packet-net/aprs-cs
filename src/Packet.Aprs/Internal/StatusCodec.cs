@@ -100,17 +100,17 @@ internal static class StatusCodec
         {
             if (r.Timestamp is not null)
             {
-                throw new AprsEncodeException("a status report with a grid locator cannot have a timestamp (APRS12c ch. 16)");
+                throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a status report with a grid locator cannot have a timestamp (APRS12c ch. 16)");
             }
 
             if (r.Symbol is not { } symbol)
             {
-                throw new AprsEncodeException("a grid locator status needs a symbol");
+                throw new AprsEncodeException(AprsRefusalCode.MissingField, "a grid locator status needs a symbol");
             }
 
             if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator)) || locator.Length is not (4 or 6))
             {
-                throw new AprsEncodeException($"'{locator}' is not a 4 or 6 character Maidenhead locator");
+                throw new AprsEncodeException(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator");
             }
 
             symbol.Validate();
@@ -122,13 +122,13 @@ internal static class StatusCodec
         }
         else if (r.Symbol is not null)
         {
-            throw new AprsEncodeException("a status symbol only goes with a grid locator");
+            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a status symbol only goes with a grid locator");
         }
         else if (r.Timestamp is { } ts)
         {
             if (ts.Format != AprsTimestampFormat.DayHoursMinutesUtc)
             {
-                throw new AprsEncodeException("a status report timestamp must be DHM UTC (APRS12c ch. 16)");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "a status report timestamp must be DHM UTC (APRS12c ch. 16)");
             }
 
             TimestampCodec.Write(w, ts, allowMonthDay: false);
@@ -137,12 +137,12 @@ internal static class StatusCodec
         byte[] text = System.Text.Encoding.UTF8.GetBytes(r.Text);
         if (r.Locator is null && r.Timestamp is null && TryLocatorWithSymbol(text, out _))
         {
-            throw new AprsEncodeException("status text starts with what reads as a grid locator and symbol; set Locator instead");
+            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, "status text starts with what reads as a grid locator and symbol; set Locator instead");
         }
 
         if (r.Locator is null && r.Timestamp is null && text.Length >= 7 && Text.AllDigits(text.AsSpan(0, 6)) && text[6] == (byte)'z')
         {
-            throw new AprsEncodeException("status text starts with what reads as a timestamp; set Timestamp instead");
+            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, "status text starts with what reads as a timestamp; set Timestamp instead");
         }
 
         w.Bytes(text);
@@ -150,14 +150,14 @@ internal static class StatusCodec
         {
             if (!beam.IsValid)
             {
-                throw new AprsEncodeException("beam heading code must be 0-9 or A-Z and power code 1-K");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "beam heading code must be 0-9 or A-Z and power code 1-K");
             }
 
             w.Char('^').Char(beam.HeadingCode).Char(beam.PowerCode);
         }
         else if (text.Length >= 3 && text[^3] == (byte)'^' && new AprsBeamHeading((char)text[^2], (char)text[^1]).IsValid)
         {
-            throw new AprsEncodeException("status text ends with what reads as ^HP beam heading/power; set BeamHeading instead");
+            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, "status text ends with what reads as ^HP beam heading/power; set BeamHeading instead");
         }
     }
 }
@@ -298,14 +298,19 @@ internal static class TelemetryCodec
 
     public static void Write(InfoWriter w, AprsTelemetryReport r)
     {
-        if (r.Sequence.Length == 0 || !r.Sequence.All(char.IsAsciiLetterOrDigit))
+        if (!r.Sequence.All(char.IsAsciiLetterOrDigit))
         {
-            throw new AprsEncodeException("telemetry sequence is letters or digits");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "telemetry sequence is letters or digits");
+        }
+
+        if (r.Sequence.Length == 0)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, "telemetry sequence is letters or digits");
         }
 
         if (r.Analog.Count != 5 || r.Bits is not { Length: 8 } bits || bits.Any(c => c is not ('0' or '1')))
         {
-            throw new AprsEncodeException("a telemetry report carries 5 analog values and the 8 digital bits (APRS12c ch. 13)");
+            throw new AprsEncodeException(AprsRefusalCode.Malformed, "a telemetry report carries 5 analog values and the 8 digital bits (APRS12c ch. 13)");
         }
 
         Text.RequireNoLineBreaks(r.Comment);
@@ -313,7 +318,7 @@ internal static class TelemetryCodec
         {
             // No form reads back with the first channel empty after MIC: T#MIC,,033 is read
             // otherwise (vectors ruling F12).
-            throw new AprsEncodeException("a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)");
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)");
         }
 
         w.Ascii("T#");

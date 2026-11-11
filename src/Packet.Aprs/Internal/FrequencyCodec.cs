@@ -214,7 +214,7 @@ internal static class FrequencyCodec
             int i = Array.FindLastIndex(Microwave, m => m.BaseMHz <= mhz && mhz < m.BaseMHz + 100);
             if (i < 0)
             {
-                throw new AprsEncodeException("no APRS frequency form for this frequency (APRS12c ch. 18)");
+                throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "no APRS frequency form for this frequency (APRS12c ch. 18)");
             }
 
             lead = Microwave[i].Letter.ToString();

@@ -87,7 +87,7 @@ public sealed class AprsStation
         }
         catch (FormatException e)
         {
-            throw new AprsEncodeException(e.Message, e);
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddress, e.Message, e);
         }
     }
 
@@ -99,7 +99,7 @@ public sealed class AprsStation
         }
         catch (FormatException e)
         {
-            throw new AprsEncodeException(e.Message, e);
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddress, e.Message, e);
         }
     }
 

@@ -76,17 +76,17 @@ public sealed record AprsWeather
             || Outside(RainLastHourInches, 100, 0, 999) || Outside(RainLast24HoursInches, 100, 0, 999) || Outside(RainSinceMidnightInches, 100, 0, 999)
             || (SnowfallLast24HoursInches is { } snow && WeatherCodec.Snowfall(snow) is null) || RainRawCounter is < 0 or > 999)
         {
-            throw new AprsEncodeException("a weather value is outside what its fixed-width field can carry");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a weather value is outside what its fixed-width field can carry");
         }
 
         if ((SoftwareType is null) != (UnitType is null) && UnitType is not null)
         {
-            throw new AprsEncodeException("a weather unit type needs a software type before it");
+            throw new AprsEncodeException(AprsRefusalCode.MissingField, "a weather unit type needs a software type before it");
         }
 
         if (UnitType is { Length: < 2 or > 4 })
         {
-            throw new AprsEncodeException("weather unit type must be 2-4 characters");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, "weather unit type must be 2-4 characters");
         }
     }
 

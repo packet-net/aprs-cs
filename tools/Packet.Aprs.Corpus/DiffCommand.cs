@@ -108,8 +108,13 @@ internal static class DiffCommand
             ["n"] = n,
             ["lenient"] = Result(line, AprsParseOptions.Lenient, out AprsPacket? lenient),
             ["strict"] = Result(line, AprsParseOptions.Strict, out _),
-            ["reencode"] = Reencode(lenient, out byte[]? written, out AprsAddress? writtenDestination),
+            ["reencode"] = Reencode(lenient, out byte[]? written, out AprsAddress? writtenDestination, out string? reencodeRefusal),
         };
+        if (reencodeRefusal is not null)
+        {
+            o["reencode_refusal"] = reencodeRefusal;
+        }
+
         if (written is not null)
         {
             o["written"] = Convert.ToHexStringLower(written);
@@ -159,14 +164,27 @@ internal static class DiffCommand
     }
 
     /// <summary>
+    /// Adds the refusal reason code, as the vectors' kebab-case id, when the exception is the library's
+    /// own refusal; an <see cref="InvalidOperationException"/> (a builder missing input) has none.
+    /// </summary>
+    internal static void AddRefusal(JsonObject o, string key, Exception ex)
+    {
+        if (ex is AprsEncodeException refusal)
+        {
+            o[key] = NeutralJson.Kebab(refusal.Code.ToString());
+        }
+    }
+
+    /// <summary>
     /// What encoding the lenient data again gives, as the vectors' reencode check sees it:
     /// <c>identical</c>, <c>equivalent</c> (decodes, leniently, to the same data with no warnings or
     /// errors), <c>refused</c>, <c>fails</c> (it wrote something that does not), or <c>none</c> (nothing
     /// was decoded). <paramref name="written"/> is the information field it wrote, and
     /// <paramref name="writtenDestination"/> the Mic-E destination it computed.
     /// </summary>
-    private static string Reencode(AprsPacket? packet, out byte[]? written, out AprsAddress? writtenDestination)
+    private static string Reencode(AprsPacket? packet, out byte[]? written, out AprsAddress? writtenDestination, out string? refusal)
     {
+        refusal = null;
         written = null;
         writtenDestination = null;
         if (packet is null || packet.Data is AprsUnrecognizedData)
@@ -190,8 +208,9 @@ internal static class DiffCommand
                 info = packet.Data.ToInformationField();
             }
         }
-        catch (AprsEncodeException)
+        catch (AprsEncodeException ex)
         {
+            refusal = NeutralJson.Kebab(ex.Code.ToString());
             return "refused";
         }
 
@@ -248,6 +267,17 @@ internal static class DiffCommand
         {
             o["result"] = "refused";
             o["reason"] = $"the inner packet: {ex.Message}";
+            if (ex is AprsEncodeException)
+            {
+                AddRefusal(o, "refusal", ex);
+            }
+            else
+            {
+                // The neutral reader's own refusals: an inner packet with nothing to encode (it was
+                // not decoded), or one with no destination (a header an inner packet cannot have).
+                o["refusal"] = (string?)neutral["packet"]!["data"]!["type"] == "unrecognized" ? "not-encodable" : "invalid-third-party-header";
+            }
+
             return o;
         }
 #pragma warning disable CA1031 // any failure to read the data is reported for that line alone
@@ -278,6 +308,7 @@ internal static class DiffCommand
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;
+            AddRefusal(o, "refusal", ex);
             return o;
         }
 

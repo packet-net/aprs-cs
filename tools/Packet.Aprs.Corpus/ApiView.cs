@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Packet.Aprs.Tests.Vectors;
 
 namespace Packet.Aprs.Corpus;
 
@@ -22,9 +23,13 @@ internal static class ApiView
             ["has_errors"] = packet.HasErrors,
             ["has_warnings"] = packet.HasWarnings,
             ["tnc2"] = Convert.ToHexStringLower(packet.ToTnc2()),
-            ["ax25"] = Ax25(packet),
+            ["ax25"] = Ax25(packet, out string? ax25Refusal),
             ["device"] = Device(AprsDeviceIdentification.Identify(packet)),
         };
+        if (ax25Refusal is not null)
+        {
+            o["ax25_refusal"] = ax25Refusal;
+        }
 
         // The symbol in the data, where the data has one; its description is null when the
         // library has none for it.
@@ -70,14 +75,16 @@ internal static class ApiView
     }
 
     /// <summary>The UI frame without flags or FCS, or <c>refused</c> when an address or the path cannot be carried.</summary>
-    private static string Ax25(AprsPacket packet)
+    private static string Ax25(AprsPacket packet, out string? refusal)
     {
+        refusal = null;
         try
         {
             return Convert.ToHexStringLower(packet.ToAx25Frame());
         }
-        catch (AprsEncodeException)
+        catch (AprsEncodeException ex)
         {
+            refusal = NeutralJson.Kebab(ex.Code.ToString());
             return "refused";
         }
     }

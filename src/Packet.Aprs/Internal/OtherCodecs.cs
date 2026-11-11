@@ -350,7 +350,7 @@ internal static class QueryCodec
     {
         if (!IsQueryType(q.QueryType))
         {
-            throw new AprsEncodeException("query type must be upper-case letters (APRS12c ch. 15)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "query type must be upper-case letters (APRS12c ch. 15)");
         }
 
         w.Char('?').Ascii(q.QueryType).Char('?');
@@ -359,7 +359,7 @@ internal static class QueryCodec
             double radius = Steps.Whole(f.RadiusMiles);
             if (double.IsNaN(radius) || radius is < 0 or > 9999 || f.Latitude is not (>= -90 and <= 90) || f.Longitude is not (>= -180 and <= 180))
             {
-                throw new AprsEncodeException("footprint latitude, longitude or radius out of range");
+                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "footprint latitude, longitude or radius out of range");
             }
 
             // A decoded coordinate is written as sent, a number being free-form (vectors ruling E1);

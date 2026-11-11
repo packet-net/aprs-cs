@@ -145,7 +145,7 @@ public sealed record AprsObjectReport : AprsPositionedData
         writer.Char(';').Ascii(Name.PadRight(9)).Char(IsKilled ? '_' : '*');
         Internal.TimestampCodec.Write(
             writer,
-            Timestamp ?? throw new AprsEncodeException("an object report must have a timestamp (APRS12c ch. 11)"),
+            Timestamp ?? throw new AprsEncodeException(AprsRefusalCode.MissingField, "an object report must have a timestamp (APRS12c ch. 11)"),
             allowMonthDay: false);
         Internal.PositionCodec.WriteBody(writer, this);
     }

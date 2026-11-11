@@ -418,7 +418,7 @@ internal static class MessageCodec
         ArgumentNullException.ThrowIfNull(addressee);
         if (addressee.Length is < 1 or > 9 || addressee.Any(c => c is <= ' ' or > '~' or ':'))
         {
-            throw new AprsEncodeException("addressee must be 1-9 printable ASCII characters without spaces or ':' (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "addressee must be 1-9 printable ASCII characters without spaces or ':' (APRS12c ch. 14)");
         }
     }
 
@@ -427,7 +427,7 @@ internal static class MessageCodec
         ArgumentNullException.ThrowIfNull(id);
         if (!IsId(System.Text.Encoding.ASCII.GetBytes(id)) || id.Any(c => c > 0x7F))
         {
-            throw new AprsEncodeException("a message ID is 1-5 letters or digits (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidMessageId, "a message ID is 1-5 letters or digits (APRS12c ch. 14)");
         }
     }
 
@@ -444,7 +444,7 @@ internal static class MessageCodec
             string problem = back.Data.GetType() != sent.GetType()
                 ? $"would read back as {back.Data.GetType().Name}"
                 : $"would read back with {string.Join(", ", back.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => d.Code))}";
-            throw new AprsEncodeException($"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}");
+            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, $"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}");
         }
     }
 
@@ -458,7 +458,7 @@ internal static class MessageCodec
         // or UTF-8 characters"), so a character outside the BMP counts once.
         if (text.EnumerateRunes().Count() > MaxTextLength)
         {
-            throw new AprsEncodeException($"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, $"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)");
         }
     }
 
@@ -471,7 +471,7 @@ internal static class MessageCodec
     {
         if (text.Contains('{', StringComparison.Ordinal))
         {
-            throw new AprsEncodeException("message text must not contain '{', which starts the message ID (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "message text must not contain '{', which starts the message ID (APRS12c ch. 14)");
         }
     }
 
@@ -481,7 +481,7 @@ internal static class MessageCodec
         int max = prefix == "EQNS." ? MaxCoefficients : MaxChannelNames;
         if (items.Count < 1 || items.Count > max)
         {
-            throw new AprsEncodeException($"{prefix} needs between 1 and {max} entries");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, $"{prefix} needs between 1 and {max} entries");
         }
 
         foreach (string item in items)
@@ -489,7 +489,7 @@ internal static class MessageCodec
             Text.RequireNoLineBreaks(item);
             if (item.Contains(',', StringComparison.Ordinal) || item.Contains('{', StringComparison.Ordinal))
             {
-                throw new AprsEncodeException($"{prefix} entries must not contain ',' or '{{'");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, $"{prefix} entries must not contain ',' or '{{'");
             }
         }
 

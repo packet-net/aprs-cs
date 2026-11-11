@@ -45,7 +45,7 @@ public abstract record AprsMessage : AprsData
         {
             if (replyAck is not null)
             {
-                throw new AprsEncodeException("a reply-ack needs a message ID");
+                throw new AprsEncodeException(AprsRefusalCode.MissingField, "a reply-ack needs a message ID");
             }
 
             return;
@@ -105,7 +105,7 @@ public sealed record AprsMessageAck : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new AprsEncodeException("an ack must not carry its own message ID (UAP 5.32)");
+            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "an ack must not carry its own message ID (UAP 5.32)");
         }
 
         MessageCodec.ValidateId(AcknowledgedId);
@@ -130,7 +130,7 @@ public sealed record AprsMessageReject : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new AprsEncodeException("a reject must not carry its own message ID");
+            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a reject must not carry its own message ID");
         }
 
         MessageCodec.ValidateId(RejectedId);
@@ -185,12 +185,12 @@ public sealed record AprsBulletin : AprsMessage
     {
         if (!MessageCodec.IsBulletinAddressee(Addressee))
         {
-            throw new AprsEncodeException("a bulletin addressee is BLN, then 0-9 or A-Z, then an optional 1-5 character group name");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "a bulletin addressee is BLN, then 0-9 or A-Z, then an optional 1-5 character group name");
         }
 
         if (GroupName is not null && !char.IsAsciiDigit(Id))
         {
-            throw new AprsEncodeException("a group bulletin identifier is a digit (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "a group bulletin identifier is a digit (APRS12c ch. 14)");
         }
 
         MessageCodec.ValidateText(Text);
@@ -217,7 +217,7 @@ public sealed record AprsNwsBulletin : AprsMessage
     {
         if (!MessageCodec.IsNwsAddressee(Addressee))
         {
-            throw new AprsEncodeException("an NWS bulletin is addressed NWS- or NWS_ (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "an NWS bulletin is addressed NWS- or NWS_ (APRS12c ch. 14)");
         }
 
         // No length limit, unlike other bulletins (APRS12c ch. 14), but no '{' either: it would read
@@ -250,13 +250,13 @@ public sealed record AprsDirectedQuery : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new AprsEncodeException("a directed query never has a message ID (APRS12c ch. 15)");
+            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a directed query never has a message ID (APRS12c ch. 15)");
         }
 
         bool known = KnownTypes.Contains(QueryType);
         if (!known && !QueryCodec.IsQueryType(QueryType))
         {
-            throw new AprsEncodeException("a query type is upper-case letters (APRS12c ch. 15)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "a query type is upper-case letters (APRS12c ch. 15)");
         }
 
         writer.Char('?').Ascii(QueryType);
@@ -264,7 +264,7 @@ public sealed record AprsDirectedQuery : AprsMessage
         {
             if (!MessageCodec.IsCallsign(Target))
             {
-                throw new AprsEncodeException("a query target is one callsign: 1-9 letters, digits or -");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "a query target is one callsign: 1-9 letters, digits or -");
             }
 
             // A defined type is followed straight by its target, APRSH's padded to 9 characters

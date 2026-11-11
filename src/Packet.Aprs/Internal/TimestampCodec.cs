@@ -66,12 +66,12 @@ internal static class TimestampCodec
     {
         if (!timestamp.IsValid)
         {
-            throw new AprsEncodeException($"timestamp {timestamp} has a field out of range");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, $"timestamp {timestamp} has a field out of range");
         }
 
         if (timestamp.Format == AprsTimestampFormat.MonthDayHoursMinutesUtc && !allowMonthDay)
         {
-            throw new AprsEncodeException("the MMDDHHMM timestamp format is only used in positionless weather reports (APRS12c ch. 6)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "the MMDDHHMM timestamp format is only used in positionless weather reports (APRS12c ch. 6)");
         }
 
         writer.Ascii(timestamp.ToString());
