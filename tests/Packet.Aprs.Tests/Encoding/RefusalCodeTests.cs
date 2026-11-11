@@ -8,7 +8,7 @@ public class RefusalCodeTests
 {
     private static readonly AprsStation Me = AprsStation.From("M0LTE");
 
-    private static AprsPositionReport Report(Action<AprsPositionReport>? _ = null) =>
+    private static AprsPositionReport Report() =>
         new() { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car };
 
     public static TheoryData<string, AprsRefusalCode> Refusals => new()
@@ -40,6 +40,11 @@ public class RefusalCodeTests
         { "capability-token", AprsRefusalCode.Malformed },
         { "single-field-before-relation", AprsRefusalCode.InvalidCharacter },
         { "relation-order", AprsRefusalCode.FieldNotAllowed },
+        { "ack-id-order", AprsRefusalCode.InvalidMessageId },
+        { "telemetry-bits-order", AprsRefusalCode.InvalidCode },
+        { "empty-sequence", AprsRefusalCode.Malformed },
+        { "mic-e-short-telemetry", AprsRefusalCode.Malformed },
+        { "third-party-unrecognized", AprsRefusalCode.NotEncodable },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -73,6 +78,11 @@ public class RefusalCodeTests
             "capability-token" => () => new AprsStationCapabilities { Capabilities = [new AprsCapability("A B", null)] }.ToInformationField(),
             "single-field-before-relation" => () => (Report() with { Symbol = AprsSymbol.WeatherStation, Comment = "a\nb" }).ToInformationField(),
             "relation-order" => () => (Report() with { Symbol = AprsSymbol.WeatherStation, Position = new AprsPosition(51, 0, 1), Dao = new AprsDao('W', AprsDaoPrecision.Base91) }).ToInformationField(),
+            "ack-id-order" => () => new AprsMessageAck { Addressee = "G0ABC", MessageId = "1", AcknowledgedId = "TOOLONGID" }.ToInformationField(),
+            "telemetry-bits-order" => () => (Report() with { Telemetry = new AprsCommentTelemetry { Sequence = 1, Analog = [1, 2], Digital = 1 }, Dao = new AprsDao('?', AprsDaoPrecision.Base91) }).ToInformationField(),
+            "empty-sequence" => () => new AprsTelemetryReport { Sequence = "", Analog = [1, 2, 3, 4, 5], Bits = "00000000" }.ToInformationField(),
+            "mic-e-short-telemetry" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, LegacyTelemetry = [1, 2, 3] }),
+            "third-party-unrecognized" => () => NeutralReader.Data(JsonNode.Parse("""{"type":"third-party","packet":{"source":"N0CALL","destination":"APRS","path":[],"data":{"type":"unrecognized","reason":"not-aprs"}}}""")!.AsObject()),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;
@@ -89,7 +99,7 @@ public class RefusalCodeTests
         string[] listed = [.. JsonNode.Parse(File.ReadAllText(Path.Combine(VectorCases.Directory, "codes.json")))!["refusals"]!.AsArray().Select(n => (string)n!["id"]!)];
         string[] ours = [.. Enum.GetValues<AprsRefusalCode>().Select(c => NeutralJson.Kebab(c.ToString()))];
 
-        ours.Should().BeEquivalentTo(listed);
+        ours.Should().Equal(listed);
         ((int)AprsRefusalCode.DoesNotReadBack).Should().Be(listed.Length);
     }
 }

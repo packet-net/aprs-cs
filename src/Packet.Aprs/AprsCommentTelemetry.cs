@@ -27,7 +27,7 @@ public sealed record AprsCommentTelemetry
     /// 5 analog channels.</summary>
     public byte? Digital { get; init; }
 
-    internal void Validate()
+    internal void Validate(Internal.InfoWriter writer)
     {
         if (Analog.Count is < 1 or > 5)
         {
@@ -41,7 +41,7 @@ public sealed record AprsCommentTelemetry
 
         if (Digital is not null && Analog.Count != 5)
         {
-            throw new AprsEncodeException(AprsRefusalCode.MissingField, "comment telemetry digital bits can only follow all 5 analog channels");
+            writer.Defer(AprsRefusalCode.MissingField, "comment telemetry digital bits can only follow all 5 analog channels");
         }
     }
 }

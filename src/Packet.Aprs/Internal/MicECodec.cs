@@ -690,7 +690,12 @@ internal static class MicECodec
         if (r.LegacyTelemetry is { } legacy)
         {
             // A 255 would be taken for Kenwood 0xFF padding and removed on the way back in.
-            if (legacy.Count != 5)
+            if (legacy.Count < 5)
+            {
+                throw new AprsEncodeException(AprsRefusalCode.Malformed, "obsolete Mic-E binary telemetry is 5 values, each 0-254");
+            }
+
+            if (legacy.Count > 5)
             {
                 throw new AprsEncodeException(AprsRefusalCode.TooLong, "obsolete Mic-E binary telemetry is 5 values, each 0-254");
             }
@@ -875,7 +880,7 @@ internal static class MicECodec
 
         if (r.Telemetry is { } t)
         {
-            t.Validate();
+            t.Validate(w);
             w.Char('|').Base91(t.Sequence, 2);
             foreach (int v in t.Analog)
             {

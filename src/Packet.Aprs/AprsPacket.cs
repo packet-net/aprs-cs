@@ -192,7 +192,9 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
                 throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a Mic-E report computes its destination address, so none can be given");
             }
 
-            return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micE.EncodeInformation(), micE, []);
+            // The information first, so a fault in the data is reported before one in the destination.
+            byte[] micEInformation = micE.EncodeInformation();
+            return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micEInformation, micE, []);
         }
 
         AprsAddress to = destination ?? AprsAddress.Parse(AprsStation.DefaultDestination);

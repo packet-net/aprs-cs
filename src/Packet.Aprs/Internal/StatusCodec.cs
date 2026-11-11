@@ -328,7 +328,7 @@ internal static class TelemetryCodec
         Text.RequireNoLineBreaks(r.Comment);
         if (r.Sequence.Length == 0)
         {
-            throw new AprsEncodeException(AprsRefusalCode.TooLong, "telemetry sequence is letters or digits");
+            throw new AprsEncodeException(AprsRefusalCode.Malformed, "telemetry sequence is letters or digits");
         }
 
         if (!r.Sequence.All(char.IsAsciiLetterOrDigit))

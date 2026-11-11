@@ -519,7 +519,7 @@ internal static class CommentCodec
 
         if (d.Telemetry is { } t)
         {
-            t.Validate();
+            t.Validate(w);
             w.Char('|').Base91(t.Sequence, 2);
             foreach (int v in t.Analog)
             {

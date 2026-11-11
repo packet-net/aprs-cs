@@ -110,7 +110,7 @@ public sealed record AprsMessageAck : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "an ack must not carry its own message ID (UAP 5.32)");
+            writer.Defer(AprsRefusalCode.FieldNotAllowed, "an ack must not carry its own message ID (UAP 5.32)");
         }
 
         MessageCodec.ValidateId(AcknowledgedId);
@@ -135,7 +135,7 @@ public sealed record AprsMessageReject : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a reject must not carry its own message ID");
+            writer.Defer(AprsRefusalCode.FieldNotAllowed, "a reject must not carry its own message ID");
         }
 
         MessageCodec.ValidateId(RejectedId);
@@ -255,7 +255,7 @@ public sealed record AprsDirectedQuery : AprsMessage
     {
         if (MessageId is not null)
         {
-            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a directed query never has a message ID (APRS12c ch. 15)");
+            writer.Defer(AprsRefusalCode.FieldNotAllowed, "a directed query never has a message ID (APRS12c ch. 15)");
         }
 
         bool known = KnownTypes.Contains(QueryType);
