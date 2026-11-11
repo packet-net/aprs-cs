@@ -555,6 +555,7 @@ internal static class MicECodec
             throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
         }
 
+        _ = CheckMotion(r);
         (int[] bits, bool custom) = MessageBits(r.MicEMessage);
         int lonDegrees = int.Parse(PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity)[..3], System.Globalization.CultureInfo.InvariantCulture);
         bool[] flags =
@@ -606,6 +607,28 @@ internal static class MicECodec
         return ([(index >> 2) & 1, (index >> 1) & 1, index & 1], custom && message != AprsMicEMessage.Emergency);
     }
 
+    /// <summary>The speed and course in whole knots and degrees; refuses one the field cannot hold (vectors ruling F2).</summary>
+    private static (int Speed, int Course) CheckMotion(AprsMicEReport r)
+    {
+        NotANumber.Refuse(r.SpeedKnots, "Mic-E speed");
+        NotANumber.Refuse(r.CourseDegrees, "Mic-E course");
+        double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
+        int speed = speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
+        double courseDegrees = r.CourseDegrees is { } cd ? Steps.Whole(cd) : 0;
+        if (speed is < 0 or > 799 || courseDegrees is < 0 or > 360)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "Mic-E speed must be 0-799 knots and course 0-360");
+        }
+
+        int course = (int)courseDegrees;
+        if (r.CourseDegrees is not null && course == 0)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a Mic-E course of 0 reads back as no course; north is 360");
+        }
+
+        return (speed, course);
+    }
+
     public static void WriteInformation(InfoWriter w, AprsMicEReport r)
     {
         r.Position.Validate();
@@ -613,12 +636,6 @@ internal static class MicECodec
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
         {
             w.Defer(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
-        }
-
-        if (r.Symbol.IsWeatherStation && r.Weather is null)
-        {
-            // Written as it is when it reads back; when the read-back refuses, the symbol is the reason.
-            w.ReadBackCode = AprsRefusalCode.SymbolMismatch;
         }
 
         string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity);
@@ -651,22 +668,7 @@ internal static class MicECodec
             throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
         }
 
-        // Rounded to whole knots, then checked (vectors ruling F2).
-        NotANumber.Refuse(r.SpeedKnots, "Mic-E speed");
-        NotANumber.Refuse(r.CourseDegrees, "Mic-E course");
-        double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
-        int speed = double.IsNaN(speedKnots) || speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
-        double courseDegrees = r.CourseDegrees is { } cd ? Steps.Whole(cd) : 0;
-        if (speed is < 0 or > 799 || double.IsNaN(courseDegrees) || courseDegrees is < 0 or > 360)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "Mic-E speed must be 0-799 knots and course 0-360");
-        }
-
-        int course = (int)courseDegrees;
-        if (r.CourseDegrees is not null && course == 0)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a Mic-E course of 0 reads back as no course; north is 360");
-        }
+        (int speed, int course) = CheckMotion(r);
 
         // The printable encoding schemes: speeds under 200 knots use SP + 80, except 190-199, where
         // that would be DEL and the table's other character is '/' (vectors ruling E5), and DC always

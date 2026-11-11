@@ -33,6 +33,11 @@ public abstract record AprsMessage : AprsData
     internal override void Encode(InfoWriter writer)
     {
         MessageCodec.ValidateAddressee(Addressee);
+        if (this is AprsTextMessage)
+        {
+            MessageCodec.RequireMessageAddressee(Addressee);
+        }
+
         writer.Char(':').Ascii(Addressee.PadRight(9)).Char(':');
         EncodeText(writer);
     }

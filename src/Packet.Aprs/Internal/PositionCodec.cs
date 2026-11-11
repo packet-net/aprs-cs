@@ -652,7 +652,7 @@ internal static class PositionCodec
             }
 
             WeatherCodec.WriteFields(w, weather, positionless: false);
-            if (d.Comment.Length > 0 && d.Symbol.IsWeatherStation)
+            if (d.Comment.Length > 0)
             {
                 w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12, UAP 2.7.1)");
             }
@@ -761,6 +761,12 @@ internal static class PositionCodec
         }
 
         var type = d.CompressionType;
+        if (d.RangeMiles is { } rangeMiles)
+        {
+            // A range outside the format is a fault of its own, whatever else is given.
+            _ = RangeStep(rangeMiles);
+        }
+
         bool windInCs = d.Weather is { } weather && (weather.WindDirectionDegrees is not null || weather.WindSpeedMph is not null);
         if (windInCs && (type?.Source == AprsCompressionSource.Gga || d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null))
         {
@@ -864,12 +870,7 @@ internal static class PositionCodec
             // 2 x 1.08^s miles (APRS12c ch. 9): a range is rounded to the nearest step, but one
             // outside the format is refused, not moved to its edge (vectors interpretations.md,
             // "Re-encoding into compressed bytes rounds").
-            NotANumber.Refuse(range, "range");
-            int s = range <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
-            if (s is < 0 or > 90)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed range is 2 to 2 x 1.08^90 miles (APRS12c ch. 9)");
-            }
+            int s = RangeStep(range);
 
             w.Char('{').Byte((byte)(s + 33));
             WriteType(w, type ?? AprsCompressionType.Default);
@@ -887,6 +888,15 @@ internal static class PositionCodec
             // No cs data: a space, then filler (the spec's example uses "sT").
             w.Ascii(" sT");
         }
+    }
+
+    private static int RangeStep(double range)
+    {
+        NotANumber.Refuse(range, "range");
+        int s = range <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
+        return s is < 0 or > 90
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed range is 2 to 2 x 1.08^90 miles (APRS12c ch. 9)")
+            : s;
     }
 
     private static void WriteType(InfoWriter w, AprsCompressionType type) => w.Byte((byte)(type.Bits + 33));
@@ -950,7 +960,13 @@ internal static class PositionCodec
             if (d.Symbol is { Table: '\\', Code: 'l' } && d.CourseDegrees is not null && d.SpeedKnots is not null)
             {
                 // After the area symbol, ddd/ddd reads as an area object (APRS12c ch. 11).
-                w.Defer(AprsRefusalCode.ExtensionConflict, "a course and speed after the area symbol (\\l) would read back as an area object (APRS12c ch. 11)");
+                w.Defer(AprsRefusalCode.SymbolMismatch, "a course and speed after the area symbol (\\l) would read back as an area object (APRS12c ch. 11)");
+            }
+
+            if (d.DfBearing is not null && d.Storm is not null)
+            {
+                // Both extend the one course/speed, and only one can follow it.
+                w.Defer(AprsRefusalCode.ExtensionConflict, "a DF bearing and storm data both extend the course/speed; only one can follow it");
             }
 
             WriteCourseSpeed(w, d.CourseDegrees, d.SpeedKnots);

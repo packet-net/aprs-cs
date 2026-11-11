@@ -18,9 +18,6 @@ internal sealed class InfoWriter
     /// </summary>
     public string? CommentCheck { get; set; }
 
-    /// <summary>The code a refusal from the read-back of the finished field carries.</summary>
-    public AprsRefusalCode ReadBackCode { get; set; } = AprsRefusalCode.TextReadsAsField;
-
     private AprsEncodeException? deferred;
 
     /// <summary>

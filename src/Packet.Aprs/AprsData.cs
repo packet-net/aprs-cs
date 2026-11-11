@@ -50,7 +50,7 @@ public abstract record AprsData
         writer.ThrowDeferred();
         if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)
         {
-            CommentCodec.VerifyReadsBack(positioned, info, problem, writer.ReadBackCode);
+            CommentCodec.VerifyReadsBack(positioned, info, problem);
         }
 
         if (this is AprsMessage message)

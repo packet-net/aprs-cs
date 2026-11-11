@@ -514,7 +514,10 @@ internal static class CommentCodec
         {
             // A compressed weather report's GGA altitude goes in the cs bytes as the nearest step,
             // with no /A= beside it (vectors ruling F14).
-            w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
+            // On a GGA compressed report with an altitude the cs bytes are wanted twice (wind and altitude).
+            w.Defer(
+                d.IsCompressed && d.CompressionType?.Source == AprsCompressionSource.Gga && d.AltitudeFeet is not null ? AprsRefusalCode.ExtensionConflict : AprsRefusalCode.FieldNotAllowed,
+                "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
         if (d.Telemetry is { } t)
@@ -627,13 +630,13 @@ internal static class CommentCodec
     /// Decodes an encoded field and throws <paramref name="problem"/> unless the comment, and
     /// everything text in the comment could turn into, reads back as it was sent.
     /// </summary>
-    internal static void VerifyReadsBack(AprsPositionedData sent, byte[] info, string problem, AprsRefusalCode code = AprsRefusalCode.TextReadsAsField)
+    internal static void VerifyReadsBack(AprsPositionedData sent, byte[] info, string problem)
     {
         AprsAddress destination = sent is AprsMicEReport mic ? MicECodec.EncodeDestination(mic) : AprsAddress.Parse("APZ001");
         AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), destination, [], info);
         if (back.HasWarnings || back.HasErrors || back.Data is not AprsPositionedData b || !ReadsBackTheSame(sent, b))
         {
-            throw new AprsEncodeException(code, problem);
+            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, problem);
         }
     }
 

@@ -422,6 +422,21 @@ internal static class MessageCodec
         }
     }
 
+    /// <summary>
+    /// A text message's addressee must not make it a bulletin or NWS bulletin when read back (a
+    /// <c>BLN</c> or <c>NWS-</c> addressee): that is not the form a message needs, and is judged
+    /// before the message's text and IDs.
+    /// </summary>
+    public static void RequireMessageAddressee(string addressee)
+    {
+        byte[] probe = System.Text.Encoding.ASCII.GetBytes($":{addressee.PadRight(9)}:x");
+        AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], probe);
+        if (back.Data is not AprsTextMessage)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, $"a message addressed '{addressee}' would read back as {back.Data.GetType().Name}, not a message");
+        }
+    }
+
     public static void ValidateId(string id)
     {
         ArgumentNullException.ThrowIfNull(id);
