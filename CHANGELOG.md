@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (2026-11-10)
+
+This is the first stable release. The public API is now frozen under semantic versioning. From 1.0 the major and minor version are shared with aprs-vectors: a ruling round is a minor version for all five implementations, this library's own fixes are patch versions, and an API break is a major version.
 
 The 1.0 API cleanup. Every item below is a breaking change, with no deprecation shims: the names and shapes here are the ones 1.0 keeps. The wire output is unchanged: the encoder writes the same bytes and the decoder reads the same data, apart from the number formats noted under "Numbers kept as sent".
 
