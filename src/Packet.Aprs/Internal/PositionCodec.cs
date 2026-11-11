@@ -924,6 +924,11 @@ internal static class PositionCodec
     private static void WriteDataExtension(InfoWriter w, AprsPositionedData d)
     {
         bool courseSpeed = d.CourseDegrees is not null || d.SpeedKnots is not null || d.DfBearing is not null || d.Storm is not null;
+        if (d.Weather is null)
+        {
+            // A course or speed outside its field is a fault of its own, whatever else is given.
+            _ = CheckCourseSpeed(d.CourseDegrees, d.SpeedKnots);
+        }
         int count = (courseSpeed ? 1 : 0) + (d.Phg is null ? 0 : 1) + (d.RangeMiles is null ? 0 : 1)
             + (d.DfSignalStrength is null ? 0 : 1) + (d.AreaObject is null ? 0 : 1);
         if (count > 1)
@@ -1024,19 +1029,24 @@ internal static class PositionCodec
         }
     }
 
-    internal static void WriteCourseSpeed(InfoWriter w, double? course, double? speed)
+    private static (int? Degrees, double? Knots) CheckCourseSpeed(double? course, double? speed)
     {
-        // Rounded to whole degrees, then checked (vectors ruling F2).
         NotANumber.Refuse(course, "course");
         NotANumber.Refuse(speed, "speed");
+
+        // Rounded to whole degrees, then checked (vectors ruling F2).
         int? degrees = course is { } cd ? (Steps.Whole(cd) is < 0 or > 360 ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "course must be 0-360") : (int)Steps.Whole(cd)) : null;
 
         // Rounded to whole knots, then checked (vectors ruling F2).
         double? knots = speed is { } s ? Steps.Whole(s) : null;
-        if (knots is < 0 or > 999)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "an uncompressed speed is whole knots 0-999");
-        }
+        return knots is < 0 or > 999
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "an uncompressed speed is whole knots 0-999")
+            : (degrees, knots);
+    }
+
+    internal static void WriteCourseSpeed(InfoWriter w, double? course, double? speed)
+    {
+        (int? degrees, double? knots) = CheckCourseSpeed(course, speed);
 
         _ = degrees is { } c ? w.Digits(c, 3) : w.Ascii("...");
         w.Char('/');

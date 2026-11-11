@@ -45,6 +45,8 @@ public class RefusalCodeTests
         { "empty-sequence", AprsRefusalCode.Malformed },
         { "mic-e-short-telemetry", AprsRefusalCode.Malformed },
         { "third-party-unrecognized", AprsRefusalCode.NotEncodable },
+        { "mic-e-unknown-before-suffix", AprsRefusalCode.InvalidCode },
+        { "mic-e-pole-before-dao", AprsRefusalCode.ValueHasNoForm },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -83,6 +85,8 @@ public class RefusalCodeTests
             "empty-sequence" => () => new AprsTelemetryReport { Sequence = "", Analog = [1, 2, 3, 4, 5], Bits = "00000000" }.ToInformationField(),
             "mic-e-short-telemetry" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, LegacyTelemetry = [1, 2, 3] }),
             "third-party-unrecognized" => () => NeutralReader.Data(JsonNode.Parse("""{"type":"third-party","packet":{"source":"N0CALL","destination":"APRS","path":[],"data":{"type":"unrecognized","reason":"not-aprs"}}}""")!.AsObject()),
+            "mic-e-unknown-before-suffix" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, MicEMessage = (AprsMicEMessage)99, DeviceSuffix = "_1" }),
+            "mic-e-pole-before-dao" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(90, 0, 1), Symbol = AprsSymbol.Car, Dao = new AprsDao('W', AprsDaoPrecision.Base91), Comment = "a\nb" }),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;

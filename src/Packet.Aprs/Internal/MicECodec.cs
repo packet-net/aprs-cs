@@ -633,6 +633,16 @@ internal static class MicECodec
     {
         r.Position.Validate();
         r.Symbol.Validate();
+
+        // Faults of a single field, in the shared order, before any relation between fields.
+        string firstLatitude = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao, r.Position.Ambiguity);
+        if (r.Position.Ambiguity > 0 && firstLatitude.StartsWith("90", StringComparison.Ordinal))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
+        }
+
+        _ = CheckMotion(r);
+        _ = MessageBits(r.MicEMessage);
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
         {
             w.Defer(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");

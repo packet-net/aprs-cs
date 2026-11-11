@@ -431,11 +431,16 @@ internal static class MessageCodec
     {
         byte[] probe = System.Text.Encoding.ASCII.GetBytes($":{addressee.PadRight(9)}:x");
         AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], probe);
-        if (back.Data is not AprsTextMessage)
+        if (back.Data is not AprsTextMessage && IsBulletinForm(addressee))
         {
             throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, $"a message addressed '{addressee}' would read back as {back.Data.GetType().Name}, not a message");
         }
     }
+
+    /// <summary>BLN then 0-9 or A-Z and an optional group of up to 5 characters, or NWS- or NWS_.</summary>
+    private static bool IsBulletinForm(string a) =>
+        (a.Length is >= 4 and <= 9 && a.StartsWith("BLN", StringComparison.Ordinal) && a[3] is (>= '0' and <= '9') or (>= 'A' and <= 'Z'))
+        || a.StartsWith("NWS-", StringComparison.Ordinal) || a.StartsWith("NWS_", StringComparison.Ordinal);
 
     public static void ValidateId(string id)
     {
