@@ -642,7 +642,6 @@ internal static class MicECodec
         }
 
         _ = CheckMotion(r);
-        _ = MessageBits(r.MicEMessage);
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
         {
             w.Defer(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
@@ -722,6 +721,8 @@ internal static class MicECodec
             }
         }
 
+        // An unknown message type comes after the value checks above and before the device suffix.
+        _ = MessageBits(r.MicEMessage);
         if (r.TypeCode is { } type)
         {
             if (type is not ('`' or '\'' or '>' or ']' or ' '))

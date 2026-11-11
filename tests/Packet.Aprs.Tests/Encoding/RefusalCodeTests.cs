@@ -48,6 +48,7 @@ public class RefusalCodeTests
         { "mic-e-unknown-before-suffix", AprsRefusalCode.InvalidCode },
         { "mic-e-pole-before-dao", AprsRefusalCode.ValueHasNoForm },
         { "message-bln-station", AprsRefusalCode.TextReadsAsField },
+        { "mic-e-value-before-unknown", AprsRefusalCode.ValueHasNoForm },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -89,6 +90,7 @@ public class RefusalCodeTests
             "mic-e-unknown-before-suffix" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, MicEMessage = (AprsMicEMessage)99, DeviceSuffix = "_1" }),
             "mic-e-pole-before-dao" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(90, 0, 1), Symbol = AprsSymbol.Car, Dao = new AprsDao('W', AprsDaoPrecision.Base91), Comment = "a\nb" }),
             "message-bln-station" => () => new AprsTextMessage { Addressee = "BLNe", Text = "?WX" }.ToInformationField(),
+            "mic-e-value-before-unknown" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, -180), Symbol = AprsSymbol.Car, MicEMessage = (AprsMicEMessage)99 }),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;
