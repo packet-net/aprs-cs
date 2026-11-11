@@ -608,6 +608,12 @@ internal static class MicECodec
     }
 
     /// <summary>The speed and course in whole knots and degrees; refuses one the field cannot hold (vectors ruling F2).</summary>
+    private static bool IsWholeMetres(double feet)
+    {
+        long metres = Steps.Count(feet / Units.FeetPerMetre);
+        return Math.Abs((metres * Units.FeetPerMetre) - feet) <= 1e-6;
+    }
+
     private static (int Speed, int Course) CheckMotion(AprsMicEReport r)
     {
         NotANumber.Refuse(r.SpeedKnots, "Mic-E speed");
@@ -642,6 +648,12 @@ internal static class MicECodec
         }
 
         _ = CheckMotion(r);
+        if (r.AltitudeFeet is { } altitudeFeet && (r.AltitudeInComment || !IsWholeMetres(altitudeFeet)))
+        {
+            // Written as /A=, so it must fit that, before the later value checks.
+            _ = CommentCodec.CheckAltitude(altitudeFeet);
+        }
+
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
         {
             w.Defer(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
@@ -776,6 +788,12 @@ internal static class MicECodec
                 char first = (char)((value / (91 * 91)) + 33);
                 if (r.TypeCode is null && first is '`' or '\'' or '>' or ']')
                 {
+                    if (Steps.Whole(feet) is < -99999 or > 999999)
+                    {
+                        // Only the Mic-E bytes can hold it, and they read back as a type code.
+                        throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "without a TypeCode this Mic-E altitude would decode as a device type code, and no /A= holds it");
+                    }
+
                     w.Defer(AprsRefusalCode.TextReadsAsField, "without a TypeCode this Mic-E altitude would decode as a device type code; set TypeCode");
                 }
 

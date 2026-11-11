@@ -453,8 +453,14 @@ internal static class CommentCodec
     /// </summary>
     public static void Write(InfoWriter w, AprsPositionedData d, bool altitudeInCs)
     {
-        CheckComment(w, d);
         bool altitude = d.AltitudeFeet is not null && !altitudeInCs;
+        if (altitude)
+        {
+            // An altitude written as /A= must fit it: a fault of its own, before the comment's text.
+            CheckAltitude(d.AltitudeFeet!.Value);
+        }
+
+        CheckComment(w, d);
         bool braces = d.SignpostText is not null || d.AreaObject is { CorridorWidthMiles: not null };
         if (d.Frequency is { } freq)
         {
@@ -551,17 +557,19 @@ internal static class CommentCodec
         comment.Length > 0 && (comment[0] is ' ' or '/'
             || (phg is { BeaconsPerHour: null } && comment.Length >= 2 && comment[1] == '/' && comment[0] is (>= '1' and <= '9') or (>= 'A' and <= 'Z')));
 
-    internal static void WriteAltitude(InfoWriter w, double feet)
+    /// <summary>Rounded to whole feet, halves away from zero, then checked to fit /A= (vectors ruling F2).</summary>
+    internal static double CheckAltitude(double feet)
     {
-        // Rounded to whole feet, halves away from zero, then checked (vectors ruling F2).
         NotANumber.Refuse(feet, "altitude");
         double rounded = Steps.Whole(feet);
-        if (rounded is < -99999 or > 999999)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "/A= altitude must fit in 6 digits (or - and 5 digits)");
-        }
+        return rounded is < -99999 or > 999999
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "/A= altitude must fit in 6 digits (or - and 5 digits)")
+            : rounded;
+    }
 
-        int alt = (int)rounded;
+    internal static void WriteAltitude(InfoWriter w, double feet)
+    {
+        int alt = (int)CheckAltitude(feet);
         w.Ascii("/A=");
         _ = alt < 0 ? w.Char('-').Digits(-alt, 5) : w.Digits(alt, 6);
     }

@@ -962,7 +962,7 @@ internal static class PositionCodec
         }
         else if (courseSpeed)
         {
-            if (d.Symbol is { Table: '\\', Code: 'l' } && d.CourseDegrees is not null && d.SpeedKnots is not null)
+            if (d.Symbol is { Table: '\\', Code: 'l' } && d.CourseDegrees is not null)
             {
                 // After the area symbol, ddd/ddd reads as an area object (APRS12c ch. 11).
                 w.Defer(AprsRefusalCode.SymbolMismatch, "a course and speed after the area symbol (\\l) would read back as an area object (APRS12c ch. 11)");

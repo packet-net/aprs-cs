@@ -49,6 +49,8 @@ public class RefusalCodeTests
         { "mic-e-pole-before-dao", AprsRefusalCode.ValueHasNoForm },
         { "message-bln-station", AprsRefusalCode.TextReadsAsField },
         { "mic-e-value-before-unknown", AprsRefusalCode.ValueHasNoForm },
+        { "mic-e-altitude-no-form", AprsRefusalCode.ValueHasNoForm },
+        { "area-symbol-course", AprsRefusalCode.SymbolMismatch },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -91,6 +93,8 @@ public class RefusalCodeTests
             "mic-e-pole-before-dao" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(90, 0, 1), Symbol = AprsSymbol.Car, Dao = new AprsDao('W', AprsDaoPrecision.Base91), Comment = "a\nb" }),
             "message-bln-station" => () => new AprsTextMessage { Addressee = "BLNe", Text = "?WX" }.ToInformationField(),
             "mic-e-value-before-unknown" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, -180), Symbol = AprsSymbol.Car, MicEMessage = (AprsMicEMessage)99 }),
+            "mic-e-altitude-no-form" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(47.20366666666666, -122.50216666666667), Symbol = new AprsSymbol('W', 'v'), AltitudeFeet = 1597896.9816272964, CourseDegrees = 26, SpeedKnots = 0 }),
+            "area-symbol-course" => () => (Report() with { Symbol = new AprsSymbol('\\', 'l'), CourseDegrees = 1, SpeedKnots = 1 }).ToInformationField(),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;
