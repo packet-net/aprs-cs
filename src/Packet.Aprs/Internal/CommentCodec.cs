@@ -514,10 +514,7 @@ internal static class CommentCodec
         {
             // A compressed weather report's GGA altitude goes in the cs bytes as the nearest step,
             // with no /A= beside it (vectors ruling F14).
-            // On a GGA compressed report with an altitude the cs bytes are wanted twice (wind and altitude).
-            w.Defer(
-                d.IsCompressed && d.CompressionType?.Source == AprsCompressionSource.Gga && d.AltitudeFeet is not null ? AprsRefusalCode.ExtensionConflict : AprsRefusalCode.FieldNotAllowed,
-                "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
+            w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
         if (d.Telemetry is { } t)
