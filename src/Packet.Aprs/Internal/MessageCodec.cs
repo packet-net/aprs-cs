@@ -466,7 +466,7 @@ internal static class MessageCodec
                 : $"would read back with {string.Join(", ", back.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => d.Code))}";
             // An addressee that makes a text message a bulletin is not the form a message needs.
             AprsRefusalCode code = sent is AprsTextMessage && back.Data.GetType() != sent.GetType()
-                && (sent.Addressee.StartsWith("BLN", StringComparison.Ordinal) || sent.Addressee.StartsWith("NWS-", StringComparison.Ordinal) || sent.Addressee.StartsWith("NWS_", StringComparison.Ordinal))
+                && IsBulletinForm(sent.Addressee)
                 ? AprsRefusalCode.InvalidAddressee
                 : AprsRefusalCode.TextReadsAsField;
             throw new AprsEncodeException(code, $"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}");
