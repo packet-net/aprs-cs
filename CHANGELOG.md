@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 (2026-11-12)
 
-### 1.0.1: refusals carry a reason code
+Refusals carry a reason code.
 
 - `AprsEncodeException` has a new read-only `Code` property of the new enum `AprsRefusalCode`: the shared reason codes of aprs-vectors (`codes.json` `refusals`), 26 of them, the last, `DoesNotReadBack`, being the fallback. Every refusal carries the code its rule maps to. Nothing is removed or renamed: the exception type, its message text and every 1.0 signature are as they were.
 - `aprs-corpus diff` writes the code as `refusal` on a refused encode or build record, `reencode_refusal` on a decode record whose re-encode was refused, and `ax25_refusal` in the API view. The vectors runner knows the `refusal` and `reencode_refusal` case keys and checks them when a case names one.
