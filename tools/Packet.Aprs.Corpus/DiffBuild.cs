@@ -34,6 +34,7 @@ internal static class DiffBuild
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;
+            DiffCommand.AddRefusal(o, "refusal", ex);
             return o;
         }
 

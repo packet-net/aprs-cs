@@ -41,12 +41,12 @@ public readonly record struct AprsPhg(int PowerCode, int HeightCode, int GainCod
     {
         if (PowerCode is < 0 or > 9 || GainCode is < 0 or > 9 || DirectivityCode is < 0 or > 9 || HeightCode is < 0 or > 78)
         {
-            throw new AprsEncodeException("PHG codes: power, gain and directivity 0-9; height 0 and up");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "PHG codes: power, gain and directivity 0-9; height 0 and up");
         }
 
         if (BeaconsPerHour is < 1 or > 35)
         {
-            throw new AprsEncodeException("PHGR beacons per hour must be 1-35");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "PHGR beacons per hour must be 1-35");
         }
     }
 }
@@ -72,7 +72,7 @@ public readonly record struct AprsDfSignalStrength(int StrengthCode, int HeightC
     {
         if (StrengthCode is < 0 or > 9 || GainCode is < 0 or > 9 || DirectivityCode is < 0 or > 9 || HeightCode is < 0 or > 78)
         {
-            throw new AprsEncodeException("DFS codes: strength, gain and directivity 0-9; height 0 and up");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "DFS codes: strength, gain and directivity 0-9; height 0 and up");
         }
     }
 }
@@ -105,7 +105,7 @@ public readonly record struct AprsDfBearing(int BearingDegrees, int Number, int 
     {
         if (BearingDegrees is < 0 or > 360 || Number is < 0 or > 9 || Range is < 0 or > 9 || Quality is < 0 or > 9)
         {
-            throw new AprsEncodeException("bearing 0-360; N, R and Q 0-9");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "bearing 0-360; N, R and Q 0-9");
         }
     }
 }

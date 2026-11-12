@@ -143,10 +143,15 @@ public sealed record AprsObjectReport : AprsPositionedData
     {
         Internal.ObjectCodec.ValidateObjectName(Name);
         writer.Char(';').Ascii(Name.PadRight(9)).Char(IsKilled ? '_' : '*');
-        Internal.TimestampCodec.Write(
-            writer,
-            Timestamp ?? throw new AprsEncodeException("an object report must have a timestamp (APRS12c ch. 11)"),
-            allowMonthDay: false);
+        if (Timestamp is { } timestamp)
+        {
+            Internal.TimestampCodec.Write(writer, timestamp, allowMonthDay: false);
+        }
+        else
+        {
+            writer.Defer(AprsRefusalCode.MissingField, "an object report must have a timestamp (APRS12c ch. 11)");
+        }
+
         Internal.PositionCodec.WriteBody(writer, this);
     }
 }

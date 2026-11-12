@@ -91,7 +91,7 @@ internal static class DaoCodec
         {
             // Even !W  ! reads back with dao-with-ambiguity: a DAO adds precision to an ambiguous
             // position, which contradicts it, so no clean form exists (vectors ruling F4).
-            throw new AprsEncodeException("a DAO contradicts position ambiguity, whatever its precision");
+            w.Defer(AprsRefusalCode.FieldNotAllowed, "a DAO contradicts position ambiguity, whatever its precision");
         }
 
         SplitForDao(Math.Abs(position.Latitude), dao, out int lat);

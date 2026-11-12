@@ -81,7 +81,9 @@ public class AprsVectorTests
         }
         catch (AprsEncodeException ex)
         {
-            Pass(c, expected == "refused" ? [] : [$"reencode: expected {expected}, but the encoder refused: {ex.Message}"]);
+            Pass(c, expected != "refused"
+                ? [$"reencode: expected {expected}, but the encoder refused: {ex.Message}"]
+                : RefusalDifferences("reencode", (string?)c["reencode_refusal"], ex));
             return;
         }
 
@@ -160,7 +162,9 @@ public class AprsVectorTests
         }
         catch (AprsEncodeException ex)
         {
-            Pass(c, (bool?)expect["refused"] == true ? [] : [$"encode: expected {expect["info"]?.ToJsonString()}, but the encoder refused: {ex.Message}"]);
+            Pass(c, (bool?)expect["refused"] == true
+                ? RefusalDifferences("encode", (string?)expect["refusal"], ex)
+                : [$"encode: expected {expect["info"]?.ToJsonString()}, but the encoder refused: {ex.Message}"]);
             return;
         }
 
@@ -210,9 +214,9 @@ public class AprsVectorTests
 
     // ------------------------------------------------------------------ the case files
 
-    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "canonical_info"];
+    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info"];
     private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "source", "destination", "path"];
-    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "refused"];
+    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "refused", "refusal"];
 
     /// <summary>
     /// The cases' own consistency (schema, ids, codes, interpretation links) is checked in
@@ -379,6 +383,13 @@ public class AprsVectorTests
             : $"{NeutralJson.Data(packet.Data).ToJsonString()} with [{string.Join(", ", Strings(packet.Diagnostics))}]";
 
     private static string Show(byte[] info) => JsonValue.Create(System.Text.Encoding.Latin1.GetString(info)).ToJsonString();
+
+    /// <summary>The refusal's reason code against the one a case names; nothing to check when the case names none.</summary>
+    private static List<string> RefusalDifferences(string what, string? expected, AprsEncodeException ex)
+    {
+        string actual = NeutralJson.Kebab(ex.Code.ToString());
+        return expected is null || expected == actual ? [] : [$"{what}: expected the refusal '{expected}', got '{actual}': {ex.Message}"];
+    }
 
     private static IEnumerable<string> Unknown(JsonObject o, string[] known) => o.Select(kv => kv.Key).Except(known);
 

@@ -16,7 +16,7 @@ namespace Packet.Aprs.Corpus;
 internal static class VectorsCommand
 {
     private static readonly string[] CaseOrder = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "canonical_info"];
-    private static readonly string[] ExpectOrder = ["header", "header_error", "data", "diagnostics", "device", "info", "destination", "refused"];
+    private static readonly string[] ExpectOrder = ["header", "header_error", "data", "diagnostics", "device", "info", "destination", "refused", "refusal"];
 
     public static int Run(string[] args)
     {

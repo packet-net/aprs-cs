@@ -546,15 +546,16 @@ internal static class MicECodec
         r.Position.Validate();
         if (r.DestinationSsid is < 0 or > 15)
         {
-            throw new AprsEncodeException("Mic-E destination SSID must be 0-15");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "Mic-E destination SSID must be 0-15");
         }
 
         string lat = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao, r.Position.Ambiguity).Replace(".", "", StringComparison.Ordinal);
         if (r.Position.Ambiguity > 0 && lat.StartsWith("90", StringComparison.Ordinal))
         {
-            throw new AprsEncodeException("an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
         }
 
+        _ = CheckMotion(r);
         (int[] bits, bool custom) = MessageBits(r.MicEMessage);
         int lonDegrees = int.Parse(PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity)[..3], System.Globalization.CultureInfo.InvariantCulture);
         bool[] flags =
@@ -600,19 +601,62 @@ internal static class MicECodec
 
         if (index < 0)
         {
-            throw new AprsEncodeException("an unknown Mic-E message type cannot be encoded");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "an unknown Mic-E message type cannot be encoded");
         }
 
         return ([(index >> 2) & 1, (index >> 1) & 1, index & 1], custom && message != AprsMicEMessage.Emergency);
+    }
+
+    /// <summary>The speed and course in whole knots and degrees; refuses one the field cannot hold (vectors ruling F2).</summary>
+    private static bool IsWholeMetres(double feet)
+    {
+        long metres = Steps.Count(feet / Units.FeetPerMetre);
+        return Math.Abs((metres * Units.FeetPerMetre) - feet) <= 1e-6;
+    }
+
+    private static (int Speed, int Course) CheckMotion(AprsMicEReport r)
+    {
+        NotANumber.Refuse(r.SpeedKnots, "Mic-E speed");
+        NotANumber.Refuse(r.CourseDegrees, "Mic-E course");
+        double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
+        int speed = speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
+        double courseDegrees = r.CourseDegrees is { } cd ? Steps.Whole(cd) : 0;
+        if (speed is < 0 or > 799 || courseDegrees is < 0 or > 360)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "Mic-E speed must be 0-799 knots and course 0-360");
+        }
+
+        int course = (int)courseDegrees;
+        if (r.CourseDegrees is not null && course == 0)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a Mic-E course of 0 reads back as no course; north is 360");
+        }
+
+        return (speed, course);
     }
 
     public static void WriteInformation(InfoWriter w, AprsMicEReport r)
     {
         r.Position.Validate();
         r.Symbol.Validate();
+
+        // Faults of a single field, in the shared order, before any relation between fields.
+        string firstLatitude = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao, r.Position.Ambiguity);
+        if (r.Position.Ambiguity > 0 && firstLatitude.StartsWith("90", StringComparison.Ordinal))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
+        }
+
+        _ = CheckMotion(r);
+        if (r.AltitudeFeet is { } altitudeFeet && (r.AltitudeInComment || !IsWholeMetres(altitudeFeet)))
+        {
+            // Written as /A=, so it must fit that, before the later value checks.
+            _ = CommentCodec.CheckAltitude(altitudeFeet);
+        }
+
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
         {
-            throw new AprsEncodeException("a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
+            w.Defer(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
         }
 
         string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity);
@@ -642,23 +686,10 @@ internal static class MicECodec
         if (deg >= 180)
         {
             // Degrees 180-189 would be written as 100-109 are, so 180 itself has no Mic-E form (APRS12c ch. 10).
-            throw new AprsEncodeException("a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
         }
 
-        // Rounded to whole knots, then checked (vectors ruling F2).
-        double speedKnots = r.SpeedKnots is { } s ? Steps.Whole(s) : 0;
-        int speed = double.IsNaN(speedKnots) || speedKnots is < 0 or > 799 ? -1 : (int)speedKnots;
-        double courseDegrees = r.CourseDegrees is { } cd ? Steps.Whole(cd) : 0;
-        if (speed is < 0 or > 799 || double.IsNaN(courseDegrees) || courseDegrees is < 0 or > 360)
-        {
-            throw new AprsEncodeException("Mic-E speed must be 0-799 knots and course 0-360");
-        }
-
-        int course = (int)courseDegrees;
-        if (r.CourseDegrees is not null && course == 0)
-        {
-            throw new AprsEncodeException("a Mic-E course of 0 reads back as no course; north is 360");
-        }
+        (int speed, int course) = CheckMotion(r);
 
         // The printable encoding schemes: speeds under 200 knots use SP + 80, except 190-199, where
         // that would be DEL and the table's other character is '/' (vectors ruling E5), and DC always
@@ -680,9 +711,19 @@ internal static class MicECodec
         if (r.LegacyTelemetry is { } legacy)
         {
             // A 255 would be taken for Kenwood 0xFF padding and removed on the way back in.
-            if (legacy.Count != 5 || legacy.Any(v => v is < 0 or > 254))
+            if (legacy.Count != 5)
             {
-                throw new AprsEncodeException("obsolete Mic-E binary telemetry is 5 values, each 0-254");
+                throw new AprsEncodeException(AprsRefusalCode.Malformed, "obsolete Mic-E binary telemetry is 5 values, each 0-254");
+            }
+
+            if (legacy.Any(v => v is < 0 or > 255))
+            {
+                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "obsolete Mic-E binary telemetry is 5 values, each 0-254");
+            }
+
+            if (legacy.Any(v => v == 255))
+            {
+                throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "obsolete Mic-E binary telemetry is 5 values, each 0-254");
             }
 
             w.Byte(0x1d);
@@ -692,21 +733,23 @@ internal static class MicECodec
             }
         }
 
+        // An unknown message type comes after the value checks above and before the device suffix.
+        _ = MessageBits(r.MicEMessage);
         if (r.TypeCode is { } type)
         {
             if (type is not ('`' or '\'' or '>' or ']' or ' '))
             {
-                throw new AprsEncodeException("Mic-E type code must be ` ' > ] or space");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "Mic-E type code must be ` ' > ] or space");
             }
 
             w.Char(type);
         }
         else if (r.DeviceSuffix.Length > 0)
         {
-            throw new AprsEncodeException("a Mic-E device suffix needs a type code");
+            w.Defer(AprsRefusalCode.MissingField, "a Mic-E device suffix needs a type code");
         }
 
-        if (r.DeviceSuffix.Length > 0)
+        if (r.DeviceSuffix.Length > 0 && r.TypeCode is not null)
         {
             // A decoder matches only the suffixes the device database lists for the type code; any
             // other is comment text. Whether the text before it joins a longer suffix is checked
@@ -719,7 +762,7 @@ internal static class MicECodec
             };
             if (!known.Contains(r.DeviceSuffix, StringComparer.Ordinal))
             {
-                throw new AprsEncodeException($"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCode, $"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text");
             }
 
             w.CommentCheck ??= "the Mic-E status text would read back with a different device suffix";
@@ -737,7 +780,7 @@ internal static class MicECodec
             {
                 if (value is < 0 or > (91 * 91 * 91) - 1)
                 {
-                    throw new AprsEncodeException("Mic-E altitude is out of range");
+                    throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "Mic-E altitude is out of range");
                 }
 
                 // Without a type code, an altitude whose first character is itself a type code
@@ -745,7 +788,13 @@ internal static class MicECodec
                 char first = (char)((value / (91 * 91)) + 33);
                 if (r.TypeCode is null && first is '`' or '\'' or '>' or ']')
                 {
-                    throw new AprsEncodeException("without a TypeCode this Mic-E altitude would decode as a device type code; set TypeCode");
+                    if (Steps.Whole(feet) is < -99999 or > 999999)
+                    {
+                        // Only the Mic-E bytes can hold it, and they read back as a type code.
+                        throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "without a TypeCode this Mic-E altitude would decode as a device type code, and no /A= holds it");
+                    }
+
+                    w.Defer(AprsRefusalCode.TextReadsAsField, "without a TypeCode this Mic-E altitude would decode as a device type code; set TypeCode");
                 }
 
                 w.Base91(value, 3).Char('}');
@@ -756,7 +805,7 @@ internal static class MicECodec
         {
             if (locator.Length is not (4 or 6) || !Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator)))
             {
-                throw new AprsEncodeException($"'{locator}' is not a 4 or 6 character Maidenhead locator");
+                throw new AprsEncodeException(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator");
             }
 
             w.Ascii(locator.ToUpperInvariant()).Ascii("/G");
@@ -774,7 +823,7 @@ internal static class MicECodec
         {
             // A decoder lifts one data extension from the status text (vectors interpretations.md,
             // "A late data extension is the first well-formed one"); a second would stay as text.
-            throw new AprsEncodeException("a Mic-E report carries at most one of PHG, RNG and DFS");
+            w.Defer(AprsRefusalCode.ExtensionConflict, "a Mic-E report carries at most one of PHG, RNG and DFS");
         }
 
         if (r.Phg is { } phg)
@@ -784,10 +833,11 @@ internal static class MicECodec
         else if (r.RangeMiles is { } range)
         {
             // Rounded to whole miles, then checked (vectors ruling F2).
+            NotANumber.Refuse(range, "RNG");
             double miles = Steps.Whole(range);
-            if (double.IsNaN(miles) || miles is < 0 or > 9999)
+            if (miles is < 0 or > 9999)
             {
-                throw new AprsEncodeException("RNG carries whole miles 0-9999");
+                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999");
             }
 
             w.Ascii("RNG").Digits((int)miles, 4);
@@ -854,7 +904,7 @@ internal static class MicECodec
 
         if (r.Telemetry is { } t)
         {
-            t.Validate();
+            t.Validate(w);
             w.Char('|').Base91(t.Sequence, 2);
             foreach (int v in t.Analog)
             {

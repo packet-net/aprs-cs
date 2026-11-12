@@ -418,16 +418,36 @@ internal static class MessageCodec
         ArgumentNullException.ThrowIfNull(addressee);
         if (addressee.Length is < 1 or > 9 || addressee.Any(c => c is <= ' ' or > '~' or ':'))
         {
-            throw new AprsEncodeException("addressee must be 1-9 printable ASCII characters without spaces or ':' (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "addressee must be 1-9 printable ASCII characters without spaces or ':' (APRS12c ch. 14)");
         }
     }
+
+    /// <summary>
+    /// A text message's addressee must not make it a bulletin or NWS bulletin when read back (a
+    /// <c>BLN</c> or <c>NWS-</c> addressee): that is not the form a message needs, and is judged
+    /// before the message's text and IDs.
+    /// </summary>
+    public static void RequireMessageAddressee(string addressee)
+    {
+        byte[] probe = System.Text.Encoding.ASCII.GetBytes($":{addressee.PadRight(9)}:x");
+        AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], probe);
+        if (back.Data is not AprsTextMessage && IsBulletinForm(addressee))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, $"a message addressed '{addressee}' would read back as {back.Data.GetType().Name}, not a message");
+        }
+    }
+
+    /// <summary>BLN then 0-9 or A-Z and an optional group of up to 5 characters, or NWS- or NWS_.</summary>
+    private static bool IsBulletinForm(string a) =>
+        (a.Length is >= 4 and <= 9 && a.StartsWith("BLN", StringComparison.Ordinal) && a[3] is (>= '0' and <= '9') or (>= 'A' and <= 'Z'))
+        || a.StartsWith("NWS-", StringComparison.Ordinal) || a.StartsWith("NWS_", StringComparison.Ordinal);
 
     public static void ValidateId(string id)
     {
         ArgumentNullException.ThrowIfNull(id);
         if (!IsId(System.Text.Encoding.ASCII.GetBytes(id)) || id.Any(c => c > 0x7F))
         {
-            throw new AprsEncodeException("a message ID is 1-5 letters or digits (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidMessageId, "a message ID is 1-5 letters or digits (APRS12c ch. 14)");
         }
     }
 
@@ -444,7 +464,12 @@ internal static class MessageCodec
             string problem = back.Data.GetType() != sent.GetType()
                 ? $"would read back as {back.Data.GetType().Name}"
                 : $"would read back with {string.Join(", ", back.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => d.Code))}";
-            throw new AprsEncodeException($"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}");
+            // An addressee that makes a text message a bulletin is not the form a message needs.
+            AprsRefusalCode code = sent is AprsTextMessage && back.Data.GetType() != sent.GetType()
+                && IsBulletinForm(sent.Addressee)
+                ? AprsRefusalCode.InvalidAddressee
+                : AprsRefusalCode.TextReadsAsField;
+            throw new AprsEncodeException(code, $"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}");
         }
     }
 
@@ -458,7 +483,7 @@ internal static class MessageCodec
         // or UTF-8 characters"), so a character outside the BMP counts once.
         if (text.EnumerateRunes().Count() > MaxTextLength)
         {
-            throw new AprsEncodeException($"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, $"message text is limited to {MaxTextLength} characters (APRS12c ch. 14)");
         }
     }
 
@@ -471,7 +496,7 @@ internal static class MessageCodec
     {
         if (text.Contains('{', StringComparison.Ordinal))
         {
-            throw new AprsEncodeException("message text must not contain '{', which starts the message ID (APRS12c ch. 14)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "message text must not contain '{', which starts the message ID (APRS12c ch. 14)");
         }
     }
 
@@ -481,7 +506,7 @@ internal static class MessageCodec
         int max = prefix == "EQNS." ? MaxCoefficients : MaxChannelNames;
         if (items.Count < 1 || items.Count > max)
         {
-            throw new AprsEncodeException($"{prefix} needs between 1 and {max} entries");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, $"{prefix} needs between 1 and {max} entries");
         }
 
         foreach (string item in items)
@@ -489,7 +514,7 @@ internal static class MessageCodec
             Text.RequireNoLineBreaks(item);
             if (item.Contains(',', StringComparison.Ordinal) || item.Contains('{', StringComparison.Ordinal))
             {
-                throw new AprsEncodeException($"{prefix} entries must not contain ',' or '{{'");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, $"{prefix} entries must not contain ',' or '{{'");
             }
         }
 

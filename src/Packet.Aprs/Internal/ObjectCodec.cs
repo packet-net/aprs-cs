@@ -154,9 +154,14 @@ internal static class ObjectCodec
     {
         ArgumentNullException.ThrowIfNull(name);
         // Any printable ASCII including spaces (APRS12c ch. 11), except trailing ones, which are padding.
-        if (name.Length is < 1 or > 9 || name.Any(c => c is < ' ' or > '~') || name.EndsWith(' '))
+        if (name.Length is >= 1 and <= 9 && !name.Any(c => c is < ' ' or > '~') && name.EndsWith(' '))
         {
-            throw new AprsEncodeException("object name must be 1-9 printable ASCII characters, not ending in a space (APRS12c ch. 11)");
+            throw new AprsEncodeException(AprsRefusalCode.PaddingSpace, "object name must be 1-9 printable ASCII characters, not ending in a space (APRS12c ch. 11)");
+        }
+
+        if (name.Length is < 1 or > 9 || name.Any(c => c is < ' ' or > '~'))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidName, "object name must be 1-9 printable ASCII characters, not ending in a space (APRS12c ch. 11)");
         }
     }
 
@@ -165,7 +170,7 @@ internal static class ObjectCodec
         ArgumentNullException.ThrowIfNull(name);
         if (name.Length is < 3 or > 9 || name.Any(c => c is < ' ' or > '~' or '!' or '_'))
         {
-            throw new AprsEncodeException("item name must be 3-9 printable ASCII characters other than ! and _ (APRS12c ch. 11)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidName, "item name must be 3-9 printable ASCII characters other than ! and _ (APRS12c ch. 11)");
         }
     }
 

@@ -117,7 +117,7 @@ internal static class NeutralReader
     {
         IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
         AprsAddress source = AprsAddress.Parse(Str(p, "source"));
-        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw new ArgumentException("the third-party packet has no destination, which an inner header needs"));
+        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
         JsonObject data = p["data"]!.AsObject();
 
         // An empty inner information field is data too: it is written back as it came, empty
@@ -125,7 +125,7 @@ internal static class NeutralReader
         // encoder declines it.
         if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") != "empty")
         {
-            throw new ArgumentException("an unrecognized inner packet has nothing to encode");
+            throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
         }
 
         AprsPacket inner = Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"

@@ -631,7 +631,7 @@ internal static class PositionCodec
         {
             // A report with the weather station symbol is weather even with no fields (vectors
             // README, Weather), so without them it would read back as incomplete weather.
-            throw new AprsEncodeException("the weather station symbol (_) makes the report a weather report; set Weather (APRS12c ch. 12)");
+            w.Defer(AprsRefusalCode.SymbolMismatch, "the weather station symbol (_) makes the report a weather report; set Weather (APRS12c ch. 12)");
         }
 
         if (d.IsCompressed)
@@ -648,13 +648,13 @@ internal static class PositionCodec
         {
             if (!d.Symbol.IsWeatherStation)
             {
-                throw new AprsEncodeException("weather data needs a weather-station symbol (_) (APRS12c ch. 12)");
+                w.Defer(AprsRefusalCode.SymbolMismatch, "weather data needs a weather-station symbol (_) (APRS12c ch. 12)");
             }
 
             WeatherCodec.WriteFields(w, weather, positionless: false);
             if (d.Comment.Length > 0)
             {
-                throw new AprsEncodeException("a weather report has no comment field (APRS12c ch. 12, UAP 2.7.1)");
+                w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12, UAP 2.7.1)");
             }
 
             CommentCodec.WriteTrailer(w, d);
@@ -696,7 +696,7 @@ internal static class PositionCodec
         {
             // A decoder reports the centre of the blanked box, which from 90 or 180 degrees lies past
             // the pole or the date line, and rejects it (vectors README, Positions).
-            throw new AprsEncodeException("an ambiguous position at 90 degrees latitude or 180 degrees longitude is centred past it, which a decoder rejects");
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "an ambiguous position at 90 degrees latitude or 180 degrees longitude is centred past it, which a decoder rejects");
         }
 
         return (Blank(lat, position.Ambiguity), Blank(lon, position.Ambiguity));
@@ -747,7 +747,7 @@ internal static class PositionCodec
     {
         if (d.Position.Ambiguity != 0)
         {
-            throw new AprsEncodeException("a compressed position cannot carry position ambiguity (APRS12c ch. 9)");
+            w.Defer(AprsRefusalCode.FieldNotAllowed, "a compressed position cannot carry position ambiguity (APRS12c ch. 9)");
         }
 
         char table = d.Symbol.Table is >= '0' and <= '9' ? (char)('a' + (d.Symbol.Table - '0')) : d.Symbol.Table;
@@ -757,16 +757,22 @@ internal static class PositionCodec
 
         if (d.Phg is not null || d.DfSignalStrength is not null || d.AreaObject is not null || d.DfBearing is not null || d.Storm is not null)
         {
-            throw new AprsEncodeException("a compressed position cannot carry a 7-byte data extension (PHG, DFS, area, DF bearing, storm) (APRS12c ch. 9)");
+            w.Defer(AprsRefusalCode.FieldNotAllowed, "a compressed position cannot carry a 7-byte data extension (PHG, DFS, area, DF bearing, storm) (APRS12c ch. 9)");
         }
 
         var type = d.CompressionType;
-        bool windInCs = d.Weather is { } weather && d.Symbol.IsWeatherStation && (weather.WindDirectionDegrees is not null || weather.WindSpeedMph is not null);
+        if (d.RangeMiles is { } rangeMiles)
+        {
+            // A range outside the format is a fault of its own, whatever else is given.
+            _ = RangeStep(rangeMiles);
+        }
+
+        bool windInCs = d.Weather is { } weather && (weather.WindDirectionDegrees is not null || weather.WindSpeedMph is not null);
         if (windInCs && (type?.Source == AprsCompressionSource.Gga || d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null))
         {
             // One pair of cs bytes carries wind, course/speed, a range or a GGA altitude, never
             // two of them (APRS12c ch. 9); writing one would drop the other.
-            throw new AprsEncodeException("a compressed weather position carries its wind in the cs bytes, so it cannot also carry course/speed, a range or a GGA altitude (APRS12c ch. 9)");
+            w.Defer(AprsRefusalCode.ExtensionConflict, "a compressed weather position carries its wind in the cs bytes, so it cannot also carry course/speed, a range or a GGA altitude (APRS12c ch. 9)");
         }
 
         if (windInCs && d.Weather is { } wx)
@@ -775,13 +781,19 @@ internal static class PositionCodec
             // unknown, so wind with only one of them known is refused rather than written as 0.
             if (wx.WindDirectionDegrees is null || wx.WindSpeedMph is null)
             {
-                throw new AprsEncodeException("the cs bytes of a compressed weather position carry wind direction and speed together; one without the other cannot be written (APRS12c ch. 9)");
+                NotANumber.Refuse(wx.WindDirectionDegrees, "wind direction");
+                NotANumber.Refuse(wx.WindSpeedMph, "wind speed");
+                w.Defer(AprsRefusalCode.MissingField, "the cs bytes of a compressed weather position carry wind direction and speed together; one without the other cannot be written (APRS12c ch. 9)");
+                w.Ascii(" sT");
+                return;
             }
 
             // Checked rounded to whole degrees, then rounded once to the 4-degree step below.
-            if (double.IsNaN(wx.WindDirectionDegrees.Value) || Steps.Whole(wx.WindDirectionDegrees.Value) is < 0 or > 360)
+            NotANumber.Refuse(wx.WindDirectionDegrees, "wind direction");
+            NotANumber.Refuse(wx.WindSpeedMph, "wind speed");
+            if (Steps.Whole(wx.WindDirectionDegrees.Value) is < 0 or > 360)
             {
-                throw new AprsEncodeException("a wind direction is 0-360 degrees");
+                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a wind direction is 0-360 degrees");
             }
 
             // Rounded to the nearest 4 degrees, halves away from zero; 360 is written as north,
@@ -795,13 +807,13 @@ internal static class PositionCodec
         {
             if (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null)
             {
-                throw new AprsEncodeException("with a GGA compression type the cs bytes carry altitude, so course/speed and range cannot also be sent");
+                w.Defer(AprsRefusalCode.ExtensionConflict, "with a GGA compression type the cs bytes carry altitude, so course/speed and range cannot also be sent");
             }
 
             long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
             if (cs > (91 * 91) - 1)
             {
-                throw new AprsEncodeException("altitude too high for compressed form");
+                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "altitude too high for compressed form");
             }
 
             w.Base91(cs, 2);
@@ -809,25 +821,43 @@ internal static class PositionCodec
         }
         else if (type?.Source == AprsCompressionSource.Gga && d.AltitudeFeet is null)
         {
-            throw new AprsEncodeException("a GGA compression type means the cs bytes carry altitude; set AltitudeFeet or choose another source");
+            w.Defer(AprsRefusalCode.MissingField, "a GGA compression type means the cs bytes carry altitude; set AltitudeFeet or choose another source");
+            w.Ascii(" sT");
         }
         else if (d.CourseDegrees is not null || d.SpeedKnots is not null)
         {
             if (d.RangeMiles is not null)
             {
-                throw new AprsEncodeException("a compressed position carries either course/speed or radio range, not both (APRS12c ch. 9)");
+                w.Defer(AprsRefusalCode.ExtensionConflict, "a compressed position carries either course/speed or radio range, not both (APRS12c ch. 9)");
             }
 
-            if (d.CourseDegrees is not { } course || double.IsNaN(course) || Steps.Whole(course) is < 1 or > 360)
+            if (d.CourseDegrees is not { } course)
             {
-                throw new AprsEncodeException("a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
+                NotANumber.Refuse(d.SpeedKnots, "speed");
+                w.Defer(AprsRefusalCode.MissingField, "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
+                w.Ascii(" sT");
+                return;
+            }
+
+            NotANumber.Refuse(course, "course");
+            NotANumber.Refuse(d.SpeedKnots, "speed");
+            if (Steps.Whole(course) is < 0 or > 360)
+            {
+                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
+            }
+
+            if (Steps.Whole(course) < 1)
+            {
+                throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
             }
 
             if (d.SpeedKnots is null)
             {
                 // The cs bytes hold a course and a speed together, so a course alone would add a
                 // speed the data does not have (vectors ruling F5).
-                throw new AprsEncodeException("the cs bytes of a compressed position hold a course and a speed together; a course without a speed cannot be written (APRS12c ch. 9)");
+                w.Defer(AprsRefusalCode.MissingField, "the cs bytes of a compressed position hold a course and a speed together; a course without a speed cannot be written (APRS12c ch. 9)");
+                w.Ascii(" sT");
+                return;
             }
 
             // Rounded to the nearest 4 degrees, halves away from zero; a course that rounds to 360
@@ -840,11 +870,7 @@ internal static class PositionCodec
             // 2 x 1.08^s miles (APRS12c ch. 9): a range is rounded to the nearest step, but one
             // outside the format is refused, not moved to its edge (vectors interpretations.md,
             // "Re-encoding into compressed bytes rounds").
-            int s = range <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
-            if (s is < 0 or > 90)
-            {
-                throw new AprsEncodeException("a compressed range is 2 to 2 x 1.08^90 miles (APRS12c ch. 9)");
-            }
+            int s = RangeStep(range);
 
             w.Char('{').Byte((byte)(s + 33));
             WriteType(w, type ?? AprsCompressionType.Default);
@@ -854,13 +880,23 @@ internal static class PositionCodec
             // Blank cs bytes carry no T byte, so the compression type would be lost (vectors
             // interpretations.md, "Re-encoding into compressed bytes rounds": a value the cs bytes
             // cannot hold is refused).
-            throw new AprsEncodeException("a compression type needs cs data to carry it: course/speed, range, a GGA altitude or wind (APRS12c ch. 9)");
+            w.Defer(AprsRefusalCode.MissingField, "a compression type needs cs data to carry it: course/speed, range, a GGA altitude or wind (APRS12c ch. 9)");
+            w.Ascii(" sT");
         }
         else
         {
             // No cs data: a space, then filler (the spec's example uses "sT").
             w.Ascii(" sT");
         }
+    }
+
+    private static int RangeStep(double range)
+    {
+        NotANumber.Refuse(range, "range");
+        int s = range <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
+        return s is < 0 or > 90
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed range is 2 to 2 x 1.08^90 miles (APRS12c ch. 9)")
+            : s;
     }
 
     private static void WriteType(InfoWriter w, AprsCompressionType type) => w.Byte((byte)(type.Bits + 33));
@@ -876,29 +912,35 @@ internal static class PositionCodec
         // whose s is outside the byte is refused: -0.03 knots is s = 0, -0.3 is s = -5 (vectors
         // ruling G3).
         long s = knots == 0 ? 0 : knots > -1 ? Steps.Count(Math.Log(knots + 1) / Math.Log(1.08)) : -1;
-        if (s < 0 || double.IsNaN(knots))
+        NotANumber.Refuse(knots, "speed");
+        if (s < 0)
         {
-            throw new AprsEncodeException("a compressed speed is 0 to 1.08^90 - 1 knots");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed speed is 0 to 1.08^90 - 1 knots");
         }
 
-        return s > 90 ? throw new AprsEncodeException("speed too high for compressed form") : (int)s;
+        return s > 90 ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "speed too high for compressed form") : (int)s;
     }
 
     private static void WriteDataExtension(InfoWriter w, AprsPositionedData d)
     {
         bool courseSpeed = d.CourseDegrees is not null || d.SpeedKnots is not null || d.DfBearing is not null || d.Storm is not null;
+        if (d.Weather is null)
+        {
+            // A course or speed outside its field is a fault of its own, whatever else is given.
+            _ = CheckCourseSpeed(d.CourseDegrees, d.SpeedKnots);
+        }
         int count = (courseSpeed ? 1 : 0) + (d.Phg is null ? 0 : 1) + (d.RangeMiles is null ? 0 : 1)
             + (d.DfSignalStrength is null ? 0 : 1) + (d.AreaObject is null ? 0 : 1);
         if (count > 1)
         {
-            throw new AprsEncodeException("only one data extension (course/speed, PHG, RNG, DFS or area object) fits in a report (APRS12c ch. 7)");
+            w.Defer(AprsRefusalCode.ExtensionConflict, "only one data extension (course/speed, PHG, RNG, DFS or area object) fits in a report (APRS12c ch. 7)");
         }
 
         if (d.Weather is not null)
         {
             if (count > 0)
             {
-                throw new AprsEncodeException("in a weather report the data extension carries wind; course/speed, PHG, RNG, DFS and area cannot be sent");
+                w.Defer(AprsRefusalCode.ExtensionConflict, "in a weather report the data extension carries wind; course/speed, PHG, RNG, DFS and area cannot be sent");
             }
 
             WeatherCodec.WriteWind(w, d.Weather);
@@ -910,7 +952,7 @@ internal static class PositionCodec
             area.Validate();
             if (d.Symbol is not { Table: '\\', Code: 'l' })
             {
-                throw new AprsEncodeException("an area object needs the \\l symbol (APRS12c ch. 11)");
+                w.Defer(AprsRefusalCode.SymbolMismatch, "an area object needs the \\l symbol (APRS12c ch. 11)");
             }
 
             int color = (int)area.Color;
@@ -920,10 +962,16 @@ internal static class PositionCodec
         }
         else if (courseSpeed)
         {
-            if (d.Symbol is { Table: '\\', Code: 'l' } && d.CourseDegrees is not null && d.SpeedKnots is not null)
+            if (d.Symbol is { Table: '\\', Code: 'l' } && d.CourseDegrees is not null)
             {
                 // After the area symbol, ddd/ddd reads as an area object (APRS12c ch. 11).
-                throw new AprsEncodeException("a course and speed after the area symbol (\\l) would read back as an area object (APRS12c ch. 11)");
+                w.Defer(AprsRefusalCode.SymbolMismatch, "a course and speed after the area symbol (\\l) would read back as an area object (APRS12c ch. 11)");
+            }
+
+            if (d.DfBearing is not null && d.Storm is not null)
+            {
+                // Both extend the one course/speed, and only one can follow it.
+                w.Defer(AprsRefusalCode.ExtensionConflict, "a DF bearing and storm data both extend the course/speed; only one can follow it");
             }
 
             WriteCourseSpeed(w, d.CourseDegrees, d.SpeedKnots);
@@ -932,7 +980,7 @@ internal static class PositionCodec
                 bearing.Validate();
                 if (d.Symbol is not { Table: '/', Code: '\\' })
                 {
-                    throw new AprsEncodeException("a DF bearing needs the /\\ DF symbol (APRS12c ch. 8)");
+                    w.Defer(AprsRefusalCode.SymbolMismatch, "a DF bearing needs the /\\ DF symbol (APRS12c ch. 8)");
                 }
 
                 w.Char('/').Digits(bearing.BearingDegrees, 3).Char('/').Digits(bearing.Number, 1).Digits(bearing.Range, 1).Digits(bearing.Quality, 1);
@@ -942,7 +990,7 @@ internal static class PositionCodec
             {
                 if (d.Symbol.Code != '@')
                 {
-                    throw new AprsEncodeException("storm data needs a hurricane symbol (@) (APRS12c ch. 12)");
+                    w.Defer(AprsRefusalCode.SymbolMismatch, "storm data needs a hurricane symbol (@) (APRS12c ch. 12)");
                 }
 
                 StormCodec.Write(w, storm);
@@ -955,10 +1003,11 @@ internal static class PositionCodec
         else if (d.RangeMiles is { } range)
         {
             // Rounded to whole miles, then checked (vectors ruling F2).
+            NotANumber.Refuse(range, "RNG");
             double miles = Steps.Whole(range);
             if (miles is < 0 or > 9999)
             {
-                throw new AprsEncodeException("RNG carries whole miles 0-9999");
+                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999");
             }
 
             w.Ascii("RNG").Digits((int)miles, 4);
@@ -980,17 +1029,24 @@ internal static class PositionCodec
         }
     }
 
-    internal static void WriteCourseSpeed(InfoWriter w, double? course, double? speed)
+    private static (int? Degrees, double? Knots) CheckCourseSpeed(double? course, double? speed)
     {
+        NotANumber.Refuse(course, "course");
+        NotANumber.Refuse(speed, "speed");
+
         // Rounded to whole degrees, then checked (vectors ruling F2).
-        int? degrees = course is { } cd ? (double.IsNaN(cd) || Steps.Whole(cd) is < 0 or > 360 ? throw new AprsEncodeException("course must be 0-360") : (int)Steps.Whole(cd)) : null;
+        int? degrees = course is { } cd ? (Steps.Whole(cd) is < 0 or > 360 ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "course must be 0-360") : (int)Steps.Whole(cd)) : null;
 
         // Rounded to whole knots, then checked (vectors ruling F2).
         double? knots = speed is { } s ? Steps.Whole(s) : null;
-        if (knots is < 0 or > 999 || (knots is { } k && double.IsNaN(k)))
-        {
-            throw new AprsEncodeException("an uncompressed speed is whole knots 0-999");
-        }
+        return knots is < 0 or > 999
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "an uncompressed speed is whole knots 0-999")
+            : (degrees, knots);
+    }
+
+    internal static void WriteCourseSpeed(InfoWriter w, double? course, double? speed)
+    {
+        (int? degrees, double? knots) = CheckCourseSpeed(course, speed);
 
         _ = degrees is { } c ? w.Digits(c, 3) : w.Ascii("...");
         w.Char('/');

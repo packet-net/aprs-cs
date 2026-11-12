@@ -31,7 +31,7 @@ public abstract record AprsData
     /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>.
     /// </summary>
     public byte[] ToInformationField() => this is AprsMicEReport
-        ? throw new AprsEncodeException("a Mic-E report carries part of its position in the destination address, so its information field alone is not a position; make a packet with AprsPacket.Create")
+        ? throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "a Mic-E report carries part of its position in the destination address, so its information field alone is not a position; make a packet with AprsPacket.Create")
         : EncodeInformation();
 
     /// <summary>The information field, whatever the data type (for a Mic-E report, without its destination).</summary>
@@ -44,9 +44,10 @@ public abstract record AprsData
         {
             // A field ending in CR or LF reads back with trailing-line-break, a warning, and
             // without the byte (Mic-E telemetry ending 13, say), so no clean form exists.
-            throw new AprsEncodeException("the information field would end with a line break, which a decoder strips with a warning");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "the information field would end with a line break, which a decoder strips with a warning");
         }
 
+        writer.ThrowDeferred();
         if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)
         {
             CommentCodec.VerifyReadsBack(positioned, info, problem);

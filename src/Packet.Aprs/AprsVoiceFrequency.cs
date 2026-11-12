@@ -59,35 +59,49 @@ public sealed record AprsVoiceFrequency
     public bool RangeInKilometres { get; init; }
 
     /// <summary>The frequency as the encoder writes it: <see cref="FrequencyMHz"/> rounded once to the field's step, a half going up (15 significant digits, so 145.7255 is a half).</summary>
-    internal decimal RoundedMHz() =>
-        double.IsFinite(FrequencyMHz) && Math.Abs(FrequencyMHz) < 1e9
+    internal decimal RoundedMHz()
+    {
+        Internal.NotANumber.Refuse(FrequencyMHz, "frequency", orInfinity: true);
+        return Math.Abs(FrequencyMHz) < 1e9
             ? decimal.Round((decimal)FrequencyMHz, TenKilohertzResolution ? 2 : 3, MidpointRounding.AwayFromZero)
-            : throw new AprsEncodeException("frequency must be 0 to below 24300 MHz");
+            : throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "frequency must be 0 to below 24300 MHz");
+    }
 
     /// <summary>This frequency with <see cref="FrequencyMHz"/> rounded as the encoder writes it, which is what decoding the written form gives back.</summary>
     internal AprsVoiceFrequency Rounded() => this with { FrequencyMHz = (double)RoundedMHz() };
 
     internal void Validate()
     {
-        if (!double.IsFinite(FrequencyMHz) || FrequencyMHz is < 0 or >= 24300)
+        Internal.NotANumber.Refuse(FrequencyMHz, "frequency", orInfinity: true);
+        if (FrequencyMHz is < 0 or >= 24300)
         {
-            throw new AprsEncodeException("frequency must be 0 to below 24300 MHz");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "frequency must be 0 to below 24300 MHz");
         }
 
         bool toneNeedsValue = ToneType is AprsToneType.Tone or AprsToneType.Ctcss or AprsToneType.Dcs;
-        if (toneNeedsValue != ToneValue.HasValue || ToneValue is < 0 or > 999)
+        if (toneNeedsValue != ToneValue.HasValue)
         {
-            throw new AprsEncodeException("tone value 0-999 is required for Tone, Ctcss and Dcs and not allowed otherwise");
+            throw new AprsEncodeException(AprsRefusalCode.MissingField, "tone value 0-999 is required for Tone, Ctcss and Dcs and not allowed otherwise");
         }
 
-        if (OffsetKHz is { } o && (o % 10 != 0 || Math.Abs(o) > 9990))
+        if (ToneValue is < 0 or > 999)
         {
-            throw new AprsEncodeException("offset must be a multiple of 10 kHz up to 9.99 MHz");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "tone value 0-999 is required for Tone, Ctcss and Dcs and not allowed otherwise");
+        }
+
+        if (OffsetKHz is { } o && Math.Abs(o) <= 9990 && o % 10 != 0)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "offset must be a multiple of 10 kHz up to 9.99 MHz");
+        }
+
+        if (OffsetKHz is { } o2 && Math.Abs(o2) > 9990)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "offset must be a multiple of 10 kHz up to 9.99 MHz");
         }
 
         if (Range is < 0 or > 99)
         {
-            throw new AprsEncodeException("range must be 0-99");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "range must be 0-99");
         }
     }
 }

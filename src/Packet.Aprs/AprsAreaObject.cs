@@ -116,10 +116,14 @@ public readonly record struct AprsAreaObject(
 
     internal void Validate()
     {
-        if (!Enum.IsDefined(Shape) || !Enum.IsDefined(Color) || LatitudeOffsetCode is < 0 or > 99 || LongitudeOffsetCode is < 0 or > 99
-            || CorridorWidthMiles is < 0 or > 999)
+        if (!Enum.IsDefined(Shape) || !Enum.IsDefined(Color))
         {
-            throw new AprsEncodeException("area object: defined shape and colour, offsets 0-99, corridor 0-999");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "area object: defined shape and colour");
+        }
+
+        if (LatitudeOffsetCode is < 0 or > 99 || LongitudeOffsetCode is < 0 or > 99 || CorridorWidthMiles is < 0 or > 999)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "area object: offsets 0-99, corridor 0-999");
         }
     }
 }

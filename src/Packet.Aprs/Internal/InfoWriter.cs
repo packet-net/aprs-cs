@@ -18,6 +18,42 @@ internal sealed class InfoWriter
     /// </summary>
     public string? CommentCheck { get; set; }
 
+    private AprsEncodeException? deferred;
+
+    /// <summary>
+    /// A refusal that comes from how the parts of a report relate (a symbol that does not fit the
+    /// data, two things wanting one field, a companion that is missing) is held until the whole report
+    /// has been written, so that a fault in a single field, which is wrong whatever else is given,
+    /// is reported first, and the held ones are then reported in a fixed order (the vectors'
+    /// reason-code order). The first of the highest-ranked code is kept.
+    /// </summary>
+    public void Defer(AprsRefusalCode code, string message)
+    {
+        if (deferred is null || Rank(code) < Rank(deferred.Code))
+        {
+            deferred = new AprsEncodeException(code, message);
+        }
+    }
+
+    /// <summary>Throws the refusal held by <see cref="Defer"/>, if there is one.</summary>
+    public void ThrowDeferred()
+    {
+        if (deferred is not null)
+        {
+            throw deferred;
+        }
+    }
+
+    private static int Rank(AprsRefusalCode code) => code switch
+    {
+        AprsRefusalCode.ExtensionConflict => 0,
+        AprsRefusalCode.FieldNotAllowed => 1,
+        AprsRefusalCode.SymbolMismatch => 2,
+        AprsRefusalCode.MissingField => 3,
+        AprsRefusalCode.ValueGivenTwice => 4,
+        _ => 5,
+    };
+
     public ReadOnlySpan<byte> Written => buffer.WrittenSpan;
 
     public InfoWriter Byte(byte b)
@@ -31,7 +67,7 @@ internal sealed class InfoWriter
     {
         if (c > 0xFF)
         {
-            throw new AprsEncodeException($"'{c}' is not a single-byte character");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, $"'{c}' is not a single-byte character");
         }
 
         return Byte((byte)c);
@@ -50,7 +86,7 @@ internal sealed class InfoWriter
         {
             if (c is < ' ' or > '~')
             {
-                throw new AprsEncodeException($"'{text}' contains a character that is not printable ASCII");
+                throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, $"'{text}' contains a character that is not printable ASCII");
             }
 
             Byte((byte)c);
@@ -72,7 +108,7 @@ internal sealed class InfoWriter
         string s = value.ToString(CultureInfo.InvariantCulture).PadLeft(width, '0');
         if (value < 0 || s.Length != width)
         {
-            throw new AprsEncodeException($"{value} does not fit in {width} digits");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, $"{value} does not fit in {width} digits");
         }
 
         return Ascii(s);

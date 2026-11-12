@@ -85,7 +85,7 @@ public readonly partial record struct AprsSymbol(char Table, char Code)
     {
         if (!IsValid)
         {
-            throw new AprsEncodeException($"'{this}' is not a valid APRS symbol (table / \\ 0-9 A-Z, code ! to ~)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidSymbol, $"'{this}' is not a valid APRS symbol (table / \\ 0-9 A-Z, code ! to ~)");
         }
     }
 }

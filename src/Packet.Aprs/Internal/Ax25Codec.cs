@@ -151,7 +151,7 @@ internal static class Ax25Codec
     {
         if (path.Count > MaxDigipeaters)
         {
-            throw new AprsEncodeException("an AX.25 frame carries at most 8 digipeater addresses");
+            throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, "an AX.25 frame carries at most 8 digipeater addresses");
         }
 
         byte[] frame = new byte[(7 * (2 + path.Count)) + 2 + information.Length];
@@ -175,7 +175,7 @@ internal static class Ax25Codec
     {
         if (!address.IsAx25)
         {
-            throw new AprsEncodeException($"'{address}' is not a valid AX.25 address (1-6 upper-case letters and digits, SSID 1-15)");
+            throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, $"'{address}' is not a valid AX.25 address (1-6 upper-case letters and digits, SSID 1-15)");
         }
 
         string call = address.Base.PadRight(6);

@@ -12,21 +12,40 @@ namespace Packet.Aprs;
 /// </summary>
 /// <remarks>
 /// The <see cref="Exception.Message"/> says why, in words that may change between versions; it is not
-/// part of the stable API. It derives from <see cref="ArgumentException"/> for callers that already
+/// part of the stable API; <see cref="Code"/> is. It derives from <see cref="ArgumentException"/> for callers that already
 /// catch that.
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "Design", "CA1032:Implement standard exception constructors",
-    Justification = "Only the library throws it, and a reason code is to be added to its constructors later.")]
+    Justification = "Only the library throws it, so it has no public constructors.")]
 public sealed class AprsEncodeException : ArgumentException
 {
     internal AprsEncodeException(string message)
-        : base(message)
+        : this(AprsRefusalCode.DoesNotReadBack, message)
     {
     }
 
     internal AprsEncodeException(string message, Exception innerException)
-        : base(message, innerException)
+        : this(AprsRefusalCode.DoesNotReadBack, message, innerException)
     {
     }
+
+    internal AprsEncodeException(AprsRefusalCode code, string message)
+        : base(message)
+    {
+        Code = code;
+    }
+
+    internal AprsEncodeException(AprsRefusalCode code, string message, Exception innerException)
+        : base(message, innerException)
+    {
+        Code = code;
+    }
+
+    /// <summary>
+    /// The rule the refusal is under, for a caller that acts on the reason rather than reading the
+    /// message. The codes are shared with the other APRS libraries and the vectors. A code this
+    /// version does not know can come from a later 1.x release, so a <c>switch</c> needs a default.
+    /// </summary>
+    public AprsRefusalCode Code { get; }
 }

@@ -33,12 +33,12 @@ public readonly record struct AprsDao(char Datum, AprsDaoPrecision Precision)
     {
         if (Datum is not ((>= 'A' and <= 'Z') or (>= '0' and <= '9')) || !Enum.IsDefined(Precision))
         {
-            throw new AprsEncodeException("DAO datum must be A-Z or 0-9");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "DAO datum must be A-Z or 0-9");
         }
 
         if (Precision != AprsDaoPrecision.None && Datum is >= '0' and <= '9')
         {
-            throw new AprsEncodeException("a numeric (local) datum cannot signal a precision form; use AprsDaoPrecision.None");
+            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a numeric (local) datum cannot signal a precision form; use AprsDaoPrecision.None");
         }
     }
 }

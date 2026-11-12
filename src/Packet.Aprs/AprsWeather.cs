@@ -70,27 +70,41 @@ public sealed record AprsWeather
     {
         // Each value is checked as its field holds it, rounded to the field's steps (vectors ruling
         // F2): a humidity of 99.7 is 100, written h00, and one of 0.4 is 0, which has no form (F6).
+        if ((windInFields && (IsNaN(WindDirectionDegrees) || IsNaN(WindSpeedMph))) || IsNaN(WindGustMph) || IsNaN(TemperatureFahrenheit)
+            || IsNaN(HumidityPercent) || IsNaN(PressureMillibars) || IsNaN(LuminosityWattsPerSquareMetre) || IsNaN(RainLastHourInches)
+            || IsNaN(RainLast24HoursInches) || IsNaN(RainSinceMidnightInches) || IsNaN(SnowfallLast24HoursInches))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.NotANumber, "a weather value is not a number");
+        }
+
         if ((windInFields && (Outside(WindDirectionDegrees, 1, 0, 360) || Outside(WindSpeedMph, 1, 0, 999))) || Outside(WindGustMph, 1, 0, 999)
-            || Outside(TemperatureFahrenheit, 1, -99, 999) || Outside(HumidityPercent, 1, 1, 100)
+            || Outside(TemperatureFahrenheit, 1, -99, 999) || Outside(HumidityPercent, 1, 0, 100)
             || Outside(PressureMillibars, 10, 0, 99999) || Outside(LuminosityWattsPerSquareMetre, 1, 0, 1999)
             || Outside(RainLastHourInches, 100, 0, 999) || Outside(RainLast24HoursInches, 100, 0, 999) || Outside(RainSinceMidnightInches, 100, 0, 999)
             || (SnowfallLast24HoursInches is { } snow && WeatherCodec.Snowfall(snow) is null) || RainRawCounter is < 0 or > 999)
         {
-            throw new AprsEncodeException("a weather value is outside what its fixed-width field can carry");
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a weather value is outside what its fixed-width field can carry");
+        }
+
+        if (Outside(HumidityPercent, 1, 1, 100))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a humidity that rounds to 0 has no form: 1-100, and 100 is written 00");
         }
 
         if ((SoftwareType is null) != (UnitType is null) && UnitType is not null)
         {
-            throw new AprsEncodeException("a weather unit type needs a software type before it");
+            throw new AprsEncodeException(AprsRefusalCode.MissingField, "a weather unit type needs a software type before it");
         }
 
         if (UnitType is { Length: < 2 or > 4 })
         {
-            throw new AprsEncodeException("weather unit type must be 2-4 characters");
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, "weather unit type must be 2-4 characters");
         }
     }
 
     /// <summary>True when a value, rounded to <paramref name="stepsPerUnit"/> steps, is outside <paramref name="min"/>-<paramref name="max"/> steps.</summary>
     private static bool Outside(double? value, double stepsPerUnit, long min, long max) =>
-        value is { } v && (double.IsNaN(v) || (Steps.Nearest(v * stepsPerUnit) is var steps && (steps < min || steps > max)));
+        value is { } v && !double.IsNaN(v) && Steps.Nearest(v * stepsPerUnit) is var steps && (steps < min || steps > max);
+
+    private static bool IsNaN(double? value) => value is { } v && double.IsNaN(v);
 }
