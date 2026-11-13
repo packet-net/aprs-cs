@@ -262,6 +262,45 @@ public class BuilderTests
         t.Packet.Destination.Should().Be(AprsPacket.Create("N0CALL", mic).Destination);
     }
 
+    [Fact]
+    public void A_caller_built_third_party_chain_stops_at_four_levels_however_long_it_is_made()
+    {
+        AprsAddress a = AprsAddress.Parse("A");
+        AprsAddress b = AprsAddress.Parse("B");
+        AprsData data = new AprsStatusReport { Text = "hi" };
+        int built = 0;
+        int refused = 0;
+        for (int i = 0; i < 10_000; i++)
+        {
+            try
+            {
+                data = AprsThirdPartyTraffic.Create(a, data, b);
+                built++;
+            }
+            catch (AprsEncodeException ex)
+            {
+                ex.Code.Should().Be(AprsRefusalCode.InvalidThirdPartyHeader);
+                refused++;
+            }
+        }
+
+        built.Should().Be(4);
+        refused.Should().Be(10_000 - 4);
+        // Wrapped by hand instead, a fifth level is refused when it is encoded.
+        FluentActions.Invoking(() => new AprsThirdPartyTraffic { Packet = AprsPacket.Create(a, data, b) }.ToInformationField())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidThirdPartyHeader);
+    }
+
+    [Fact]
+    public void A_line_nested_ten_thousand_deep_decodes_and_writes_without_recursing()
+    {
+        string line = "N0CALL>APZ001:" + string.Concat(Enumerable.Repeat("}A>B:", 10_000)) + ">hi";
+        AprsPacket packet = AprsPacket.Decode(line);
+        Sent(packet).Should().Be(line);
+        packet.Data.ToInformationField().Should().Equal(packet.Information.ToArray());
+        _ = Packet.Aprs.Tests.Vectors.NeutralJson.Data(packet.Data).ToJsonString();
+    }
+
     // ------------------------------------------------------------ builder rules (vectors rulings B1-B8)
 
     [Fact]

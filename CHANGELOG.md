@@ -2,11 +2,18 @@
 
 ## Unreleased
 
-The aprs-vectors round 3 rulings (vectors pinned at `cb5dcc0`, aprs-vectors#24).
+The aprs-vectors round 3 rulings (vectors pinned at `f2f6ab5`, aprs-vectors#24).
+
+Behaviour changes for 1.x callers
+
+- Some data 1.0.x wrote is now refused: a locator in lower case (status, Mic-E, Maidenhead beacon), telemetry with too few or too many values, more than 15 `EQNS.` coefficients, third-party packets nested more than four deep, and a third-party path entry before a used one that is not marked used.
+- An AX.25 frame whose address holds punctuation or a control character is now an error (`InvalidAddress`) in both modes, not a tolerated `InvalidAx25AddressCharacters`.
+- Where data has several faults, the refusal code may differ from 1.0.x: it is now the first in the shared order.
 
 Refusal reasons
 
-- A record with several faults is refused with the first code in the vectors' Refusal reasons order, whichever field each fault is in. Before, the first field checked won, so an object name ending in a space was named ahead of a latitude past 90, a CR in the comment or a bad symbol. Each field is now checked on its own and the earliest code is reported; a field the report has no place for is still `FieldNotAllowed` without its own checks (telemetry on a weather report is now one of those), while a field whose place exists but is wanted twice keeps its checks (a PHG digit of 10 beside a course is `ValueOutOfRange`; a compressed course, speed, range or GGA altitude is range-checked before any conflict over the cs bytes; so is a course beside a weather report's wind, and a Mic-E RNG beside a PHG).
+- Once a field is refused, the later fields are still checked even where the first fault leaves them meaningless (a longitude of 1000 has no Mic-E digits), so an earlier code later in the record, such as `NotANumber`, is still named.
+- A record with several faults is refused with the first code in the vectors' Refusal reasons order, whichever field each fault is in. Before, the first field checked won, so an object name ending in a space was named ahead of a latitude past 90, a CR in the comment or a bad symbol. Each field is now checked on its own and the earliest code is reported; a field the report has no place for is still `FieldNotAllowed` without its own checks (telemetry on a weather report is now one of those), while a field whose place exists but is wanted twice keeps its checks (a PHG digit of 10 beside a course is `ValueOutOfRange`, as is storm data with a value too wide for its digits beside a weather report's wind or a DF bearing; a compressed course, speed, range or GGA altitude is range-checked before any conflict over the cs bytes; so is a course beside a weather report's wind, and a Mic-E RNG beside a PHG).
 - More analog values than base-91 telemetry or a telemetry report holds is `TooLong`, fewer is `Malformed`; more than 15 `EQNS.` coefficients is `TooLong`.
 - A locator in lower case, in a status, a Mic-E report or a Maidenhead beacon, is `Malformed`, since it reads back in upper case. The status builder's `Locator` sends it in upper case.
 - A `!DAO!` digit datum with added precision is `InvalidCode` (was `FieldNotAllowed`).
@@ -15,11 +22,12 @@ Refusal reasons
 - A general or directed query with an empty query type is `InvalidCode`: absent text is empty text.
 - A reply-ack is checked as a message ID before a missing message ID is reported.
 - The telemetry builder checks its analog values and bits when the report is built, so their faults are named in the shared order with the others.
-- A builder given a speed, altitude, temperature or rainfall in two units (`SpeedKnots` and `SpeedKmh`, say) refuses with `ValueGivenTwice`, unless another fault comes first in the order. Before, the last one given was used.
+- A builder setter replaces its quantity whatever unit it is given in, so on a kept builder the last call wins, as in 1.0.x. `ValueGivenTwice` is only for one input that carries a quantity in two units at once: `aprs-corpus diff build` gives it for a recipe with both, named in the shared order.
 
 Third-party packets
 
-- New `AprsThirdPartyTraffic.Create(source, data, destination, path)` checks the inner header before the inner data, so a header that cannot be written is `InvalidThirdPartyHeader` whatever is wrong with the data.
+- New `AprsThirdPartyTraffic.Create(source, data, destination = null, path = null)` checks the inner header before the inner data, so a header that cannot be written is `InvalidThirdPartyHeader` whatever is wrong with the data. Its destination follows `AprsPacket.Create`: null is the default, and a Mic-E report computes its own.
+- Third-party data nested more than four deep is refused as `InvalidThirdPartyHeader`, since a decoder reads only four levels. Depth is counted without recursion, so a chain of any length is refused cleanly.
 - A third-party path entry before a used one that is not marked used is refused as `InvalidThirdPartyHeader`: it reads back marked.
 
 Decoding
@@ -29,7 +37,7 @@ Decoding
 
 Tools
 
-- `aprs-corpus diff encode` holds an addressee, name, query type, sequence or symbol left out of the data as empty, so the encoder refuses it rather than the line being unsupported; a symbol of one character no longer crashes it ("Index was outside the bounds of the array").
+- `aprs-corpus diff encode` holds an addressee, name, query type or symbol left out of the data as empty, so the encoder refuses it rather than the line being unsupported (absent text is empty text); a line nested too deep for its JSON reader is unsupported, not a crash; a symbol of one character no longer crashes it ("Index was outside the bounds of the array").
 - The vectors runner reads third-party data inside its refusal check, and skips the neutral read-back of nested third-party packets with undecoded data at any depth.
 
 ## 1.0.1 (2026-11-12)

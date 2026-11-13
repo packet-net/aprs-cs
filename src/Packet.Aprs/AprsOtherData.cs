@@ -337,6 +337,11 @@ public sealed record AprsThirdPartyTraffic : AprsData
     public static AprsThirdPartyTraffic Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
     {
         ArgumentNullException.ThrowIfNull(data);
+        if (ThirdPartyCodec.Depth(data) >= ThirdPartyCodec.MaxDepth)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, NestingRefusal);
+        }
+
         List<AprsPathEntry> entries = path?.ToList() ?? [];
 
         // A computed Mic-E destination is letters and digits, so only a given one can make the
@@ -350,8 +355,15 @@ public sealed record AprsThirdPartyTraffic : AprsData
         return new AprsThirdPartyTraffic { Packet = AprsPacket.Create(source, data, destination, entries) };
     }
 
+    private const string NestingRefusal = "third-party packets nest at most four deep: a decoder does not read a fifth header (vectors interpretations.md, \"Third-party packets nest at most four deep\")";
+
     internal override void Encode(InfoWriter writer)
     {
+        if (ThirdPartyCodec.Depth(this) > ThirdPartyCodec.MaxDepth)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, NestingRefusal);
+        }
+
         byte[] inner = Packet.ToTnc2();
         if (!ThirdPartyCodec.CanWrite(Packet, inner))
         {

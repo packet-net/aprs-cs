@@ -50,9 +50,9 @@ internal static class DiffCommand
             case "dump" when args.Length == 3:
                 return Each(args[1], args[2], limit, "packets", (n, line) => DecodeRecord(n, Convert.FromHexString(line)));
             case "encode" when args.Length == 3:
-                return Each(args[1], args[2], limit, "data", (n, line) => EncodeRecord(n, JsonNode.Parse(line)!.AsObject()));
+                return Each(args[1], args[2], limit, "data", (n, line) => Parsed(line) is { } o ? EncodeRecord(n, o) : TooDeep(n));
             case "build" when args.Length == 3:
-                return Each(args[1], args[2], limit, "recipes", (n, line) => DiffBuild.Record(n, JsonNode.Parse(line)!.AsObject()));
+                return Each(args[1], args[2], limit, "recipes", (n, line) => Parsed(line) is { } o ? DiffBuild.Record(n, o) : TooDeep(n));
             default:
                 Console.Error.WriteLine(Usage);
                 return 2;
@@ -100,6 +100,26 @@ internal static class DiffCommand
     }
 
     // ------------------------------------------------------------------ decode
+
+    /// <summary>A line of JSON, or null when it nests deeper than the reader takes (a third-party chain thousands deep).</summary>
+    private static JsonObject? Parsed(string line)
+    {
+        try
+        {
+            return JsonNode.Parse(line, documentOptions: new System.Text.Json.JsonDocumentOptions { MaxDepth = 256 })!.AsObject();
+        }
+        catch (System.Text.Json.JsonException ex) when (ex.Message.Contains("depth", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+    }
+
+    private static JsonObject TooDeep(long n) => new()
+    {
+        ["n"] = n,
+        ["result"] = "unsupported",
+        ["reason"] = "the line nests deeper than the JSON reader takes (256 levels)",
+    };
 
     private static JsonObject DecodeRecord(long n, byte[] line)
     {
@@ -256,6 +276,11 @@ internal static class DiffCommand
         AprsData data;
         try
         {
+            if (thirdParty)
+            {
+                NeutralReader.CheckNesting(neutral["packet"]!["data"]);
+            }
+
             if (thirdParty && (string?)neutral["packet"]!["data"]!["type"] != "unrecognized")
             {
                 _ = NeutralReader.Data(neutral["packet"]!["data"]!.AsObject());

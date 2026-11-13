@@ -70,7 +70,7 @@ internal static class NeutralReader
             }, "timestamp", "locator", "symbol", "beam", "text"),
             "telemetry" => Only(d, new AprsTelemetryReport
             {
-                Sequence = Absent(d, "sequence"),
+                Sequence = Str(d, "sequence"),
                 Analog = [.. (d["analog"] as JsonArray ?? []).Select(v => v is null ? (double?)null : (double)v)],
                 Bits = OptStr(d, "bits"),
                 Comment = OptStr(d, "comment") ?? "",
@@ -113,8 +113,34 @@ internal static class NeutralReader
         };
     }
 
+    /// <summary>
+    /// Refuses third-party data nested more than four deep, counted from the top without
+    /// recursion, so it is refused for its header before anything inside it is built (vectors
+    /// encode/third-party-nested-five-deep). <paramref name="data"/> is the data inside one
+    /// third-party packet, or any data at all.
+    /// </summary>
+    public static void CheckNesting(JsonNode? data)
+    {
+        int depth = 1;
+        JsonNode? d = data;
+        while (d is JsonObject o && (string?)o["type"] == "third-party")
+        {
+            depth++;
+            d = o["packet"]?["data"];
+        }
+
+        // Undecoded data at the end is not-encodable, which comes first in the order.
+        bool undecoded = d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty";
+        if (depth > 4 && !undecoded)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+        }
+    }
+
     private static AprsThirdPartyTraffic ThirdParty(JsonObject p)
     {
+        CheckNesting(p["data"]);
+
         IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
         AprsAddress source = AprsAddress.Parse(Str(p, "source"));
         AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));

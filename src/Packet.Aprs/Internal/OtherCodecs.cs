@@ -428,7 +428,7 @@ internal static class CapabilitiesCodec
 
 internal static class ThirdPartyCodec
 {
-    private const int MaxDepth = 4;
+    public const int MaxDepth = 4;
 
     public static AprsData? Decode(ReadOnlySpan<byte> info, DecodeContext ctx)
     {
@@ -467,6 +467,23 @@ internal static class ThirdPartyCodec
         }
 
         return HeaderCanBeWritten(packet.Path) && Tnc2Codec.TrySplit(tnc2, new DecodeContext(AprsParseOptions.Strict), out _, out _, thirdParty: true);
+    }
+
+    /// <summary>
+    /// How deep <paramref name="data"/> nests third-party packets: 0 for other data, 1 for one
+    /// third-party packet, and so on, counted without recursion and no further than
+    /// <paramref name="limit"/> + 1, however long a chain a caller has made.
+    /// </summary>
+    public static int Depth(AprsData data, int limit = MaxDepth)
+    {
+        int depth = 0;
+        while (data is AprsThirdPartyTraffic t && depth <= limit)
+        {
+            depth++;
+            data = t.Packet.Data;
+        }
+
+        return depth;
     }
 
     /// <summary>
