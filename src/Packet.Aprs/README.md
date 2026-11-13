@@ -262,7 +262,9 @@ if (received.Source.TryGetCallsign(out Callsign source)) { /* an AX.25 station, 
 
 ## Reading why a refusal happened
 
-`AprsEncodeException.Code` is an `AprsRefusalCode`: the rule the refusal is under, such as `InvalidAddressee`, `ValueOutOfRange`, `TextReadsAsField` or `Ax25CannotCarry`. The codes are the same 26 reasons in all five APRS libraries and in [aprs-vectors](https://github.com/packet-net/aprs-vectors) (`codes.json`, kebab-case there: `value-out-of-range`), so a program can act on a reason without reading the message, which may change between versions. `DoesNotReadBack` is the fallback, for a refusal no named rule explains. New codes may be added in later 1.x releases, so a `switch` over `Code` needs a default. A caller that only cares that it was refused keeps catching `AprsEncodeException`, as before.
+`AprsEncodeException.Code` is an `AprsRefusalCode`: the rule the refusal is under, such as `InvalidAddressee`, `ValueOutOfRange`, `TextReadsAsField` or `Ax25CannotCarry`. The codes are the same 26 reasons in all six APRS libraries and in [aprs-vectors](https://github.com/packet-net/aprs-vectors) (`codes.json`, kebab-case there: `value-out-of-range`), so a program can act on a reason without reading the message, which may change between versions. `DoesNotReadBack` is the fallback, for a refusal no named rule explains. New codes may be added in later 1.x releases, so a `switch` over `Code` needs a default. A caller that only cares that it was refused keeps catching `AprsEncodeException`, as before.
+
+Where data has several faults, the code is the first that applies in the shared order (the vectors README, "Refusal reasons"), whichever field each fault is in, so every library names the same one. To wrap data in a third-party packet, `AprsThirdPartyTraffic.Create(source, data, destination, path)` checks the inner header before the data, as that order wants.
 
 ## Strict or lenient
 ```csharp

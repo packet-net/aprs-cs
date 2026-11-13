@@ -238,7 +238,7 @@ public class BuilderTests
         FluentActions.Invoking(() => Me.Message("G3NRW", "Hi").MessageId("TOOLONG").Build()).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.Object("NAMEISTOOLONG").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build()).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.Position(51.4543, -0.9781).Symbol(AprsSymbol.Car).Compressed().Phg(new AprsPhg(5, 3, 6, 0)).Build()).Should().Throw<AprsEncodeException>();
-        FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6)).Should().Throw<AprsEncodeException>();
+        FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6).Build()).Should().Throw<AprsEncodeException>();
     }
 
     // ------------------------------------------------------------ builder rules (vectors rulings B1-B8)

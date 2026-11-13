@@ -39,7 +39,7 @@ internal static class NeutralReader
             {
                 Position = default,
                 Symbol = default,
-                Name = Str(d, "name"),
+                Name = Absent(d, "name"),
                 IsKilled = Flag(d, "killed"),
                 Timestamp = Timestamp(d["timestamp"]),
             }, "name", "killed", "timestamp"),
@@ -47,7 +47,7 @@ internal static class NeutralReader
             {
                 Position = default,
                 Symbol = default,
-                Name = Str(d, "name"),
+                Name = Absent(d, "name"),
                 IsKilled = Flag(d, "killed"),
             }, "name", "killed"),
             "message" => Only(d, new AprsTextMessage { Addressee = Absent(d, "addressee"), Text = OptStr(d, "text") ?? "", ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "text", "reply_ack", "message_id"),

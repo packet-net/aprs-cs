@@ -101,11 +101,12 @@ public sealed class AprsStatusBuilder : AprsBuilder
     public AprsStatusBuilder Timestamp(DateTime utc) => Timestamp(AprsTimestamp.FromDateTime(utc));
 
     /// <summary>A 4- or 6-character Maidenhead locator at the start, e.g. <c>IO91SX</c>, which needs
-    /// <see cref="Symbol(AprsSymbol)"/> too.</summary>
+    /// <see cref="Symbol(AprsSymbol)"/> too. It is sent in upper case, the form a locator has, so
+    /// <c>io91sx</c> is <c>IO91SX</c>.</summary>
     public AprsStatusBuilder Locator(string locator)
     {
         ArgumentNullException.ThrowIfNull(locator);
-        this.locator = locator;
+        this.locator = locator.ToUpperInvariant();
         return this;
     }
 
@@ -159,28 +160,26 @@ public sealed class AprsTelemetryBuilder : AprsBuilder
         this.sequence = sequence.ToString("000", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Up to 5 analog values, A1 first; a null one, and any not given, are sent empty.</summary>
+    /// <summary>
+    /// Up to 5 analog values, A1 first; a null one, and any not given, are sent empty. More than 5
+    /// are refused (<see cref="AprsRefusalCode.TooLong"/>) when the report is built, with any other
+    /// fault named in the shared order.
+    /// </summary>
     public AprsTelemetryBuilder Analog(params double?[] values)
     {
         ArgumentNullException.ThrowIfNull(values);
-        if (values.Length > 5)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.TooLong, "a telemetry report carries at most 5 analog values (APRS12c ch. 13)");
-        }
-
-        analog = [.. values, .. Enumerable.Repeat<double?>(null, 5 - values.Length)];
+        analog = [.. values, .. Enumerable.Repeat<double?>(null, Math.Max(0, 5 - values.Length))];
         return this;
     }
 
-    /// <summary>The 8 digital channels as sent, B1 first, e.g. <c>"10000000"</c> for B1 on.</summary>
+    /// <summary>
+    /// The 8 digital channels as sent, B1 first, e.g. <c>"10000000"</c> for B1 on. Anything but
+    /// eight <c>0</c> or <c>1</c> characters is refused (<see cref="AprsRefusalCode.Malformed"/>)
+    /// when the report is built.
+    /// </summary>
     public AprsTelemetryBuilder Bits(string bits)
     {
         ArgumentNullException.ThrowIfNull(bits);
-        if (bits.Length != 8 || bits.Any(c => c is not ('0' or '1')))
-        {
-            throw new AprsEncodeException(AprsRefusalCode.Malformed, "the digital channels are 8 characters, each 0 or 1, B1 first");
-        }
-
         this.bits = bits;
         return this;
     }

@@ -51,6 +51,13 @@ public class RefusalCodeTests
         { "mic-e-value-before-unknown", AprsRefusalCode.ValueHasNoForm },
         { "mic-e-altitude-no-form", AprsRefusalCode.ValueHasNoForm },
         { "area-symbol-course", AprsRefusalCode.SymbolMismatch },
+        { "order-across-fields", AprsRefusalCode.InvalidCharacter },
+        { "order-across-fields-2", AprsRefusalCode.ValueOutOfRange },
+        { "third-party-header-first", AprsRefusalCode.InvalidThirdPartyHeader },
+        { "third-party-unmarked-entry", AprsRefusalCode.InvalidThirdPartyHeader },
+        { "given-twice", AprsRefusalCode.ValueGivenTwice },
+        { "given-twice-after-a-field", AprsRefusalCode.ValueOutOfRange },
+        { "builder-bits-after-text", AprsRefusalCode.InvalidCharacter },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -95,6 +102,13 @@ public class RefusalCodeTests
             "mic-e-value-before-unknown" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, -180), Symbol = AprsSymbol.Car, MicEMessage = (AprsMicEMessage)99 }),
             "mic-e-altitude-no-form" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(47.20366666666666, -122.50216666666667), Symbol = new AprsSymbol('W', 'v'), AltitudeFeet = 1597896.9816272964, CourseDegrees = 26, SpeedKnots = 0 }),
             "area-symbol-course" => () => (Report() with { Symbol = new AprsSymbol('\\', 'l'), CourseDegrees = 1, SpeedKnots = 1 }).ToInformationField(),
+            "order-across-fields" => () => new AprsObjectReport { Name = "OR4F ", Timestamp = AprsTimestamp.DayHoursMinutes(1, 2, 3), Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, Comment = "a\rb" }.ToInformationField(),
+            "order-across-fields-2" => () => (Report() with { CourseDegrees = 10, SpeedKnots = 5, Phg = new AprsPhg(10, 1, 1, 1) }).ToInformationField(),
+            "third-party-header-first" => () => AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), Report() with { Position = new AprsPosition(95, 0) }, AprsAddress.Parse("APZ001"), [new AprsPathEntry(AprsAddress.Parse("TCPIP")), new AprsPathEntry(AprsAddress.Parse("G4ABC"), true)]),
+            "third-party-unmarked-entry" => () => AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), Report(), AprsAddress.Parse("APZ001"), [new AprsPathEntry(AprsAddress.Parse("TCPIP")), new AprsPathEntry(AprsAddress.Parse("G4ABC"), true)]),
+            "given-twice" => () => Me.Position(51, 0).Symbol(AprsSymbol.Car).AltitudeFeet(100).AltitudeMetres(30.48).Build(),
+            "given-twice-after-a-field" => () => Me.Position(51, 0).Symbol(AprsSymbol.Car).SpeedKnots(10).SpeedKmh(5000).Build(),
+            "builder-bits-after-text" => () => Me.Telemetry(1).Analog(1, 2, 3, 4, 5).Bits("0000000x").Comment("a\rb").Build(),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;
