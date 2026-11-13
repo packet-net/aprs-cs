@@ -60,6 +60,9 @@ public class RefusalCodeTests
         { "longitude-then-nan-altitude", AprsRefusalCode.NotANumber },
         { "storm-beside-wind", AprsRefusalCode.ValueOutOfRange },
         { "third-party-mic-e-destination", AprsRefusalCode.FieldNotAllowed },
+        { "bad-source", AprsRefusalCode.InvalidAddress },
+        { "bad-source-before-course", AprsRefusalCode.InvalidAddress },
+        { "bad-source-before-mic-e-course", AprsRefusalCode.InvalidAddress },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -113,6 +116,9 @@ public class RefusalCodeTests
             "longitude-then-nan-altitude" => () => (Report() with { Position = new AprsPosition(51, 1e300), AltitudeFeet = double.NaN }).ToInformationField(),
             "storm-beside-wind" => () => (Report() with { Symbol = new AprsSymbol('/', '@'), Weather = new AprsWeather { WindDirectionDegrees = 90, WindSpeedMph = 5, TemperatureFahrenheit = 50 }, Storm = new AprsStorm { Type = AprsStormType.Hurricane, GustKnots = 1000 } }).ToInformationField(),
             "third-party-mic-e-destination" => () => AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car }, AprsAddress.Parse("APZ001")),
+            "bad-source" => () => AprsStation.From("BAD!!").Position(51, 0).Symbol(AprsSymbol.Car).Build(),
+            "bad-source-before-course" => () => AprsStation.From("BAD!!").Position(51, 0).Symbol(AprsSymbol.Car).CourseDegrees(999).Build(),
+            "bad-source-before-mic-e-course" => () => AprsStation.From("BAD!!").MicE(51, 0).Symbol(AprsSymbol.Car).CourseDegrees(999).Build(),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;

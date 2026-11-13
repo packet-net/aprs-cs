@@ -183,6 +183,30 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     /// </summary>
     public static AprsPacket Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
     {
+        // The header first (vectors README, Refusal reasons): each address is 1-9 letters,
+        // digits or '-', as the vectors' Addresses rule has it for a TNC2 header.
+        List<AprsPathEntry> entries = path?.ToList() ?? [];
+        RequireHeaderAddress(source);
+        if (destination is { } given)
+        {
+            RequireHeaderAddress(given);
+        }
+
+        foreach (AprsPathEntry entry in entries)
+        {
+            RequireHeaderAddress(entry.Address);
+        }
+
+        return CreateUnchecked(source, data, destination, entries);
+    }
+
+    /// <summary>
+    /// <see cref="Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>
+    /// without the header address check, for an inner third-party packet, whose header has its
+    /// own rules (checked by <see cref="AprsThirdPartyTraffic.Create"/>).
+    /// </summary>
+    internal static AprsPacket CreateUnchecked(AprsAddress source, AprsData data, AprsAddress? destination, IEnumerable<AprsPathEntry>? path)
+    {
         ArgumentNullException.ThrowIfNull(data);
         RequireAddress(source);
         if (data is AprsMicEReport micE)
@@ -215,6 +239,15 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
             data,
             destination is null ? null : AprsStation.ParseAddress(destination),
             AprsStation.ParsePath(path));
+    }
+
+    private static void RequireHeaderAddress(AprsAddress address)
+    {
+        string a = address.Value ?? "";
+        if (a.Length is < 1 or > 9 || !a.All(c => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-'))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddress, $"'{a}' is not an address: 1-9 letters, digits or - (vectors README, Addresses)");
+        }
     }
 
     private static void RequireAddress(AprsAddress address)
