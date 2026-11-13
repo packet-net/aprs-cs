@@ -529,8 +529,9 @@ internal static class CommentCodec
             w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
-        if (d.Telemetry is { } t)
+        if (d.Telemetry is { } t && !includeWeatherSoftware)
         {
+            // A weather report has no place for telemetry, so its own checks do not run.
             w.Field(() => WriteTelemetry(w, t));
         }
 

@@ -764,7 +764,15 @@ internal static class PositionCodec
         if (d.RangeMiles is { } rangeMiles)
         {
             // A range outside the format is a fault of its own, whatever else is given.
-            _ = RangeStep(rangeMiles);
+            w.Field(() => RangeStep(rangeMiles));
+        }
+
+        // So are a course and a speed, and a GGA altitude, before anything else is found to want
+        // the cs bytes or a companion is found missing (vectors README, Refusal reasons).
+        w.Field(() => CheckCompressedCourseSpeed(d.CourseDegrees, d.SpeedKnots));
+        if (type?.Source == AprsCompressionSource.Gga && d.AltitudeFeet is { } ggaAltitude)
+        {
+            w.Field(() => GgaStep(ggaAltitude));
         }
 
         bool windInCs = d.Weather is { } weather && (weather.WindDirectionDegrees is not null || weather.WindSpeedMph is not null);
@@ -826,13 +834,7 @@ internal static class PositionCodec
                 w.Defer(AprsRefusalCode.ExtensionConflict, "with a GGA compression type the cs bytes carry altitude, so course/speed and range cannot also be sent");
             }
 
-            long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
-            if (cs > (91 * 91) - 1)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "altitude too high for compressed form");
-            }
-
-            w.Base91(cs, 2);
+            w.Base91(GgaStep(alt), 2);
             WriteType(w, type.Value);
         }
         else if (type?.Source == AprsCompressionSource.Gga && d.AltitudeFeet is null)
@@ -906,6 +908,35 @@ internal static class PositionCodec
         }
     }
 
+    private static long GgaStep(double alt)
+    {
+        long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
+        return cs > (91 * 91) - 1
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "altitude too high for compressed form")
+            : cs;
+    }
+
+    /// <summary>A compressed course and speed checked on their own: each in its range, then a course that has a form.</summary>
+    private static void CheckCompressedCourseSpeed(double? course, double? speed)
+    {
+        NotANumber.Refuse(course, "course");
+        NotANumber.Refuse(speed, "speed");
+        if (course is { } c && Steps.Whole(c) is < 0 or > 360)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
+        }
+
+        if (speed is { } s)
+        {
+            _ = SpeedCode(s);
+        }
+
+        if (course is { } c1 && Steps.Whole(c1) < 1)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
+        }
+    }
+
     private static int RangeStep(double range)
     {
         NotANumber.Refuse(range, "range");
@@ -940,14 +971,12 @@ internal static class PositionCodec
     private static void WriteDataExtension(InfoWriter w, AprsPositionedData d)
     {
         bool courseSpeed = d.CourseDegrees is not null || d.SpeedKnots is not null || d.DfBearing is not null || d.Storm is not null;
-        if (d.Weather is null)
-        {
-            // A course or speed outside its field is a fault of its own, whatever else is given.
-            _ = CheckCourseSpeed(d.CourseDegrees, d.SpeedKnots);
-        }
+        // A course or speed outside its field is a fault of its own, whatever else is given, the
+        // wind of a weather report wanting the same place included.
+        w.Field(() => CheckCourseSpeed(d.CourseDegrees, d.SpeedKnots));
         int count = (courseSpeed ? 1 : 0) + (d.Phg is null ? 0 : 1) + (d.RangeMiles is null ? 0 : 1)
             + (d.DfSignalStrength is null ? 0 : 1) + (d.AreaObject is null ? 0 : 1);
-        if (count > 1)
+        if (count > 1 || (count > 0 && d.Weather is not null))
         {
             // Each extension has its place, so each is checked on its own before the two are found
             // to want it at once: a PHG digit of 10 beside a course is value-out-of-range (vectors

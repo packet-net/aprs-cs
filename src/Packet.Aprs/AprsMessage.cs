@@ -50,6 +50,12 @@ public abstract record AprsMessage : AprsData
         {
             if (replyAck is not null)
             {
+                // The reply-ack has its place after a message ID, so its own checks come first.
+                if (replyAck.Length > 0)
+                {
+                    MessageCodec.ValidateId(replyAck);
+                }
+
                 throw new AprsEncodeException(AprsRefusalCode.MissingField, "a reply-ack needs a message ID");
             }
 
@@ -259,7 +265,11 @@ public sealed record AprsDirectedQuery : AprsMessage
         }
 
         bool known = KnownTypes.Contains(QueryType);
-        if (!known && !QueryCodec.IsQueryType(QueryType))
+        if (QueryType.Length == 0)
+        {
+            writer.Defer(AprsRefusalCode.MissingField, "a directed query needs a query type (APRS12c ch. 15)");
+        }
+        else if (!known && !QueryCodec.IsQueryType(QueryType))
         {
             writer.Defer(AprsRefusalCode.InvalidCode, "a query type is upper-case letters (APRS12c ch. 15)");
         }

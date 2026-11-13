@@ -862,6 +862,18 @@ internal static class MicECodec
             w.Field(givenDfs.Validate);
         }
 
+        if (r.RangeMiles is { } givenRange)
+        {
+            w.Field(() =>
+            {
+                NotANumber.Refuse(givenRange, "RNG");
+                if (Steps.Whole(givenRange) is < 0 or > 9999)
+                {
+                    throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999");
+                }
+            });
+        }
+
         w.Field(() => WriteExtension(w, r));
         w.Field(() => CommentCodec.CheckMicEComment(w, r));
         if (altitudeAsFeet)
