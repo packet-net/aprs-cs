@@ -625,8 +625,8 @@ internal static class PositionCodec
 
     public static void WriteBody(InfoWriter w, AprsPositionedData d)
     {
-        d.Position.Validate();
-        d.Symbol.Validate();
+        w.Field(d.Position.Validate);
+        w.Field(d.Symbol.Validate);
         if (d.Symbol.IsWeatherStation && d.Weather is null)
         {
             // A report with the weather station symbol is weather even with no fields (vectors
@@ -636,12 +636,12 @@ internal static class PositionCodec
 
         if (d.IsCompressed)
         {
-            WriteCompressed(w, d);
+            w.Field(() => WriteCompressed(w, d));
         }
         else
         {
-            WriteUncompressed(w, d.Position, d.Symbol, d.Dao);
-            WriteDataExtension(w, d);
+            w.Field(() => WriteUncompressed(w, d.Position, d.Symbol, d.Dao));
+            w.Field(() => WriteDataExtension(w, d));
         }
 
         if (d.Weather is { } weather)
@@ -651,7 +651,7 @@ internal static class PositionCodec
                 w.Defer(AprsRefusalCode.SymbolMismatch, "weather data needs a weather-station symbol (_) (APRS12c ch. 12)");
             }
 
-            WeatherCodec.WriteFields(w, weather, positionless: false);
+            w.Field(() => WeatherCodec.WriteFields(w, weather, positionless: false));
             if (d.Comment.Length > 0)
             {
                 w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12, UAP 2.7.1)");
@@ -933,6 +933,14 @@ internal static class PositionCodec
             + (d.DfSignalStrength is null ? 0 : 1) + (d.AreaObject is null ? 0 : 1);
         if (count > 1)
         {
+            // Each extension has its place, so each is checked on its own before the two are found
+            // to want it at once: a PHG digit of 10 beside a course is value-out-of-range (vectors
+            // README, Refusal reasons).
+            CheckExtensions(w, d);
+        }
+
+        if (count > 1)
+        {
             w.Defer(AprsRefusalCode.ExtensionConflict, "only one data extension (course/speed, PHG, RNG, DFS or area object) fits in a report (APRS12c ch. 7)");
         }
 
@@ -1002,21 +1010,52 @@ internal static class PositionCodec
         }
         else if (d.RangeMiles is { } range)
         {
-            // Rounded to whole miles, then checked (vectors ruling F2).
-            NotANumber.Refuse(range, "RNG");
-            double miles = Steps.Whole(range);
-            if (miles is < 0 or > 9999)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999");
-            }
-
-            w.Ascii("RNG").Digits((int)miles, 4);
+            w.Ascii("RNG").Digits((int)RangeMilesUncompressed(range), 4);
         }
         else if (d.DfSignalStrength is { } dfs)
         {
             dfs.Validate();
             w.Ascii("DFS").Digits(dfs.StrengthCode, 1).Char((char)('0' + dfs.HeightCode)).Digits(dfs.GainCode, 1).Digits(dfs.DirectivityCode, 1);
         }
+    }
+
+    /// <summary>The checks each 7-byte data extension given has of its own, whatever else is given.</summary>
+    private static void CheckExtensions(InfoWriter w, AprsPositionedData d)
+    {
+        if (d.Phg is { } phg)
+        {
+            w.Field(phg.Validate);
+        }
+
+        if (d.DfSignalStrength is { } dfs)
+        {
+            w.Field(dfs.Validate);
+        }
+
+        if (d.AreaObject is { } area)
+        {
+            w.Field(area.Validate);
+        }
+
+        if (d.DfBearing is { } bearing)
+        {
+            w.Field(bearing.Validate);
+        }
+
+        if (d.RangeMiles is { } range)
+        {
+            w.Field(() => _ = RangeMilesUncompressed(range));
+        }
+    }
+
+    private static double RangeMilesUncompressed(double range)
+    {
+        // Rounded to whole miles, then checked (vectors ruling F2).
+        NotANumber.Refuse(range, "RNG");
+        double miles = Steps.Whole(range);
+        return miles is < 0 or > 9999
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999")
+            : miles;
     }
 
     internal static void WritePhg(InfoWriter w, AprsPhg phg)

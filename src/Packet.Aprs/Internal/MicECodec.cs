@@ -637,21 +637,25 @@ internal static class MicECodec
 
     public static void WriteInformation(InfoWriter w, AprsMicEReport r)
     {
-        r.Position.Validate();
-        r.Symbol.Validate();
-
-        // Faults of a single field, in the shared order, before any relation between fields.
-        string firstLatitude = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao, r.Position.Ambiguity);
-        if (r.Position.Ambiguity > 0 && firstLatitude.StartsWith("90", StringComparison.Ordinal))
+        // Each field is checked on its own, and the refusal named is the first in the shared
+        // order whichever field it is in (InfoWriter.Field), before any relation between fields.
+        w.Field(r.Position.Validate);
+        w.Field(r.Symbol.Validate);
+        w.Field(() =>
         {
-            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
-        }
+            string firstLatitude = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Latitude), 2, r.Dao, r.Position.Ambiguity);
+            if (r.Position.Ambiguity > 0 && firstLatitude.StartsWith("90", StringComparison.Ordinal))
+            {
+                throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "an ambiguous latitude of 90 degrees is centred past the pole, which a decoder rejects");
+            }
+        });
 
-        _ = CheckMotion(r);
+        (int speed, int course) = (0, 0);
+        w.Field(() => (speed, course) = CheckMotion(r));
         if (r.AltitudeFeet is { } altitudeFeet && (r.AltitudeInComment || !IsWholeMetres(altitudeFeet)))
         {
             // Written as /A=, so it must fit that, before the later value checks.
-            _ = CommentCodec.CheckAltitude(altitudeFeet);
+            w.Field(() => CommentCodec.CheckAltitude(altitudeFeet));
         }
 
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
@@ -686,10 +690,8 @@ internal static class MicECodec
         if (deg >= 180)
         {
             // Degrees 180-189 would be written as 100-109 are, so 180 itself has no Mic-E form (APRS12c ch. 10).
-            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
+            w.Defer(AprsRefusalCode.ValueHasNoForm, "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
         }
-
-        (int speed, int course) = CheckMotion(r);
 
         // The printable encoding schemes: speeds under 200 knots use SP + 80, except 190-199, where
         // that would be DEL and the table's other character is '/' (vectors ruling E5), and DC always
@@ -709,6 +711,15 @@ internal static class MicECodec
             .Char(r.Symbol.Table);
 
         if (r.LegacyTelemetry is { } legacy)
+        {
+            w.Field(() => WriteLegacyTelemetry(w, legacy));
+        }
+
+        WriteAfterTelemetry(w, r);
+    }
+
+    private static void WriteLegacyTelemetry(InfoWriter w, IReadOnlyList<int> legacy)
+    {
         {
             // A 255 would be taken for Kenwood 0xFF padding and removed on the way back in.
             if (legacy.Count != 5)
@@ -732,14 +743,17 @@ internal static class MicECodec
                 w.Byte((byte)v);
             }
         }
+    }
 
+    private static void WriteAfterTelemetry(InfoWriter w, AprsMicEReport r)
+    {
         // An unknown message type comes after the value checks above and before the device suffix.
-        _ = MessageBits(r.MicEMessage);
+        w.Field(() => MessageBits(r.MicEMessage));
         if (r.TypeCode is { } type)
         {
             if (type is not ('`' or '\'' or '>' or ']' or ' '))
             {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "Mic-E type code must be ` ' > ] or space");
+                w.Defer(AprsRefusalCode.InvalidCode, "Mic-E type code must be ` ' > ] or space");
             }
 
             w.Char(type);
@@ -762,7 +776,7 @@ internal static class MicECodec
             };
             if (!known.Contains(r.DeviceSuffix, StringComparer.Ordinal))
             {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidCode, $"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text");
+                w.Defer(AprsRefusalCode.InvalidCode, $"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text");
             }
 
             w.CommentCheck ??= "the Mic-E status text would read back with a different device suffix";
@@ -770,13 +784,21 @@ internal static class MicECodec
 
         // Mic-E carries altitude in whole metres (xxx}); an altitude that is not a whole number of
         // metres, e.g. one that arrived as /A= feet, is written as /A= so it survives unchanged.
-        bool altitudeAsFeet = false;
+        bool altitudeAsFeet = r.AltitudeFeet is { } feetGiven && (r.AltitudeInComment || !IsWholeMetres(feetGiven));
         if (r.AltitudeFeet is { } feet)
+        {
+            w.Field(() => WriteAltitudeBytes(w, r, feet));
+        }
+
+        WriteStatusText(w, r, altitudeAsFeet);
+    }
+
+    private static void WriteAltitudeBytes(InfoWriter w, AprsMicEReport r, double feet)
+    {
         {
             long metres = Steps.Count(feet / Units.FeetPerMetre);
             long value = metres + 10000;
-            altitudeAsFeet = r.AltitudeInComment || Math.Abs((metres * Units.FeetPerMetre) - feet) > 1e-6;
-            if (!altitudeAsFeet)
+            if (!r.AltitudeInComment && IsWholeMetres(feet))
             {
                 if (value is < 0 or > (91 * 91 * 91) - 1)
                 {
@@ -800,12 +822,15 @@ internal static class MicECodec
                 w.Base91(value, 3).Char('}');
             }
         }
+    }
 
+    private static void WriteStatusText(InfoWriter w, AprsMicEReport r, bool altitudeAsFeet)
+    {
         if (r.Locator is { } locator)
         {
             if (locator.Length is not (4 or 6) || !Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator)))
             {
-                throw new AprsEncodeException(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator");
+                w.Defer(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator");
             }
 
             w.Ascii(locator.ToUpperInvariant()).Ascii("/G");
@@ -826,6 +851,29 @@ internal static class MicECodec
             w.Defer(AprsRefusalCode.ExtensionConflict, "a Mic-E report carries at most one of PHG, RNG and DFS");
         }
 
+        // Each extension given has its own checks, even beside another (vectors README, Refusal reasons).
+        if (r.Phg is { } givenPhg)
+        {
+            w.Field(givenPhg.Validate);
+        }
+
+        if (r.DfSignalStrength is { } givenDfs)
+        {
+            w.Field(givenDfs.Validate);
+        }
+
+        w.Field(() => WriteExtension(w, r));
+        w.Field(() => CommentCodec.CheckMicEComment(w, r));
+        if (altitudeAsFeet)
+        {
+            w.Field(() => CommentCodec.WriteAltitude(w, r.AltitudeFeet!.Value));
+        }
+
+        WriteComment(w, r, altitudeAsFeet);
+    }
+
+    private static void WriteExtension(InfoWriter w, AprsMicEReport r)
+    {
         if (r.Phg is { } phg)
         {
             PositionCodec.WritePhg(w, phg);
@@ -846,13 +894,10 @@ internal static class MicECodec
         {
             w.Ascii("DFS").Digits(dfs.StrengthCode, 1).Char((char)('0' + dfs.HeightCode)).Digits(dfs.GainCode, 1).Digits(dfs.DirectivityCode, 1);
         }
+    }
 
-        CommentCodec.CheckMicEComment(w, r);
-        if (altitudeAsFeet)
-        {
-            CommentCodec.WriteAltitude(w, r.AltitudeFeet!.Value);
-        }
-
+    private static void WriteComment(InfoWriter w, AprsMicEReport r, bool altitudeAsFeet)
+    {
         if (r.Frequency is { } freq)
         {
             // Straight after a PHG, RNG or DFS the frequency follows a '/', as in a position
@@ -863,7 +908,7 @@ internal static class MicECodec
                 w.Char('/');
             }
 
-            FrequencyCodec.WriteWithComment(w, freq, r.Comment);
+            w.Field(() => FrequencyCodec.WriteWithComment(w, freq, r.Comment));
         }
 
         bool extensionJustWritten = r.Frequency is null && !altitudeAsFeet && (r.Phg is not null || r.RangeMiles is not null || r.DfSignalStrength is not null);
@@ -904,24 +949,12 @@ internal static class MicECodec
 
         if (r.Telemetry is { } t)
         {
-            t.Validate(w);
-            w.Char('|').Base91(t.Sequence, 2);
-            foreach (int v in t.Analog)
-            {
-                w.Base91(v, 2);
-            }
-
-            if (t.Digital is { } bits)
-            {
-                w.Base91(bits, 2);
-            }
-
-            w.Char('|');
+            w.Field(() => CommentCodec.WriteTelemetry(w, t));
         }
 
         if (r.Dao is { } dao)
         {
-            DaoCodec.Write(w, r.Position, dao);
+            w.Field(() => DaoCodec.Write(w, r.Position, dao));
         }
 
         w.Ascii(r.DeviceSuffix);

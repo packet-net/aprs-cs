@@ -24,14 +24,42 @@ internal sealed class InfoWriter
     /// A refusal that comes from how the parts of a report relate (a symbol that does not fit the
     /// data, two things wanting one field, a companion that is missing) is held until the whole report
     /// has been written, so that a fault in a single field, which is wrong whatever else is given,
-    /// is reported first, and the held ones are then reported in a fixed order (the vectors'
-    /// reason-code order). The first of the highest-ranked code is kept.
+    /// is reported first. Held refusals are reported in the vectors' reason-code order (README,
+    /// Refusal reasons); of two with the same code, the first met is kept.
     /// </summary>
-    public void Defer(AprsRefusalCode code, string message)
+    public void Defer(AprsRefusalCode code, string message) => Hold(new AprsEncodeException(code, message));
+
+    /// <summary>Holds a refusal already made, as <see cref="Defer"/> does.</summary>
+    public void Hold(AprsEncodeException refusal)
     {
-        if (deferred is null || Rank(code) < Rank(deferred.Code))
+        if (deferred is null || Rank(refusal.Code) < Rank(deferred.Code))
         {
-            deferred = new AprsEncodeException(code, message);
+            deferred = refusal;
+        }
+    }
+
+    /// <summary>True once a refusal is held.</summary>
+    public bool HasDeferred => deferred is not null;
+
+    /// <summary>True when a field stopped part way, so what is written is not the whole report.</summary>
+    public bool Interrupted { get; set; }
+
+    /// <summary>
+    /// Writes one field of a report. A refusal for it is held rather than thrown, so the fields
+    /// after it are still checked and the refusal finally reported is the first in the reason-code
+    /// order, whichever field it is in (vectors interpretations.md, "Which refusal a record with
+    /// two faults gets"). Nothing written after a held refusal is ever returned.
+    /// </summary>
+    public void Field(Action write)
+    {
+        try
+        {
+            write();
+        }
+        catch (AprsEncodeException ex)
+        {
+            Interrupted = true;
+            Hold(ex);
         }
     }
 
@@ -44,14 +72,35 @@ internal sealed class InfoWriter
         }
     }
 
-    private static int Rank(AprsRefusalCode code) => code switch
+    /// <summary>The vectors' README "Refusal reasons" order: the first code that applies is named.</summary>
+    internal static int Rank(AprsRefusalCode code) => code switch
     {
-        AprsRefusalCode.ExtensionConflict => 0,
-        AprsRefusalCode.FieldNotAllowed => 1,
-        AprsRefusalCode.SymbolMismatch => 2,
-        AprsRefusalCode.MissingField => 3,
-        AprsRefusalCode.ValueGivenTwice => 4,
-        _ => 5,
+        AprsRefusalCode.NotEncodable => 0,
+        AprsRefusalCode.InvalidAddress => 1,
+        AprsRefusalCode.Ax25CannotCarry => 2,
+        AprsRefusalCode.Tnc2CannotCarry => 3,
+        AprsRefusalCode.InvalidThirdPartyHeader => 4,
+        AprsRefusalCode.InvalidAddressee => 5,
+        AprsRefusalCode.InvalidName => 6,
+        AprsRefusalCode.InvalidTimestamp => 7,
+        AprsRefusalCode.NotANumber => 8,
+        AprsRefusalCode.ValueOutOfRange => 9,
+        AprsRefusalCode.ValueHasNoForm => 10,
+        AprsRefusalCode.InvalidCode => 11,
+        AprsRefusalCode.InvalidSymbol => 12,
+        AprsRefusalCode.InvalidCharacter => 13,
+        AprsRefusalCode.TooLong => 14,
+        AprsRefusalCode.PaddingSpace => 15,
+        AprsRefusalCode.Malformed => 16,
+        AprsRefusalCode.InvalidMessageId => 17,
+        AprsRefusalCode.InvalidNmea => 18,
+        AprsRefusalCode.ExtensionConflict => 19,
+        AprsRefusalCode.FieldNotAllowed => 20,
+        AprsRefusalCode.SymbolMismatch => 21,
+        AprsRefusalCode.MissingField => 22,
+        AprsRefusalCode.ValueGivenTwice => 23,
+        AprsRefusalCode.TextReadsAsField => 24,
+        _ => 25,
     };
 
     public ReadOnlySpan<byte> Written => buffer.WrittenSpan;

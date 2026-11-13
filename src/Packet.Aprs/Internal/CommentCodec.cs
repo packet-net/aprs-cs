@@ -457,10 +457,16 @@ internal static class CommentCodec
         if (altitude)
         {
             // An altitude written as /A= must fit it: a fault of its own, before the comment's text.
-            CheckAltitude(d.AltitudeFeet!.Value);
+            w.Field(() => CheckAltitude(d.AltitudeFeet!.Value));
         }
 
-        CheckComment(w, d);
+        w.Field(() => CheckComment(w, d));
+        w.Field(() => WriteFreeText(w, d, altitude));
+        WriteTrailer(w, d, includeWeatherSoftware: false);
+    }
+
+    private static void WriteFreeText(InfoWriter w, AprsPositionedData d, bool altitude)
+    {
         bool braces = d.SignpostText is not null || d.AreaObject is { CorridorWidthMiles: not null };
         if (d.Frequency is { } freq)
         {
@@ -497,8 +503,6 @@ internal static class CommentCodec
 
             w.Utf8(d.Comment);
         }
-
-        WriteTrailer(w, d, includeWeatherSoftware: false);
     }
 
     private static void WriteBracesAndAltitude(InfoWriter w, AprsPositionedData d, bool altitude)
@@ -525,27 +529,32 @@ internal static class CommentCodec
 
         if (d.Telemetry is { } t)
         {
-            t.Validate(w);
-            w.Char('|').Base91(t.Sequence, 2);
-            foreach (int v in t.Analog)
-            {
-                w.Base91(v, 2);
-            }
-
-            if (t.Digital is { } bits)
-            {
-                w.Base91(bits, 2);
-            }
-
-            w.Char('|');
+            w.Field(() => WriteTelemetry(w, t));
         }
 
         if (d.Dao is { } dao)
         {
             // On a compressed position the digits are not applied, so they are written to agree
             // with the position the compressed bytes report (vectors ruling E2).
-            DaoCodec.Write(w, d.IsCompressed ? PositionCodec.CompressedReported(d.Position) : d.Position, dao);
+            w.Field(() => DaoCodec.Write(w, d.IsCompressed ? PositionCodec.CompressedReported(d.Position) : d.Position, dao));
         }
+    }
+
+    internal static void WriteTelemetry(InfoWriter w, AprsCommentTelemetry t)
+    {
+        t.Validate(w);
+        w.Char('|').Base91(t.Sequence, 2);
+        foreach (int v in t.Analog)
+        {
+            w.Base91(v, 2);
+        }
+
+        if (t.Digital is { } bits)
+        {
+            w.Base91(bits, 2);
+        }
+
+        w.Char('|');
     }
 
     /// <summary>

@@ -29,9 +29,16 @@ public sealed record AprsCommentTelemetry
 
     internal void Validate(Internal.InfoWriter writer)
     {
-        if (Analog.Count is < 1 or > 5)
+        if (Analog.Count > 5)
         {
             throw new AprsEncodeException(AprsRefusalCode.TooLong, "comment telemetry: 1-5 analog values");
+        }
+
+        if (Analog.Count < 1)
+        {
+            // Too few values is not the form, as too many is more than the field holds (vectors
+            // README, Refusal reasons).
+            throw new AprsEncodeException(AprsRefusalCode.Malformed, "comment telemetry: 1-5 analog values");
         }
 
         if (Sequence is < 0 or > MaxValue || Analog.Any(v => v is < 0 or > MaxValue))
