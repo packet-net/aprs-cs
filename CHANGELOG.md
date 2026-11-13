@@ -2,17 +2,17 @@
 
 ## Unreleased
 
-The aprs-vectors round 3 rulings (vectors pinned at `e0e8e39`, aprs-vectors#24).
+The aprs-vectors round 3 rulings (vectors pinned at `cb5dcc0`, aprs-vectors#24).
 
 Refusal reasons
 
 - A record with several faults is refused with the first code in the vectors' Refusal reasons order, whichever field each fault is in. Before, the first field checked won, so an object name ending in a space was named ahead of a latitude past 90, a CR in the comment or a bad symbol. Each field is now checked on its own and the earliest code is reported; a field the report has no place for is still `FieldNotAllowed` without its own checks (telemetry on a weather report is now one of those), while a field whose place exists but is wanted twice keeps its checks (a PHG digit of 10 beside a course is `ValueOutOfRange`; a compressed course, speed, range or GGA altitude is range-checked before any conflict over the cs bytes; so is a course beside a weather report's wind, and a Mic-E RNG beside a PHG).
 - More analog values than base-91 telemetry or a telemetry report holds is `TooLong`, fewer is `Malformed`; more than 15 `EQNS.` coefficients is `TooLong`.
-- A status locator in lower case is `Malformed`, since it reads back in upper case. The status builder's `Locator` sends it in upper case.
+- A locator in lower case, in a status, a Mic-E report or a Maidenhead beacon, is `Malformed`, since it reads back in upper case. The status builder's `Locator` sends it in upper case.
 - A `!DAO!` digit datum with added precision is `InvalidCode` (was `FieldNotAllowed`).
 - An NMEA comment given with a sentence that has no checksum is `InvalidNmea` (was `TextReadsAsField`).
 - A compressed weather report with a course or speed is `ExtensionConflict` even when it gives no wind.
-- A general or directed query with an empty query type is `MissingField`.
+- A general or directed query with an empty query type is `InvalidCode`: absent text is empty text.
 - A reply-ack is checked as a message ID before a missing message ID is reported.
 - The telemetry builder checks its analog values and bits when the report is built, so their faults are named in the shared order with the others.
 - A builder given a speed, altitude, temperature or rainfall in two units (`SpeedKnots` and `SpeedKmh`, say) refuses with `ValueGivenTwice`, unless another fault comes first in the order. Before, the last one given was used.

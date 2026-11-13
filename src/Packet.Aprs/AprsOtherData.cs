@@ -190,9 +190,10 @@ public sealed record AprsMaidenheadBeacon : AprsData
 
     internal override void Encode(InfoWriter writer)
     {
-        if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(Locator)))
+        // A locator in lower case reads back in upper case, so it is not the fixed form either.
+        if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(Locator)) || !Locator.Equals(Locator.ToUpperInvariant(), StringComparison.Ordinal))
         {
-            writer.Defer(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator");
+            writer.Defer(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator in upper case");
         }
 
         writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));

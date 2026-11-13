@@ -265,11 +265,8 @@ public sealed record AprsDirectedQuery : AprsMessage
         }
 
         bool known = KnownTypes.Contains(QueryType);
-        if (QueryType.Length == 0)
-        {
-            writer.Defer(AprsRefusalCode.MissingField, "a directed query needs a query type (APRS12c ch. 15)");
-        }
-        else if (!known && !QueryCodec.IsQueryType(QueryType))
+        // An empty type is not upper-case letters (vectors interpretations.md, "Absent text is empty text").
+        if (!known && !QueryCodec.IsQueryType(QueryType))
         {
             writer.Defer(AprsRefusalCode.InvalidCode, "a query type is upper-case letters (APRS12c ch. 15)");
         }

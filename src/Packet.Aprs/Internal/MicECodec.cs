@@ -828,9 +828,11 @@ internal static class MicECodec
     {
         if (r.Locator is { } locator)
         {
-            if (locator.Length is not (4 or 6) || !Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator)))
+            // A locator in lower case reads back in upper case, so it is not the fixed form either.
+            if (locator.Length is not (4 or 6) || !Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator))
+                || !locator.Equals(locator.ToUpperInvariant(), StringComparison.Ordinal))
             {
-                w.Defer(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator");
+                w.Defer(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator in upper case");
             }
 
             w.Ascii(locator.ToUpperInvariant()).Ascii("/G");

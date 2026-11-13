@@ -349,11 +349,8 @@ internal static class QueryCodec
     public static void WriteGeneral(InfoWriter w, AprsGeneralQuery q)
     {
         ArgumentNullException.ThrowIfNull(q.QueryType);
-        if (q.QueryType.Length == 0)
-        {
-            w.Defer(AprsRefusalCode.MissingField, "a general query needs a query type (APRS12c ch. 15)");
-        }
-        else if (!IsQueryType(q.QueryType))
+        // An empty type is not upper-case letters (vectors interpretations.md, "Absent text is empty text").
+        if (!IsQueryType(q.QueryType))
         {
             w.Defer(AprsRefusalCode.InvalidCode, "query type must be upper-case letters (APRS12c ch. 15)");
         }
