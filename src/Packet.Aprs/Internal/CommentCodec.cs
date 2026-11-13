@@ -200,21 +200,23 @@ internal static class CommentCodec
             }
 
             f.Dao = dao;
-            if (dao.Precision != AprsDaoPrecision.None && !f.IsCompressed)
+            if (f.Position.Ambiguity != 0 && !f.IsCompressed)
             {
-                if (f.Position.Ambiguity == 0)
-                {
-                    f.Position = DaoCodec.Apply(f.Position, lat, lon);
-                }
-                else if (!ctx.Tolerate(
-                             ctx.Options.AllowDaoWithAmbiguity,
-                             AprsDiagnosticCode.DaoWithAmbiguity,
-                             "!DAO! adds precision to an ambiguous position; the extra precision is ignored",
-                             offset + i))
+                // Whatever its precision, !W  ! included (vectors interpretations.md, "!DAO! on an
+                // ambiguous position").
+                if (!ctx.Tolerate(
+                        ctx.Options.AllowDaoWithAmbiguity,
+                        AprsDiagnosticCode.DaoWithAmbiguity,
+                        "!DAO! on an ambiguous position; any extra precision is ignored",
+                        offset + i))
                 {
                     ok = false;
                     return -1;
                 }
+            }
+            else if (dao.Precision != AprsDaoPrecision.None && !f.IsCompressed)
+            {
+                f.Position = DaoCodec.Apply(f.Position, lat, lon);
             }
 
             c.RemoveRange(i, 5);

@@ -93,7 +93,7 @@ internal static class NeutralReader
             "maidenhead-beacon" => Only(d, new AprsMaidenheadBeacon { Locator = Str(d, "locator"), Comment = OptStr(d, "comment") ?? "" }, "locator", "comment"),
             "query" => Only(d, new AprsGeneralQuery
             {
-                QueryType = Str(d, "query_type"),
+                QueryType = OptStr(d, "query_type") ?? "",
                 Footprint = d["footprint"] is JsonObject f ? new AprsQueryFootprint((double)f["latitude"]!, (double)f["longitude"]!, (double)f["radius_miles"]!) : null,
             }, "query_type", "footprint"),
             "capabilities" => Only(d, new AprsStationCapabilities

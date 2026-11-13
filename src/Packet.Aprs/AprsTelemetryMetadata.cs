@@ -66,7 +66,13 @@ public sealed record AprsTelemetryCoefficients : AprsMessage
             throw new AprsEncodeException(AprsRefusalCode.NotANumber, "an EQNS coefficient is a finite number");
         }
 
-        if (Coefficients.Count is < 1 or > 15)
+        if (Coefficients.Count > 15)
+        {
+            // A list longer than its field (vectors README, Refusal reasons).
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, "EQNS carries 1 to 15 coefficients");
+        }
+
+        if (Coefficients.Count < 1)
         {
             throw new AprsEncodeException(AprsRefusalCode.Malformed, "EQNS carries 1 to 15 coefficients");
         }

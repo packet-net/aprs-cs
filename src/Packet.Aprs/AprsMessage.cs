@@ -261,15 +261,15 @@ public sealed record AprsDirectedQuery : AprsMessage
         bool known = KnownTypes.Contains(QueryType);
         if (!known && !QueryCodec.IsQueryType(QueryType))
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "a query type is upper-case letters (APRS12c ch. 15)");
+            writer.Defer(AprsRefusalCode.InvalidCode, "a query type is upper-case letters (APRS12c ch. 15)");
         }
 
-        writer.Char('?').Ascii(QueryType);
+        writer.Char('?').Field(() => writer.Ascii(QueryType));
         if (Target is not null)
         {
             if (!MessageCodec.IsCallsign(Target))
             {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "a query target is one callsign: 1-9 letters, digits or -");
+                writer.Defer(AprsRefusalCode.InvalidAddressee, "a query target is one callsign: 1-9 letters, digits or -");
             }
 
             // A defined type is followed straight by its target, APRSH's padded to 9 characters

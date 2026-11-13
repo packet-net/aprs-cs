@@ -121,18 +121,23 @@ public sealed record AprsNmeaReport : AprsData
         byte[] sentence = System.Text.Encoding.Latin1.GetBytes(Sentence);
         if (Sentence.Any(c => c > 0xFF) || Internal.NmeaCodec.SentenceLength(sentence) != sentence.Length)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, "an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum");
+            writer.Defer(AprsRefusalCode.InvalidNmea, "an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum");
         }
-
-        if (Internal.NmeaCodec.TryReadChecksum(Sentence, out _, out byte expected, out byte sum) && sum != expected)
+        else if (Internal.NmeaCodec.TryReadChecksum(Sentence, out _, out byte expected, out byte sum) && sum != expected)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, $"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
+            writer.Defer(AprsRefusalCode.InvalidNmea, $"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
         }
 
-        Internal.Text.RequireNoLineBreaks(Comment);
+        writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));
         if (Comment.Length > 0 && !HasChecksum)
         {
-            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, "a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence");
+            // Only a checksum ends a sentence (vectors interpretations.md, "NMEA data is its sentence").
+            writer.Defer(AprsRefusalCode.InvalidNmea, "a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence");
+        }
+
+        if (writer.HasDeferred)
+        {
+            return;
         }
 
         writer.Char('$').Ascii(Sentence).Utf8(Comment);
@@ -187,10 +192,10 @@ public sealed record AprsMaidenheadBeacon : AprsData
     {
         if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(Locator)))
         {
-            throw new AprsEncodeException(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator");
+            writer.Defer(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator");
         }
 
-        Internal.Text.RequireNoLineBreaks(Comment);
+        writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));
         writer.Char('[').Ascii(Locator.ToUpperInvariant()).Char(']').Utf8(Comment);
     }
 }

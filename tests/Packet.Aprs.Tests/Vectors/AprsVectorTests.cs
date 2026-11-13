@@ -198,14 +198,27 @@ public class AprsVectorTests
     {
         JsonObject c = VectorCases.Get(id);
         AprsPacket? packet = VectorCases.Decode(Input(c), AprsParseOptions.Lenient, out _);
-        if (packet is null || packet.Data is AprsUnrecognizedData || packet.Data is AprsThirdPartyTraffic { Packet.Data: AprsUnrecognizedData })
+        if (packet is null)
         {
-            return; // nothing to build: undecoded data cannot be encoded
+            return;
         }
 
-        if (packet.Data is AprsThirdPartyTraffic { Packet.Diagnostics.Count: > 0 })
+        for (AprsPacket level = packet; ; level = ((AprsThirdPartyTraffic)level.Data).Packet)
         {
-            return; // an inner packet's diagnostics come from decoding it: data built from the neutral form has none
+            if (level.Data is AprsUnrecognizedData)
+            {
+                return; // nothing to build: undecoded data cannot be encoded, at any depth
+            }
+
+            if (level != packet && level.Diagnostics.Count > 0)
+            {
+                return; // an inner packet's diagnostics come from decoding it: data built from the neutral form has none
+            }
+
+            if (level.Data is not AprsThirdPartyTraffic)
+            {
+                break;
+            }
         }
 
         JsonObject written = JsonNode.Parse(NeutralJson.Data(packet.Data).ToJsonString())!.AsObject();

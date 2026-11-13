@@ -348,12 +348,18 @@ internal static class QueryCodec
 
     public static void WriteGeneral(InfoWriter w, AprsGeneralQuery q)
     {
-        if (!IsQueryType(q.QueryType))
+        ArgumentNullException.ThrowIfNull(q.QueryType);
+        if (q.QueryType.Length == 0)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "query type must be upper-case letters (APRS12c ch. 15)");
+            w.Defer(AprsRefusalCode.MissingField, "a general query needs a query type (APRS12c ch. 15)");
+        }
+        else if (!IsQueryType(q.QueryType))
+        {
+            w.Defer(AprsRefusalCode.InvalidCode, "query type must be upper-case letters (APRS12c ch. 15)");
         }
 
-        w.Char('?').Ascii(q.QueryType).Char('?');
+        w.Char('?').Field(() => w.Ascii(q.QueryType));
+        w.Char('?');
         if (q.Footprint is { } f)
         {
             double radius = Steps.Whole(f.RadiusMiles);

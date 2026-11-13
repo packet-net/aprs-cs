@@ -768,7 +768,11 @@ internal static class PositionCodec
         }
 
         bool windInCs = d.Weather is { } weather && (weather.WindDirectionDegrees is not null || weather.WindSpeedMph is not null);
-        if (windInCs && (type?.Source == AprsCompressionSource.Gga || d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null))
+        // A course and speed beside weather want the bytes that hold its wind even when no wind is
+        // given; a range is written there when they hold no wind (vectors encode/compressed-weather-
+        // with-a-course, corpus/1149).
+        if ((windInCs && (type?.Source == AprsCompressionSource.Gga || d.RangeMiles is not null))
+            || (d.Weather is not null && (d.CourseDegrees is not null || d.SpeedKnots is not null)))
         {
             // One pair of cs bytes carries wind, course/speed, a range or a GGA altitude, never
             // two of them (APRS12c ch. 9); writing one would drop the other.
@@ -783,6 +787,18 @@ internal static class PositionCodec
             {
                 NotANumber.Refuse(wx.WindDirectionDegrees, "wind direction");
                 NotANumber.Refuse(wx.WindSpeedMph, "wind speed");
+
+                // The one given is still checked on its own (vectors README, Refusal reasons).
+                if (wx.WindDirectionDegrees is { } direction && Steps.Whole(direction) is < 0 or > 360)
+                {
+                    throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a wind direction is 0-360 degrees");
+                }
+
+                if (wx.WindSpeedMph is { } speed)
+                {
+                    _ = SpeedCode(Units.MphToKnots(speed));
+                }
+
                 w.Defer(AprsRefusalCode.MissingField, "the cs bytes of a compressed weather position carry wind direction and speed together; one without the other cannot be written (APRS12c ch. 9)");
                 w.Ascii(" sT");
                 return;
