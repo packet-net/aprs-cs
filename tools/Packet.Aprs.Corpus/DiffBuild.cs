@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using Packet.Aprs.Internal;
 using Packet.Aprs.Tests.Vectors;
 
 namespace Packet.Aprs.Corpus;
@@ -19,6 +20,7 @@ internal static class DiffBuild
     public static JsonObject Record(long n, JsonObject recipe)
     {
         var o = new JsonObject { ["n"] = n };
+        string? twice = GivenTwice(recipe["args"] as JsonObject);
         AprsPacket packet;
         try
         {
@@ -30,11 +32,28 @@ internal static class DiffBuild
             o["reason"] = ex.Message;
             return o;
         }
-        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
+        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException
+            && (twice is null || ex is not AprsEncodeException e || InfoWriter.Rank(e.Code) < InfoWriter.Rank(AprsRefusalCode.ValueGivenTwice)))
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;
             DiffCommand.AddRefusal(o, "refusal", ex);
+            return o;
+        }
+        catch (AprsEncodeException)
+        {
+            // A later refusal is outranked by the value given twice.
+            packet = null!;
+        }
+
+        if (twice is not null)
+        {
+            // One input carrying a quantity in two units at once: the builder's setters each
+            // replace the quantity, so the recipe, not the builder, holds both (vectors README,
+            // Builder rules). It is named in the Refusal reasons order.
+            o["result"] = "refused";
+            o["reason"] = $"the recipe gives {twice} in two units";
+            o["refusal"] = "value-given-twice";
             return o;
         }
 
@@ -52,6 +71,20 @@ internal static class DiffBuild
 
         return o;
     }
+
+    private static readonly (string A, string B, string What)[] Units =
+    [
+        ("speed_knots", "speed_kmh", "the speed"),
+        ("altitude_feet", "altitude_m", "the altitude"),
+        ("temperature_f", "temperature_c", "the temperature"),
+        ("rain_1h_in", "rain_1h_mm", "the rain in the last hour"),
+        ("rain_24h_in", "rain_24h_mm", "the rain in the last 24 hours"),
+        ("rain_midnight_in", "rain_midnight_mm", "the rain since midnight"),
+    ];
+
+    /// <summary>The first quantity the recipe gives in two units, or null.</summary>
+    private static string? GivenTwice(JsonObject? args) =>
+        args is null ? null : Units.Where(u => args.ContainsKey(u.A) && args.ContainsKey(u.B)).Select(u => u.What).FirstOrDefault();
 
     private static AprsPacket Build(JsonObject recipe)
     {

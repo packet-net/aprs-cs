@@ -26,56 +26,14 @@ public abstract class AprsBuilder
     /// The packet: the station's header and this data, encoded. Throws <see cref="AprsEncodeException"/>
     /// for anything APRS12c does not allow, and <see cref="InvalidOperationException"/> when
     /// something the packet needs, such as a symbol, was never given. A Mic-E report gets its
-    /// computed destination, whatever the station's. A value given in two units (an altitude in
-    /// feet and in metres, say) is refused as <see cref="AprsRefusalCode.ValueGivenTwice"/>, unless
-    /// the data has a fault that comes before it in the vectors' order of reasons.
+    /// computed destination, whatever the station's. A setter replaces its quantity whatever
+    /// unit it was given in, so the last one called wins (<c>SpeedKnots</c> then <c>SpeedKmh</c>
+    /// sends the km/h).
     /// </summary>
     public AprsPacket Build()
     {
         AprsData data = ToData();
-        AprsEncodeException? refusal = null;
-        AprsPacket? packet = null;
-        try
-        {
-            packet = AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
-        }
-        catch (AprsEncodeException ex)
-        {
-            refusal = ex;
-        }
-
-        if (givenTwice is not null && (refusal is null || InfoWriter.Rank(refusal.Code) > InfoWriter.Rank(AprsRefusalCode.ValueGivenTwice)))
-        {
-            throw new AprsEncodeException(AprsRefusalCode.ValueGivenTwice, $"the {givenTwice} was given in two units; give it once");
-        }
-
-        if (refusal is not null)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(refusal);
-        }
-
-        return packet!;
-    }
-
-    private readonly Dictionary<string, string> units = [];
-    private string? givenTwice;
-
-    /// <summary>Notes the unit a quantity was given in; the same quantity in another unit is given twice.</summary>
-    private protected void GivenIn(string quantity, string unit)
-    {
-        if (units.TryGetValue(quantity, out string? before) && before != unit)
-        {
-            givenTwice ??= quantity;
-        }
-
-        units[quantity] = unit;
-    }
-
-    /// <summary>Forgets every unit noted, when everything is given again at once.</summary>
-    private protected void ForgetUnits()
-    {
-        units.Clear();
-        givenTwice = null;
+        return AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
     }
 }
 
@@ -154,23 +112,16 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     /// <summary>Speed over ground in knots.</summary>
     public TSelf SpeedKnots(double knots)
     {
-        GivenIn("speed", "knots");
         speedKnots = knots;
         return Self;
     }
 
     /// <summary>Speed over ground in kilometres per hour, sent in knots.</summary>
-    public TSelf SpeedKmh(double kilometresPerHour)
-    {
-        GivenIn("speed", "km/h");
-        speedKnots = kilometresPerHour / 1.852;
-        return Self;
-    }
+    public TSelf SpeedKmh(double kilometresPerHour) => SpeedKnots(kilometresPerHour / 1.852);
 
     /// <summary>Altitude above mean sea level in feet (<c>/A=</c>).</summary>
     public TSelf AltitudeFeet(double feet)
     {
-        GivenIn("altitude", "feet");
         altitudeFeet = feet;
         altitudeMetres = null;
         return Self;
@@ -180,7 +131,6 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     /// the foot), or in a Mic-E report in its altitude bytes, rounded to the metre (APRS12c ch. 10).</summary>
     public TSelf AltitudeMetres(double metres)
     {
-        GivenIn("altitude", "metres");
         altitudeFeet = metres * Units.FeetPerMetre;
         altitudeMetres = metres;
         return Self;

@@ -976,7 +976,7 @@ internal static class PositionCodec
         w.Field(() => CheckCourseSpeed(d.CourseDegrees, d.SpeedKnots));
         int count = (courseSpeed ? 1 : 0) + (d.Phg is null ? 0 : 1) + (d.RangeMiles is null ? 0 : 1)
             + (d.DfSignalStrength is null ? 0 : 1) + (d.AreaObject is null ? 0 : 1);
-        if (count > 1 || (count > 0 && d.Weather is not null))
+        if (count > 1 || (count > 0 && d.Weather is not null) || (d.DfBearing is not null && d.Storm is not null))
         {
             // Each extension has its place, so each is checked on its own before the two are found
             // to want it at once: a PHG digit of 10 beside a course is value-out-of-range (vectors
@@ -1085,6 +1085,12 @@ internal static class PositionCodec
         if (d.DfBearing is { } bearing)
         {
             w.Field(bearing.Validate);
+        }
+
+        if (d.Storm is { } storm)
+        {
+            // Each value must fit its digits; written to a scratch writer only to check them.
+            w.Field(() => StormCodec.Write(new InfoWriter(), storm));
         }
 
         if (d.RangeMiles is { } range)

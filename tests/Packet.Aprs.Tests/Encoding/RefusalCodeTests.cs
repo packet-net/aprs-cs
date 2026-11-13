@@ -55,9 +55,11 @@ public class RefusalCodeTests
         { "order-across-fields-2", AprsRefusalCode.ValueOutOfRange },
         { "third-party-header-first", AprsRefusalCode.InvalidThirdPartyHeader },
         { "third-party-unmarked-entry", AprsRefusalCode.InvalidThirdPartyHeader },
-        { "given-twice", AprsRefusalCode.ValueGivenTwice },
-        { "given-twice-after-a-field", AprsRefusalCode.ValueOutOfRange },
         { "builder-bits-after-text", AprsRefusalCode.InvalidCharacter },
+        { "mic-e-longitude-then-nan", AprsRefusalCode.NotANumber },
+        { "longitude-then-nan-altitude", AprsRefusalCode.NotANumber },
+        { "storm-beside-wind", AprsRefusalCode.ValueOutOfRange },
+        { "third-party-mic-e-destination", AprsRefusalCode.FieldNotAllowed },
     };
 
     private static AprsEncodeException Refusal(string what)
@@ -106,9 +108,11 @@ public class RefusalCodeTests
             "order-across-fields-2" => () => (Report() with { CourseDegrees = 10, SpeedKnots = 5, Phg = new AprsPhg(10, 1, 1, 1) }).ToInformationField(),
             "third-party-header-first" => () => AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), Report() with { Position = new AprsPosition(95, 0) }, AprsAddress.Parse("APZ001"), [new AprsPathEntry(AprsAddress.Parse("TCPIP")), new AprsPathEntry(AprsAddress.Parse("G4ABC"), true)]),
             "third-party-unmarked-entry" => () => AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), Report(), AprsAddress.Parse("APZ001"), [new AprsPathEntry(AprsAddress.Parse("TCPIP")), new AprsPathEntry(AprsAddress.Parse("G4ABC"), true)]),
-            "given-twice" => () => Me.Position(51, 0).Symbol(AprsSymbol.Car).AltitudeFeet(100).AltitudeMetres(30.48).Build(),
-            "given-twice-after-a-field" => () => Me.Position(51, 0).Symbol(AprsSymbol.Car).SpeedKnots(10).SpeedKmh(5000).Build(),
             "builder-bits-after-text" => () => Me.Telemetry(1).Analog(1, 2, 3, 4, 5).Bits("0000000x").Comment("a\rb").Build(),
+            "mic-e-longitude-then-nan" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 1000), Symbol = AprsSymbol.Car, RangeMiles = double.NaN }),
+            "longitude-then-nan-altitude" => () => (Report() with { Position = new AprsPosition(51, 1e300), AltitudeFeet = double.NaN }).ToInformationField(),
+            "storm-beside-wind" => () => (Report() with { Symbol = new AprsSymbol('/', '@'), Weather = new AprsWeather { WindDirectionDegrees = 90, WindSpeedMph = 5, TemperatureFahrenheit = 50 }, Storm = new AprsStorm { Type = AprsStormType.Hurricane, GustKnots = 1000 } }).ToInformationField(),
+            "third-party-mic-e-destination" => () => AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car }, AprsAddress.Parse("APZ001")),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;

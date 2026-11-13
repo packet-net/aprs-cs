@@ -128,9 +128,14 @@ internal static class NeutralReader
             throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
         }
 
-        return Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"
-            ? new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(source, destination, path, []) }
-            : AprsThirdPartyTraffic.Create(source, Data(data), destination, path);
+        if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty")
+        {
+            return new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(source, destination, path, []) };
+        }
+
+        // A Mic-E report's destination is computed from it; the neutral form's is that one.
+        AprsData inner = Data(data);
+        return AprsThirdPartyTraffic.Create(source, inner, inner is AprsMicEReport ? null : destination, path);
     }
 
     private static T Positioned<T>(JsonObject d, T data, params string[] ownFields)

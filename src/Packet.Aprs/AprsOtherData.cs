@@ -330,18 +330,24 @@ public sealed record AprsThirdPartyTraffic : AprsData
     /// first, so a header that cannot be written is refused as
     /// <see cref="AprsRefusalCode.InvalidThirdPartyHeader"/> whatever is wrong with the data
     /// (vectors README, Refusal reasons); then the inner packet is made as
-    /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/> makes it.
+    /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>
+    /// makes it, with the same destination rules: null is <see cref="AprsStation.DefaultDestination"/>,
+    /// and a Mic-E report computes its own, so one given with it is refused.
     /// </summary>
-    public static AprsThirdPartyTraffic Create(AprsAddress source, AprsData data, AprsAddress destination, IEnumerable<AprsPathEntry>? path = null)
+    public static AprsThirdPartyTraffic Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
     {
         ArgumentNullException.ThrowIfNull(data);
         List<AprsPathEntry> entries = path?.ToList() ?? [];
-        if (!ThirdPartyCodec.HeaderCanBeWritten(source, destination, entries))
+
+        // A computed Mic-E destination is letters and digits, so only a given one can make the
+        // header unwritable; with none, the default stands in for the check.
+        AprsAddress checkedDestination = destination ?? AprsAddress.Parse(AprsStation.DefaultDestination);
+        if (!ThirdPartyCodec.HeaderCanBeWritten(source, checkedDestination, entries))
         {
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
         }
 
-        return new AprsThirdPartyTraffic { Packet = AprsPacket.Create(source, data, data is AprsMicEReport ? null : destination, entries) };
+        return new AprsThirdPartyTraffic { Packet = AprsPacket.Create(source, data, destination, entries) };
     }
 
     internal override void Encode(InfoWriter writer)

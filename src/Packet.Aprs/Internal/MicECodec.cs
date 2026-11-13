@@ -663,52 +663,57 @@ internal static class MicECodec
             w.Defer(AprsRefusalCode.FieldNotAllowed, "a Mic-E report cannot carry compression, weather, storm, DF bearing, area object or signpost data");
         }
 
-        string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity);
-        int deg = int.Parse(lon[..3], System.Globalization.CultureInfo.InvariantCulture);
-        int min = int.Parse(lon.AsSpan(3, 2), System.Globalization.CultureInfo.InvariantCulture);
-        int hun = int.Parse(lon.AsSpan(6, 2), System.Globalization.CultureInfo.InvariantCulture);
-
-        // The longitude digits the latitude's ambiguity covers are ignored by a decoder, which
-        // reports the centre of the box; they are written as that centre (vectors README, Mic-E).
-        (min, hun) = r.Position.Ambiguity switch
+        // The nine fixed bytes, from the longitude digits (a longitude out of range has none, so
+        // this is one field like the others).
+        w.Field(() =>
         {
-            1 => (min, (hun / 10 * 10) + 5),
-            2 => (min, 50),
-            3 => ((min / 10 * 10) + 5, 0),
-            4 => (30, 0),
-            _ => (min, hun),
-        };
+            string lon = PositionCodec.FormatCoordinate(Math.Abs(r.Position.Longitude), 3, r.Dao, r.Position.Ambiguity);
+            int deg = int.Parse(lon[..3], System.Globalization.CultureInfo.InvariantCulture);
+            int min = int.Parse(lon.AsSpan(3, 2), System.Globalization.CultureInfo.InvariantCulture);
+            int hun = int.Parse(lon.AsSpan(6, 2), System.Globalization.CultureInfo.InvariantCulture);
 
-        int d = deg switch
-        {
-            < 10 => deg + 90,
-            < 100 => deg,
-            < 110 => deg - 20,
-            _ => deg - 100,
-        };
+            // The longitude digits the latitude's ambiguity covers are ignored by a decoder, which
+            // reports the centre of the box; they are written as that centre (vectors README, Mic-E).
+            (min, hun) = r.Position.Ambiguity switch
+            {
+                1 => (min, (hun / 10 * 10) + 5),
+                2 => (min, 50),
+                3 => ((min / 10 * 10) + 5, 0),
+                4 => (30, 0),
+                _ => (min, hun),
+            };
 
-        if (deg >= 180)
-        {
-            // Degrees 180-189 would be written as 100-109 are, so 180 itself has no Mic-E form (APRS12c ch. 10).
-            w.Defer(AprsRefusalCode.ValueHasNoForm, "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
-        }
+            int d = deg switch
+            {
+                < 10 => deg + 90,
+                < 100 => deg,
+                < 110 => deg - 20,
+                _ => deg - 100,
+            };
 
-        // The printable encoding schemes: speeds under 200 knots use SP + 80, except 190-199, where
-        // that would be DEL and the table's other character is '/' (vectors ruling E5), and DC always
-        // adds 4 to the course hundreds, so only the SE byte can be a control character (APRS12c §10).
-        int sp = speed < 190 ? (speed / 10) + 80 : speed / 10;
-        int dc = ((speed % 10) * 10) + (course / 100) + 4;
-        int se = course % 100;
+            if (deg >= 180)
+            {
+                // Degrees 180-189 would be written as 100-109 are, so 180 itself has no Mic-E form (APRS12c ch. 10).
+                w.Defer(AprsRefusalCode.ValueHasNoForm, "a Mic-E longitude is under 180 degrees east or west (APRS12c ch. 10)");
+            }
 
-        w.Char(r.IsOldData ? '\'' : '`')
-            .Byte((byte)(d + 28))
-            .Byte((byte)((min < 10 ? min + 60 : min) + 28))
-            .Byte((byte)(hun + 28))
-            .Byte((byte)(sp + 28))
-            .Byte((byte)(dc + 28))
-            .Byte((byte)(se + 28))
-            .Char(r.Symbol.Code)
-            .Char(r.Symbol.Table);
+            // The printable encoding schemes: speeds under 200 knots use SP + 80, except 190-199, where
+            // that would be DEL and the table's other character is '/' (vectors ruling E5), and DC always
+            // adds 4 to the course hundreds, so only the SE byte can be a control character (APRS12c §10).
+            int sp = speed < 190 ? (speed / 10) + 80 : speed / 10;
+            int dc = ((speed % 10) * 10) + (course / 100) + 4;
+            int se = course % 100;
+
+            w.Char(r.IsOldData ? '\'' : '`')
+                .Byte((byte)(d + 28))
+                .Byte((byte)((min < 10 ? min + 60 : min) + 28))
+                .Byte((byte)(hun + 28))
+                .Byte((byte)(sp + 28))
+                .Byte((byte)(dc + 28))
+                .Byte((byte)(se + 28))
+                .Char(r.Symbol.Code)
+                .Char(r.Symbol.Table);
+        });
 
         if (r.LegacyTelemetry is { } legacy)
         {

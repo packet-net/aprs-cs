@@ -241,6 +241,27 @@ public class BuilderTests
         FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6).Build()).Should().Throw<AprsEncodeException>();
     }
 
+    [Fact]
+    public void A_setter_replaces_its_quantity_whatever_the_unit_so_a_kept_builder_can_be_reused()
+    {
+        var b = Me.Position(51.4543, -0.9781).Symbol(AprsSymbol.Car).SpeedKnots(10).SpeedKmh(20).SpeedKnots(5);
+        b.ToData().SpeedKnots.Should().Be(5);
+        Sent(b.Build()).Should().Be(Sent(b.Build()));
+        Sent(b.Build()).Should().Contain("/005");
+
+        var wx = Me.Weather().TemperatureFahrenheit(50).TemperatureCelsius(10).RainLastHourMillimetres(25.4).RainLastHourInches(2);
+        wx.ToData().Should().BeOfType<AprsWeatherReport>().Which.Weather.TemperatureFahrenheit.Should().Be(50);
+        ((AprsWeatherReport)wx.ToData()).Weather.RainLastHourInches.Should().Be(2);
+    }
+
+    [Fact]
+    public void Third_party_mic_e_gets_its_computed_destination()
+    {
+        var mic = new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car };
+        AprsThirdPartyTraffic t = AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), mic);
+        t.Packet.Destination.Should().Be(AprsPacket.Create("N0CALL", mic).Destination);
+    }
+
     // ------------------------------------------------------------ builder rules (vectors rulings B1-B8)
 
     [Fact]

@@ -61,6 +61,14 @@ internal sealed class InfoWriter
             Interrupted = true;
             Hold(ex);
         }
+#pragma warning disable CA1031 // only while a refusal is held: the data is refused anyway
+        catch (Exception) when (HasDeferred)
+#pragma warning restore CA1031
+        {
+            // A field after one already refused may not make sense on its own (a longitude of
+            // 1000 has no digits to parse); the later fields are still checked for an earlier code.
+            Interrupted = true;
+        }
     }
 
     /// <summary>Throws the refusal held by <see cref="Defer"/>, if there is one.</summary>

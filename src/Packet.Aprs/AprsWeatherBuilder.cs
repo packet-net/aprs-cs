@@ -110,18 +110,13 @@ public sealed class AprsWeatherBuilder : AprsBuilder
     /// <summary>Temperature in degrees Fahrenheit.</summary>
     public AprsWeatherBuilder TemperatureFahrenheit(double fahrenheit)
     {
-        GivenIn("temperature", "F");
         weather = weather with { TemperatureFahrenheit = fahrenheit };
         return this;
     }
 
     /// <summary>Temperature in degrees Celsius, sent to the nearest degree Fahrenheit.</summary>
-    public AprsWeatherBuilder TemperatureCelsius(double celsius)
-    {
-        GivenIn("temperature", "C");
-        weather = weather with { TemperatureFahrenheit = (celsius * 9 / 5) + 32 };
-        return this;
-    }
+    public AprsWeatherBuilder TemperatureCelsius(double celsius) =>
+        TemperatureFahrenheit((celsius * 9 / 5) + 32);
 
     /// <summary>Relative humidity, 1-100 percent.</summary>
     public AprsWeatherBuilder HumidityPercent(double percent)
@@ -140,50 +135,32 @@ public sealed class AprsWeatherBuilder : AprsBuilder
     /// <summary>Rainfall in inches over the last hour.</summary>
     public AprsWeatherBuilder RainLastHourInches(double inches)
     {
-        GivenIn("rain in the last hour", "in");
         weather = weather with { RainLastHourInches = inches };
         return this;
     }
 
     /// <summary>Rainfall in millimetres over the last hour, sent in inches.</summary>
-    public AprsWeatherBuilder RainLastHourMillimetres(double millimetres)
-    {
-        GivenIn("rain in the last hour", "mm");
-        weather = weather with { RainLastHourInches = millimetres / 25.4 };
-        return this;
-    }
+    public AprsWeatherBuilder RainLastHourMillimetres(double millimetres) => RainLastHourInches(millimetres / 25.4);
 
     /// <summary>Rainfall in inches over the last 24 hours.</summary>
     public AprsWeatherBuilder RainLast24HoursInches(double inches)
     {
-        GivenIn("rain in the last 24 hours", "in");
         weather = weather with { RainLast24HoursInches = inches };
         return this;
     }
 
     /// <summary>Rainfall in millimetres over the last 24 hours, sent in inches.</summary>
-    public AprsWeatherBuilder RainLast24HoursMillimetres(double millimetres)
-    {
-        GivenIn("rain in the last 24 hours", "mm");
-        weather = weather with { RainLast24HoursInches = millimetres / 25.4 };
-        return this;
-    }
+    public AprsWeatherBuilder RainLast24HoursMillimetres(double millimetres) => RainLast24HoursInches(millimetres / 25.4);
 
     /// <summary>Rainfall in inches since local midnight.</summary>
     public AprsWeatherBuilder RainSinceMidnightInches(double inches)
     {
-        GivenIn("rain since midnight", "in");
         weather = weather with { RainSinceMidnightInches = inches };
         return this;
     }
 
     /// <summary>Rainfall in millimetres since local midnight, sent in inches.</summary>
-    public AprsWeatherBuilder RainSinceMidnightMillimetres(double millimetres)
-    {
-        GivenIn("rain since midnight", "mm");
-        weather = weather with { RainSinceMidnightInches = millimetres / 25.4 };
-        return this;
-    }
+    public AprsWeatherBuilder RainSinceMidnightMillimetres(double millimetres) => RainSinceMidnightInches(millimetres / 25.4);
 
     /// <summary>Luminosity in watts per square metre, 0-1999.</summary>
     public AprsWeatherBuilder LuminosityWattsPerSquareMetre(double wattsPerSquareMetre)
@@ -203,7 +180,6 @@ public sealed class AprsWeatherBuilder : AprsBuilder
     public AprsWeatherBuilder Observations(AprsWeather weather)
     {
         ArgumentNullException.ThrowIfNull(weather);
-        ForgetUnits();
         this.weather = weather;
         return this;
     }

@@ -1094,7 +1094,7 @@ namespace Packet.Aprs
         public override char DataTypeIdentifier { get; }
         [System.Runtime.CompilerServices.RequiredMember]
         public Packet.Aprs.AprsPacket Packet { get; init; }
-        public static Packet.Aprs.AprsThirdPartyTraffic Create(Packet.Aprs.AprsAddress source, Packet.Aprs.AprsData data, Packet.Aprs.AprsAddress destination, System.Collections.Generic.IEnumerable<Packet.Aprs.AprsPathEntry>? path = null) { }
+        public static Packet.Aprs.AprsThirdPartyTraffic Create(Packet.Aprs.AprsAddress source, Packet.Aprs.AprsData data, Packet.Aprs.AprsAddress? destination = default, System.Collections.Generic.IEnumerable<Packet.Aprs.AprsPathEntry>? path = null) { }
     }
     public readonly struct AprsTimestamp : System.IEquatable<Packet.Aprs.AprsTimestamp>
     {
