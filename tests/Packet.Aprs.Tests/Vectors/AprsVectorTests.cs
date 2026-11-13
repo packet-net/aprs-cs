@@ -154,10 +154,11 @@ public class AprsVectorTests
         JsonObject c = VectorCases.Get(id);
         JsonObject input = Input(c);
         JsonObject expect = c["expect"]!.AsObject();
-        AprsData data = NeutralReader.Data(input["encode"]!.AsObject());
         AprsPacket packet;
         try
         {
+            // Third-party data is made with its inner packet, whose header is checked first.
+            AprsData data = NeutralReader.Data(input["encode"]!.AsObject());
             packet = AprsPacket.Create(VectorCases.Source(input), data, data is AprsMicEReport ? null : VectorCases.Destination(input));
         }
         catch (AprsEncodeException ex)

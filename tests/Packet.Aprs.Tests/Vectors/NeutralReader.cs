@@ -128,10 +128,9 @@ internal static class NeutralReader
             throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
         }
 
-        AprsPacket inner = Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"
-            ? AprsPacket.Decode(source, destination, path, [])
-            : AprsPacket.Create(source, Data(data), destination, path);
-        return new AprsThirdPartyTraffic { Packet = inner };
+        return Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"
+            ? new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(source, destination, path, []) }
+            : AprsThirdPartyTraffic.Create(source, Data(data), destination, path);
     }
 
     private static T Positioned<T>(JsonObject d, T data, params string[] ownFields)

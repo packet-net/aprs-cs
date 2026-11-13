@@ -317,12 +317,33 @@ public sealed record AprsThirdPartyTraffic : AprsData
     /// <inheritdoc/>
     public override char DataTypeIdentifier => '}';
 
+    private const string HeaderRefusal = "the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -, every path entry before a used one marked used), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)";
+
+    /// <summary>
+    /// Builds third-party traffic from the inner packet's header and data. The header is checked
+    /// first, so a header that cannot be written is refused as
+    /// <see cref="AprsRefusalCode.InvalidThirdPartyHeader"/> whatever is wrong with the data
+    /// (vectors README, Refusal reasons); then the inner packet is made as
+    /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/> makes it.
+    /// </summary>
+    public static AprsThirdPartyTraffic Create(AprsAddress source, AprsData data, AprsAddress destination, IEnumerable<AprsPathEntry>? path = null)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        List<AprsPathEntry> entries = path?.ToList() ?? [];
+        if (!ThirdPartyCodec.HeaderCanBeWritten(source, destination, entries))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
+        }
+
+        return new AprsThirdPartyTraffic { Packet = AprsPacket.Create(source, data, data is AprsMicEReport ? null : destination, entries) };
+    }
+
     internal override void Encode(InfoWriter writer)
     {
         byte[] inner = Packet.ToTnc2();
         if (!ThirdPartyCodec.CanWrite(Packet, inner))
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
         }
 
         writer.Char('}').Bytes(inner);

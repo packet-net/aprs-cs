@@ -463,8 +463,41 @@ internal static class ThirdPartyCodec
             return false;
         }
 
-        var ctx = new DecodeContext(AprsParseOptions.Strict);
-        return Tnc2Codec.TrySplit(tnc2, ctx, out _, out _, thirdParty: true);
+        return HeaderCanBeWritten(packet.Path) && Tnc2Codec.TrySplit(tnc2, new DecodeContext(AprsParseOptions.Strict), out _, out _, thirdParty: true);
+    }
+
+    /// <summary>
+    /// For the encoder: whether a third-party header can be written as given, before anything in
+    /// the inner packet's data is looked at (vectors README, Refusal reasons: the header first).
+    /// </summary>
+    public static bool HeaderCanBeWritten(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path) =>
+        HeaderCanBeWritten(path)
+        && Tnc2Codec.TrySplit(Tnc2Codec.Format(source, destination, path, []), new DecodeContext(AprsParseOptions.Strict), out _, out _, thirdParty: true);
+
+    /// <summary>
+    /// A path entry before a used one is used too, so one not marked used there reads back marked
+    /// (vectors interpretations.md, "Third-party header addresses").
+    /// </summary>
+    private static bool HeaderCanBeWritten(IReadOnlyList<AprsPathEntry> path)
+    {
+        int lastUsed = -1;
+        for (int i = 0; i < path.Count; i++)
+        {
+            if (path[i].Used)
+            {
+                lastUsed = i;
+            }
+        }
+
+        for (int i = 0; i < lastUsed; i++)
+        {
+            if (!path[i].Used)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 
