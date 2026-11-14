@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (2026-11-14)
 
 The aprs-vectors round 3 rulings (vectors pinned at `10d4e25`, aprs-vectors#24).
 
