@@ -7,8 +7,9 @@ namespace Packet.Aprs;
 /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>, <see cref="AprsPacket.ToAx25Frame"/>,
 /// <see cref="AprsBuilder.Build"/> and the builder methods that check at once, is this type, so a
 /// caller can tell a refusal from a programming error: a null argument is an
-/// <see cref="ArgumentNullException"/>, and a builder that was never given something its packet
-/// needs, such as a symbol, throws <see cref="InvalidOperationException"/>.
+/// <see cref="ArgumentNullException"/>, and a builder that was never given a position its packet
+/// needs throws <see cref="InvalidOperationException"/>. Something else it was never given, such as a
+/// symbol, is a refusal like any other.
 /// </summary>
 /// <remarks>
 /// The <see cref="Exception.Message"/> says why, in words that may change between versions; it is not

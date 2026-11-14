@@ -107,7 +107,7 @@ public sealed record AprsTelemetryBitSense : AprsMessage
 
     private protected override void EncodeText(InfoWriter writer)
     {
-        Internal.Text.RequireNoLineBreaks(Project);
+        Internal.Text.RequireNoControlCharacters(Project);
         MessageCodec.RequireNoBrace(Project);
         if (Project.EnumerateRunes().Count() > 23)
         {

@@ -102,8 +102,9 @@ public sealed record AprsTelemetryReport : AprsData
 /// </summary>
 public sealed record AprsWeatherReport : AprsData
 {
-    /// <summary>The MDHM timestamp.</summary>
-    public required AprsTimestamp Timestamp { get; init; }
+    /// <summary>The MDHM timestamp. Null (a report built with none) is refused as <see cref="AprsRefusalCode.MissingField"/>
+    /// when it is encoded; a decoded report always has one.</summary>
+    public required AprsTimestamp? Timestamp { get; init; }
 
     /// <summary>The observations.</summary>
     public required AprsWeather Weather { get; init; }
@@ -116,13 +117,22 @@ public sealed record AprsWeatherReport : AprsData
 
     internal override void Encode(InfoWriter writer)
     {
-        if (Timestamp.Format != AprsTimestampFormat.MonthDayHoursMinutesUtc)
+        if (Timestamp is not { } timestamp)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "a positionless weather report uses an MDHM timestamp (APRS12c ch. 12)");
+            writer.Defer(AprsRefusalCode.MissingField, "a positionless weather report must have a timestamp (APRS12c ch. 12)");
+            writer.Char('_');
+        }
+        else
+        {
+            if (timestamp.Format != AprsTimestampFormat.MonthDayHoursMinutesUtc)
+            {
+                throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "a positionless weather report uses an MDHM timestamp (APRS12c ch. 12)");
+            }
+
+            writer.Char('_');
+            TimestampCodec.Write(writer, timestamp, allowMonthDay: true);
         }
 
-        writer.Char('_');
-        TimestampCodec.Write(writer, Timestamp, allowMonthDay: true);
         if (Comment.Length > 0)
         {
             writer.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12)");

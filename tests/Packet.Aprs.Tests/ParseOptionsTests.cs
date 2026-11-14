@@ -18,4 +18,17 @@ public class ParseOptionsTests
             ((bool)p.GetValue(AprsParseOptions.Lenient)!).Should().BeTrue(p.Name);
         }
     }
+
+    [Fact]
+    public void A_path_entry_of_only_a_used_marker_is_an_invalid_address_not_an_empty_entry()
+    {
+        // Outer header: not an address, whatever the options.
+        AprsPacket.TryDecode("N0CALL>APZ001,WIDE1-1*,*,WIDE2-1*:>x", out _, AprsParseOptions.Lenient).Should().BeFalse();
+
+        // Inside a third-party packet: the inner header is unusable, so the data is unrecognized.
+        AprsPacket.TryDecode("N0CALL>APZ001:}N000CALL>APZ,WIDE1-1*,*,WIDE2-1*:>x", out AprsPacket? packet, AprsParseOptions.Lenient).Should().BeTrue();
+        packet!.Data.Should().BeOfType<AprsUnrecognizedData>();
+        packet.Diagnostics.Should().Contain(d => d.Code == AprsDiagnosticCode.InvalidThirdParty);
+        packet.Diagnostics.Should().NotContain(d => d.Code == AprsDiagnosticCode.EmptyPathEntry || d.Code == AprsDiagnosticCode.MultipleUsedMarkers);
+    }
 }

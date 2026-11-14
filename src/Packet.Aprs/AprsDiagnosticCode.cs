@@ -214,4 +214,10 @@ public enum AprsDiagnosticCode
 
     /// <summary>A <c>&lt;</c> station capabilities packet holds free text rather than TOKEN / TOKEN=VALUE items: a token that is empty or holds a space or a control character, or a value that holds a control character (APRS12c §15).</summary>
     FreeTextCapabilities = 161,
+
+    /// <summary>Text holds a byte below 0x20 or the byte 0x7F (a TAB, or a CR or LF inside the text, included). One warning per text, which is kept as sent (APRS12c gives text as printable characters).</summary>
+    ControlCharacterInText = 162,
+
+    /// <summary>The packet needs more than a fixed capacity holds. Packet.Aprs has no fixed capacity and never gives it; the code is here because every implementation shares the catalogue.</summary>
+    ImplementationLimit = 163,
 }

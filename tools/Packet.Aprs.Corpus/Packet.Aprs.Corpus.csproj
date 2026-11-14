@@ -18,6 +18,8 @@
     <Compile Include="..\..\tests\Packet.Aprs.Tests\Vectors\NeutralJson.cs" Link="Vectors\NeutralJson.cs" />
     <Compile Include="..\..\tests\Packet.Aprs.Tests\Vectors\JsonMatch.cs" Link="Vectors\JsonMatch.cs" />
     <Compile Include="..\..\tests\Packet.Aprs.Tests\Vectors\NeutralReader.cs" Link="Vectors\NeutralReader.cs" />
+    <Compile Include="..\..\tests\Packet.Aprs.Tests\Vectors\RecipeBuilder.cs" Link="Vectors\RecipeBuilder.cs" />
+    <Compile Include="..\..\tests\Packet.Aprs.Tests\Vectors\StandIns.cs" Link="Vectors\StandIns.cs" />
   </ItemGroup>
 
 </Project>

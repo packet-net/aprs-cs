@@ -88,6 +88,13 @@ internal static class Tnc2Codec
                 token = token[..^1];
             }
 
+            if (token.Length == 0 && star)
+            {
+                // An entry of only * is not empty, but it is not an address either.
+                ctx.Error(AprsDiagnosticCode.InvalidAddress, "path address '*' is not an address (1-9 letters, digits or -)");
+                return false;
+            }
+
             if (token.Length == 0)
             {
                 if (!ctx.Tolerate(ctx.Options.AllowEmptyPathEntry, AprsDiagnosticCode.EmptyPathEntry, "empty entry in the digipeater path (UAP 5.6)"))

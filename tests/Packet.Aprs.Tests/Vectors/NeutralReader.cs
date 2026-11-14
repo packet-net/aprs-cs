@@ -11,6 +11,17 @@ namespace Packet.Aprs.Tests.Vectors;
 /// </summary>
 internal static class NeutralReader
 {
+    /// <summary>The <see cref="Exception.Data"/> key marking a refusal the reader or tool made, not the library's public API.</summary>
+    internal const string ToolMade = "via-tool";
+
+    /// <summary>A refusal made by the reader or tool itself; the dump records it with <c>"via": "tool"</c>.</summary>
+    internal static AprsEncodeException ToolRefusal(AprsRefusalCode code, string reason)
+    {
+        var ex = new AprsEncodeException(code, reason);
+        ex.Data[ToolMade] = true;
+        return ex;
+    }
+
     public static AprsData Data(JsonObject d)
     {
         string type = Str(d, "type");
@@ -70,7 +81,7 @@ internal static class NeutralReader
             }, "timestamp", "locator", "symbol", "beam", "text"),
             "telemetry" => Only(d, new AprsTelemetryReport
             {
-                Sequence = Str(d, "sequence"),
+                Sequence = Absent(d, "sequence"),
                 Analog = [.. (d["analog"] as JsonArray ?? []).Select(v => v is null ? (double?)null : (double)v)],
                 Bits = OptStr(d, "bits"),
                 Comment = OptStr(d, "comment") ?? "",
@@ -108,9 +119,47 @@ internal static class NeutralReader
                 Data = System.Text.Encoding.Latin1.GetBytes(OptStr(d, "data") ?? ""),
             }, "user_id", "packet_type", "data"),
             "test" => Only(d, new AprsTestData { Data = OptStr(d, "data") ?? "" }, "data"),
-            "agrelo-df" => Only(d, new AprsAgreloDfReport { BearingDegrees = (int)d["bearing_degrees"]!, Quality = (int)d["quality"]! }, "bearing_degrees", "quality"),
+            "agrelo-df" => Only(d, Agrelo(d), "bearing_degrees", "quality"),
             _ => throw new NotSupportedException($"no neutral reader for '{type}' data"),
         };
+    }
+
+    /// <summary>
+    /// An Agrelo report. The bearing is degrees, rounded to the nearest one like a course (half away
+    /// from zero); the library then range-checks it. A value that is not a number is
+    /// <c>not-a-number</c> whatever else is wrong, which the library's whole numbers cannot hold, so
+    /// it is noted for <see cref="StandIns"/> and read as 0.
+    /// </summary>
+    private static AprsAgreloDfReport Agrelo(JsonObject d)
+    {
+        double bearing = (double)d["bearing_degrees"]!;
+        double quality = (double)d["quality"]!;
+        bool noNumber = false;
+        if (!double.IsFinite(bearing))
+        {
+            noNumber = true;
+            bearing = 0;
+        }
+
+        if (!double.IsFinite(quality))
+        {
+            noNumber = true;
+            quality = 0;
+        }
+
+        if (noNumber)
+        {
+            StandIns.Note(AprsRefusalCode.NotANumber, "an Agrelo bearing or quality is not a number");
+        }
+
+        if (quality != Math.Floor(quality))
+        {
+            throw new InvalidOperationException($"quality {quality.ToString(CultureInfo.InvariantCulture)}: the data takes a whole quality");
+        }
+
+        return new AprsAgreloDfReport { BearingDegrees = Clamp(Math.Round(bearing, MidpointRounding.AwayFromZero)), Quality = Clamp(quality) };
+
+        static int Clamp(double v) => (int)Math.Clamp(v, int.MinValue, int.MaxValue);
     }
 
     /// <summary>
@@ -133,7 +182,7 @@ internal static class NeutralReader
         bool undecoded = d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty";
         if (depth > 4 && !undecoded)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+            throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
         }
     }
 
@@ -143,7 +192,7 @@ internal static class NeutralReader
 
         IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
         AprsAddress source = AprsAddress.Parse(Str(p, "source"));
-        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
+        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
         JsonObject data = p["data"]!.AsObject();
 
         // An empty inner information field is data too: it is written back as it came, empty
@@ -151,7 +200,7 @@ internal static class NeutralReader
         // encoder declines it.
         if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") != "empty")
         {
-            throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
+            throw ToolRefusal(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
         }
 
         if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty")

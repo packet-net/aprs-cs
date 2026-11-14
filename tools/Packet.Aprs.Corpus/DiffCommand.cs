@@ -50,13 +50,24 @@ internal static class DiffCommand
             case "dump" when args.Length == 3:
                 return Each(args[1], args[2], limit, "packets", (n, line) => DecodeRecord(n, Convert.FromHexString(line)));
             case "encode" when args.Length == 3:
-                return Each(args[1], args[2], limit, "data", (n, line) => Parsed(line) is { } o ? EncodeRecord(n, o) : TooDeep(n));
+                return Each(args[1], args[2], limit, "data", (n, line) => Parsed(line) is { } o ? EchoN(EncodeRecord(n, o), o) : TooDeep(n));
             case "build" when args.Length == 3:
-                return Each(args[1], args[2], limit, "recipes", (n, line) => Parsed(line) is { } o ? DiffBuild.Record(n, o) : TooDeep(n));
+                return Each(args[1], args[2], limit, "recipes", (n, line) => Parsed(line) is { } o ? EchoN(DiffBuild.Record(n, o), o) : TooDeep(n));
             default:
                 Console.Error.WriteLine(Usage);
                 return 2;
         }
+    }
+
+    /// <summary>A record carries the input's own <c>n</c> when it has one, so a rerun of a subset of a set still lines up with the set.</summary>
+    private static JsonObject EchoN(JsonObject record, JsonObject input)
+    {
+        if (input["n"] is JsonValue n)
+        {
+            record["n"] = n.DeepClone();
+        }
+
+        return record;
     }
 
     /// <summary>Every packet line from the completed hourly files (a .partial file is still being written).</summary>
@@ -359,6 +370,22 @@ internal static class DiffCommand
     /// </summary>
     private static JsonObject EncodeRecord(long n, JsonObject input)
     {
+        JsonObject record = StandIns.Collect(() => EncodeOnce(n, input), out (AprsRefusalCode Code, string Reason)? own);
+        if (own is not { } mine || (string?)record["result"] == "unsupported")
+        {
+            return record;
+        }
+
+        // Input the data cannot hold, whose value alone decides a code (vectors README, Encode records):
+        // what the record with it left out came to wins if it is refused for an earlier code.
+        bool earlier = (string?)record["result"] == "refused" && (record["refusal"] is null || (Enum.TryParse(((string)record["refusal"]!).Replace("-", "", StringComparison.Ordinal), ignoreCase: true, out AprsRefusalCode code) && StandIns.Earlier(code, mine.Code)));
+        return earlier
+            ? record
+            : new JsonObject { ["n"] = n, ["result"] = "refused", ["reason"] = mine.Reason, ["refusal"] = NeutralJson.Kebab(mine.Code.ToString()), ["via"] = "tool" };
+    }
+
+    private static JsonObject EncodeOnce(long n, JsonObject input)
+    {
         var o = new JsonObject { ["n"] = n };
         JsonObject neutral = input["data"]!.AsObject();
 
@@ -389,20 +416,24 @@ internal static class DiffCommand
             if (ex is AprsEncodeException)
             {
                 AddRefusal(o, "refusal", ex);
+                if (ex.Data.Contains(NeutralReader.ToolMade))
+                {
+                    o["via"] = "tool";
+                }
             }
             else
             {
                 // The neutral reader's own refusals: an inner packet with nothing to encode (it was
                 // not decoded), or one with no destination (a header an inner packet cannot have).
                 o["refusal"] = (string?)neutral["packet"]!["data"]!["type"] == "unrecognized" ? "not-encodable" : "invalid-third-party-header";
+                o["via"] = "tool";
             }
 
             return o;
         }
-#pragma warning disable CA1031 // any failure to read the data is reported for that line alone
-        catch (Exception ex)
-#pragma warning restore CA1031
+        catch (Exception ex) when (ex is NotSupportedException or FormatException or OverflowException or InvalidOperationException or ArgumentException)
         {
+            // What the reader or the data cannot hold. Any other exception type is unexpected and fails the run.
             o["result"] = "unsupported";
             o["reason"] = $"the data cannot be held as Packet.Aprs data: {ex.Message}";
             return o;
@@ -423,7 +454,7 @@ internal static class DiffCommand
                 info = data.ToInformationField();
             }
         }
-        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
+        catch (AprsEncodeException ex)
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;

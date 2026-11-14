@@ -79,27 +79,21 @@ internal static class StormCodec
         }
         else
         {
-            w.Ascii(new string('.', width));
+            // Storm fields are digits: unlike a weather value there is no unknown, so none is written.
+            w.Defer(AprsRefusalCode.MissingField, "storm data needs all its fields (APRS12c ch. 12)");
         }
     }
 
+    /// <summary>A storm field is digits (not dots or spaces, unlike a weather value).</summary>
     private static bool Group(ReadOnlySpan<byte> g, out int? value)
     {
         value = null;
-        if (Text.AllDigits(g))
+        if (!Text.AllDigits(g))
         {
-            value = Text.ParseDigits(g);
-            return true;
+            return false;
         }
 
-        foreach (byte b in g)
-        {
-            if (b is not ((byte)'.' or (byte)' '))
-            {
-                return false;
-            }
-        }
-
+        value = Text.ParseDigits(g);
         return true;
     }
 }

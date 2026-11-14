@@ -233,7 +233,7 @@ public sealed record AprsNwsBulletin : AprsMessage
 
         // No length limit, unlike other bulletins (APRS12c ch. 14), but no '{' either: it would read
         // back as brace-in-message-text.
-        Internal.Text.RequireNoLineBreaks(Text);
+        Internal.Text.RequireNoControlCharacters(Text);
         MessageCodec.RequireNoBrace(Text);
         writer.Utf8(Text);
         WriteMessageId(writer);

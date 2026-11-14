@@ -915,6 +915,7 @@ internal static class PositionCodec
 
     private static long GgaStep(double alt)
     {
+        NotANumber.Refuse(alt, "altitude");
         long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
         return cs > (91 * 91) - 1
             ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "altitude too high for compressed form")
@@ -1095,7 +1096,12 @@ internal static class PositionCodec
         if (d.Storm is { } storm)
         {
             // Each value must fit its digits; written to a scratch writer only to check them.
-            w.Field(() => StormCodec.Write(new InfoWriter(), storm));
+            w.Field(() =>
+            {
+                var scratch = new InfoWriter();
+                StormCodec.Write(scratch, storm);
+                scratch.ThrowDeferred();
+            });
         }
 
         if (d.RangeMiles is { } range)

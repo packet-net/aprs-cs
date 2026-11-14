@@ -19,6 +19,8 @@ internal static class VectorCases
 
     public static bool IsEncodeCase(JsonObject c) => c["input"]!.AsObject().ContainsKey("encode");
 
+    public static bool IsBuildCase(JsonObject c) => c["input"]!.AsObject().ContainsKey("build");
+
     public static string Directory => TestPaths.InRepo("spec", "aprs");
 
     private static Dictionary<string, JsonObject> Load()

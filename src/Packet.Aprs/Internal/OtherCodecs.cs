@@ -384,7 +384,7 @@ internal static class CapabilitiesCodec
 {
     public static AprsData? Decode(ReadOnlySpan<byte> info, DecodeContext ctx)
     {
-        if (!Text.TryDecode(info[1..], ctx, 1, out string text))
+        if (!Text.TryDecode(info[1..], ctx, 1, out string text, judgeControlCharacters: false))
         {
             return null;
         }
@@ -418,6 +418,13 @@ internal static class CapabilitiesCodec
                 AprsDiagnosticCode.FreeTextCapabilities,
                 "station capabilities are TOKEN or TOKEN=VALUE items separated by commas; this is free text (APRS12c ch. 15)",
                 1))
+        {
+            return null;
+        }
+
+        // A value is text: judged for control characters after the report's own free-text check.
+        // A token is not (it keeps that check's rule).
+        if (!Text.JudgeControlCharacters(string.Concat(caps.Select(c => c.Value)), ctx, 1))
         {
             return null;
         }
@@ -538,7 +545,7 @@ internal static class UserDefinedCodec
 internal static class TestDataCodec
 {
     public static AprsData? Decode(ReadOnlySpan<byte> info, DecodeContext ctx) =>
-        Text.TryDecode(info[1..], ctx, 1, out string data) ? new AprsTestData { Data = data } : null;
+        Text.TryDecode(info[1..], ctx, 1, out string data, judgeControlCharacters: false) ? new AprsTestData { Data = data } : null;
 }
 
 internal static class AgreloCodec

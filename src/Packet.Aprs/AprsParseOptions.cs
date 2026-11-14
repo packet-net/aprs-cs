@@ -61,6 +61,7 @@ public sealed record AprsParseOptions
         AllowInvalidAddresseeCharacters = false,
         AllowLetterGroupBulletin = false,
         AllowFreeTextCapabilities = false,
+        AllowControlCharacterInText = false,
     };
 
     /// <summary>
@@ -224,4 +225,11 @@ public sealed record AprsParseOptions
     /// wrong data type identifier.
     /// </summary>
     public bool AllowFreeTextCapabilities { get; init; } = true;
+
+    /// <summary>
+    /// Accept text that holds a control character (a byte below 0x20, or 0x7F; a TAB, and a CR or
+    /// LF inside the text, included), keeping the text as sent. APRS12c gives text as printable
+    /// characters. One warning is given for each text, however many it holds.
+    /// </summary>
+    public bool AllowControlCharacterInText { get; init; } = true;
 }

@@ -108,6 +108,7 @@ internal sealed class InfoWriter
         AprsRefusalCode.MissingField => 22,
         AprsRefusalCode.ValueGivenTwice => 23,
         AprsRefusalCode.TextReadsAsField => 24,
+        AprsRefusalCode.InformationFieldTooLong => 26,
         _ => 25,
     };
 

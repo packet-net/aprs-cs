@@ -84,4 +84,7 @@ public enum AprsRefusalCode
 
     /// <summary>Fallback: the library's own read-back check found the bytes decode to different data and no rule names why. Numbered last as the fallback; every refusal that can be named is.</summary>
     DoesNotReadBack = 26,
+
+    /// <summary>The whole information field, as written, is over 256 bytes (APRS12c ch. 3). The last check: only a record with no other fault is refused for its size. A field over its own limit is <see cref="TooLong"/>.</summary>
+    InformationFieldTooLong = 27,
 }

@@ -119,12 +119,17 @@ public sealed record AprsMicEReport : AprsPositionedData
     /// <summary>
     /// True when <see cref="AprsPositionedData.AltitudeFeet"/> is written in a <c>/A=</c> in the
     /// comment rather than in the Mic-E altitude bytes (whole metres): the decoder sets it for an
-    /// altitude that came from a <c>/A=</c>, and a builder given the altitude in feet does, so
-    /// writing the data again gives the same bytes (vectors ruling B2). An altitude that is not a
-    /// whole number of metres goes in a <c>/A=</c> whatever this says. Not part of the vectors'
-    /// neutral form.
+    /// altitude that came from a <c>/A=</c>, so writing the data again gives the same bytes. When
+    /// it is false the value decides (vectors interpretations.md, "A Mic-E altitude goes in the Mic-E
+    /// altitude bytes"): a <c>/A=</c> only when only a <c>/A=</c> holds the value exactly (a whole
+    /// number of feet within its six digits that the Mic-E bytes do not hold exactly), otherwise
+    /// the Mic-E bytes, rounded to the metre. Not part of the vectors' neutral form.
     /// </summary>
     public bool AltitudeInComment { get; init; }
+
+    /// <summary>Set by a builder: the altitude goes in the Mic-E altitude bytes whatever its value,
+    /// refused if they cannot hold it, never moved to a <c>/A=</c> (vectors README, "Units").</summary>
+    internal bool AltitudeInBytes { get; init; }
 
     /// <inheritdoc/>
     public override char DataTypeIdentifier => IsOldData ? '\'' : '`';

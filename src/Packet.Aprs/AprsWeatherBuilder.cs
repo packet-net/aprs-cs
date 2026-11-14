@@ -44,8 +44,9 @@ public sealed class AprsWeatherBuilder : AprsBuilder
 
     /// <summary>
     /// When the observations were made. Without this a report with a position is current and has no
-    /// timestamp, and a positionless one gets the time of <c>ToData()</c> or <c>Build()</c>. A
-    /// positionless report takes only a month-day timestamp (<c>MMDDHHMM</c>).
+    /// timestamp, and a positionless one is refused as <see cref="AprsRefusalCode.MissingField"/>: the
+    /// builder never reads the clock (pass <c>AprsTimestamp.FromDateTime(DateTime.UtcNow, AprsTimestampFormat.MonthDayHoursMinutesUtc)</c>
+    /// for the time now). A positionless report takes only a month-day timestamp (<c>MMDDHHMM</c>).
     /// </summary>
     public AprsWeatherBuilder Timestamp(AprsTimestamp timestamp)
     {
@@ -209,7 +210,7 @@ public sealed class AprsWeatherBuilder : AprsBuilder
 
         return new AprsWeatherReport
         {
-            Timestamp = timestamp ?? AprsTimestamp.FromDateTime(time ?? DateTime.UtcNow, AprsTimestampFormat.MonthDayHoursMinutesUtc),
+            Timestamp = timestamp ?? (time is { } now ? AprsTimestamp.FromDateTime(now, AprsTimestampFormat.MonthDayHoursMinutesUtc) : null),
             Weather = weather,
         };
     }
