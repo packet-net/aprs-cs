@@ -308,4 +308,4 @@ Out of scope for now: an APRS-IS client, messaging state (retries, ack tracking)
 - [Packet.Core](https://www.nuget.org/packages/Packet.Core) - shared primitives including the strict `Callsign`
 
 ---
-*AGPL-3.0-licensed. Part of the [Packet.NET](https://github.com/packet-net/packet.net) family. The embedded device database is from [aprsorg/aprs-deviceid](https://github.com/aprsorg/aprs-deviceid), CC BY-SA 2.0; see THIRD-PARTY-NOTICES.md in the package.*
+*MIT-licensed. Part of the [Packet.NET](https://github.com/packet-net/packet.net) family. The embedded device database is from [aprsorg/aprs-deviceid](https://github.com/aprsorg/aprs-deviceid), CC BY-SA 2.0; see THIRD-PARTY-NOTICES.md in the package.*
