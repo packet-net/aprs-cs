@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2026-11-14)
 
-The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `a405bac`, aprs-vectors#29). The licence is MIT from this release; versions up to 1.1.0 were published under AGPL-3.0-or-later. The vectors are now CC0.
+The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `656d583`, aprs-vectors#29). The licence is MIT from this release; versions up to 1.1.0 were published under AGPL-3.0-or-later. The vectors are now CC0.
 
 Breaking changes for callers
 
