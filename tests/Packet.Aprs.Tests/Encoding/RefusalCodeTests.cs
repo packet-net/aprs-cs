@@ -61,6 +61,10 @@ public class RefusalCodeTests
         { "storm-beside-wind", AprsRefusalCode.ValueOutOfRange },
         { "third-party-mic-e-destination", AprsRefusalCode.FieldNotAllowed },
         { "bad-source", AprsRefusalCode.InvalidAddress },
+        { "infinite-range", AprsRefusalCode.NotANumber },
+        { "infinite-mic-e-altitude", AprsRefusalCode.NotANumber },
+        { "infinite-course", AprsRefusalCode.NotANumber },
+        { "huge-range", AprsRefusalCode.ValueOutOfRange },
         { "bad-source-before-course", AprsRefusalCode.InvalidAddress },
         { "bad-source-before-mic-e-course", AprsRefusalCode.InvalidAddress },
     };
@@ -119,6 +123,10 @@ public class RefusalCodeTests
             "bad-source" => () => AprsStation.From("BAD!!").Position(51, 0).Symbol(AprsSymbol.Car).Build(),
             "bad-source-before-course" => () => AprsStation.From("BAD!!").Position(51, 0).Symbol(AprsSymbol.Car).CourseDegrees(999).Build(),
             "bad-source-before-mic-e-course" => () => AprsStation.From("BAD!!").MicE(51, 0).Symbol(AprsSymbol.Car).CourseDegrees(999).Build(),
+            "infinite-range" => () => (Report() with { IsCompressed = true, RangeMiles = double.PositiveInfinity }).ToInformationField(),
+            "infinite-mic-e-altitude" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, AltitudeFeet = double.NegativeInfinity }),
+            "infinite-course" => () => (Report() with { CourseDegrees = double.PositiveInfinity, SpeedKnots = 1 }).ToInformationField(),
+            "huge-range" => () => (Report() with { IsCompressed = true, RangeMiles = 1e300 }).ToInformationField(),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;

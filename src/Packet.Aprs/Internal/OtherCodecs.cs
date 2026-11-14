@@ -361,8 +361,8 @@ internal static class QueryCodec
         {
             double radius = Steps.Whole(f.RadiusMiles);
             NotANumber.Refuse(f.RadiusMiles, "footprint radius");
-            NotANumber.Refuse(f.Latitude, "footprint latitude", orInfinity: true);
-            NotANumber.Refuse(f.Longitude, "footprint longitude", orInfinity: true);
+            NotANumber.Refuse(f.Latitude, "footprint latitude");
+            NotANumber.Refuse(f.Longitude, "footprint longitude");
             if (radius is < 0 or > 9999 || f.Latitude is not (>= -90 and <= 90) || f.Longitude is not (>= -180 and <= 180))
             {
                 throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "footprint latitude, longitude or radius out of range");

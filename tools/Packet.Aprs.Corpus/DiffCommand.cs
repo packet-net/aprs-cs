@@ -106,11 +106,105 @@ internal static class DiffCommand
     {
         try
         {
-            return JsonNode.Parse(line, documentOptions: new System.Text.Json.JsonDocumentOptions { MaxDepth = 256 })!.AsObject();
+            bool nonFinite = false;
+            string text = NonFiniteToStrings(line, ref nonFinite);
+            JsonObject o = JsonNode.Parse(text, documentOptions: new System.Text.Json.JsonDocumentOptions { MaxDepth = 256 })!.AsObject();
+            if (nonFinite)
+            {
+                RestoreNonFinite(o);
+            }
+
+            return o;
         }
         catch (System.Text.Json.JsonException ex) when (ex.Message.Contains("depth", StringComparison.OrdinalIgnoreCase))
         {
             return null;
+        }
+    }
+
+    private const char NonFiniteMark = '\u0001';
+
+    /// <summary>
+    /// The generator's <c>--nonfinite</c> lines hold the non-standard tokens <c>NaN</c>,
+    /// <c>Infinity</c> and <c>-Infinity</c>, which System.Text.Json does not read: outside
+    /// strings they become marked strings, turned back into numbers by <see cref="RestoreNonFinite"/>.
+    /// </summary>
+    private static string NonFiniteToStrings(string line, ref bool found)
+    {
+        if (!line.Contains("NaN", StringComparison.Ordinal) && !line.Contains("Infinity", StringComparison.Ordinal))
+        {
+            return line;
+        }
+
+        var sb = new System.Text.StringBuilder(line.Length + 16);
+        bool inString = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (inString)
+            {
+                sb.Append(c);
+                if (c == '\\' && i + 1 < line.Length)
+                {
+                    sb.Append(line[++i]);
+                }
+                else if (c == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            string? token = c == 'N' && string.CompareOrdinal(line, i, "NaN", 0, 3) == 0 ? "NaN"
+                : c == 'I' && string.CompareOrdinal(line, i, "Infinity", 0, 8) == 0 ? "Infinity"
+                : c == '-' && string.CompareOrdinal(line, i, "-Infinity", 0, 9) == 0 ? "-Infinity"
+                : null;
+            if (token is not null)
+            {
+                sb.Append("\"\\u0001").Append(token).Append('"');
+                i += token.Length - 1;
+                found = true;
+                continue;
+            }
+
+            inString = c == '"';
+            sb.Append(c);
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Turns the marked strings back into NaN and the infinities, without recursion.</summary>
+    private static void RestoreNonFinite(JsonNode root)
+    {
+        var pending = new Stack<JsonNode>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            JsonNode node = pending.Pop();
+            IEnumerable<(JsonNode? Child, Action<JsonNode> Set)> children = node switch
+            {
+                JsonObject o => [.. o.Select(kv => ((JsonNode?)kv.Value, (Action<JsonNode>)(v => o[kv.Key] = v)))],
+                JsonArray a => [.. a.Select((v, i) => (v, (Action<JsonNode>)(x => a[i] = x)))],
+                _ => [],
+            };
+            foreach ((JsonNode? child, Action<JsonNode> set) in children)
+            {
+                if (child is JsonValue v && v.TryGetValue(out string? s) && s.StartsWith(NonFiniteMark))
+                {
+                    set(JsonValue.Create(s[1..] switch
+                    {
+                        "NaN" => double.NaN,
+                        "Infinity" => double.PositiveInfinity,
+                        _ => double.NegativeInfinity,
+                    }));
+                }
+                else if (child is not null)
+                {
+                    pending.Push(child);
+                }
+            }
         }
     }
 

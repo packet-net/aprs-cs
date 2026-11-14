@@ -20,7 +20,11 @@ internal static class DiffBuild
     public static JsonObject Record(long n, JsonObject recipe)
     {
         var o = new JsonObject { ["n"] = n };
-        string? twice = GivenTwice(recipe["args"] as JsonObject);
+        if (GivenTwice(recipe["args"] as JsonObject) is { } twice)
+        {
+            return TwoUnits(o, recipe, twice);
+        }
+
         AprsPacket packet;
         try
         {
@@ -32,28 +36,11 @@ internal static class DiffBuild
             o["reason"] = ex.Message;
             return o;
         }
-        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException
-            && (twice is null || ex is not AprsEncodeException e || InfoWriter.Rank(e.Code) < InfoWriter.Rank(AprsRefusalCode.ValueGivenTwice)))
+        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;
             DiffCommand.AddRefusal(o, "refusal", ex);
-            return o;
-        }
-        catch (AprsEncodeException)
-        {
-            // A later refusal is outranked by the value given twice.
-            packet = null!;
-        }
-
-        if (twice is not null)
-        {
-            // One input carrying a quantity in two units at once: the builder's setters each
-            // replace the quantity, so the recipe, not the builder, holds both (vectors README,
-            // Builder rules). It is named in the Refusal reasons order.
-            o["result"] = "refused";
-            o["reason"] = $"the recipe gives {twice} in two units";
-            o["refusal"] = "value-given-twice";
             return o;
         }
 
@@ -81,6 +68,65 @@ internal static class DiffBuild
         ("rain_24h_in", "rain_24h_mm", "the rain in the last 24 hours"),
         ("rain_midnight_in", "rain_midnight_mm", "the rain since midnight"),
     ];
+
+    /// <summary>
+    /// A recipe giving a quantity in two units is one input that carries it twice, so it is
+    /// refused. It is built once with each unit, every value so checked on its own, and the
+    /// refusal is the first code in the Refusal reasons order among those builds' refusals and
+    /// <c>value-given-twice</c> (vectors README, Builder rules). It is never built from one unit.
+    /// </summary>
+    private static JsonObject TwoUnits(JsonObject o, JsonObject recipe, string twice)
+    {
+        Exception? first = null;
+        foreach (bool keepFirstUnit in new[] { true, false })
+        {
+            var variant = (JsonObject)recipe.DeepClone();
+            var args = (JsonObject)variant["args"]!;
+            foreach ((string a, string b, _) in Units)
+            {
+                if (args.ContainsKey(a) && args.ContainsKey(b))
+                {
+                    args.Remove(keepFirstUnit ? b : a);
+                }
+            }
+
+            try
+            {
+                _ = Build(variant);
+            }
+            catch (UnsupportedException ex)
+            {
+                o["result"] = "unsupported";
+                o["reason"] = ex.Message;
+                return o;
+            }
+            catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
+            {
+                if (first is null || Rank(ex) < Rank(first))
+                {
+                    first = ex;
+                }
+            }
+        }
+
+        o["result"] = "refused";
+        if (first is not null && Rank(first) < InfoWriter.Rank(AprsRefusalCode.ValueGivenTwice))
+        {
+            o["reason"] = first.Message;
+            DiffCommand.AddRefusal(o, "refusal", first);
+        }
+        else
+        {
+            o["reason"] = $"the recipe gives {twice} in two units";
+            o["refusal"] = "value-given-twice";
+        }
+
+        return o;
+
+        // Something the packet needs and was never given has no code; it is the builder's own
+        // refusal and comes before the codes.
+        static int Rank(Exception ex) => ex is AprsEncodeException e ? InfoWriter.Rank(e.Code) : -1;
+    }
 
     /// <summary>The first quantity the recipe gives in two units, or null.</summary>
     private static string? GivenTwice(JsonObject? args) =>

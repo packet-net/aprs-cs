@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-The aprs-vectors round 3 rulings (vectors pinned at `f2f6ab5`, aprs-vectors#24).
+The aprs-vectors round 3 rulings (vectors pinned at `10d4e25`, aprs-vectors#24).
 
 Behaviour changes for 1.x callers
 
 - Some data 1.0.x wrote is now refused: a locator in lower case (status, Mic-E, Maidenhead beacon), telemetry with too few or too many values, more than 15 `EQNS.` coefficients, third-party packets nested more than four deep, and a third-party path entry before a used one that is not marked used.
 - An AX.25 frame whose address holds punctuation or a control character is now an error (`InvalidAddress`) in both modes, not a tolerated `InvalidAx25AddressCharacters`.
 - Where data has several faults, the refusal code may differ from 1.0.x: it is now the first in the shared order.
+- An infinity is `NotANumber` wherever a NaN is (it was `ValueOutOfRange` at some checks), and a value too large for any field is `ValueOutOfRange` where an overflow could escape before.
 - `AprsPacket.Create` and the builders now refuse a source, destination or path entry that is not 1-9 letters, digits or `-` (`InvalidAddress`), before the data is looked at. 1.0.x wrote such a header, which a decoder then rejected.
 
 Refusal reasons
@@ -23,7 +24,7 @@ Refusal reasons
 - A general or directed query with an empty query type is `InvalidCode`: absent text is empty text.
 - A reply-ack is checked as a message ID before a missing message ID is reported.
 - The telemetry builder checks its analog values and bits when the report is built, so their faults are named in the shared order with the others.
-- A builder setter replaces its quantity whatever unit it is given in, so on a kept builder the last call wins, as in 1.0.x. `ValueGivenTwice` is only for one input that carries a quantity in two units at once: `aprs-corpus diff build` gives it for a recipe with both, named in the shared order.
+- A builder setter replaces its quantity whatever unit it is given in, so on a kept builder the last call wins, as in 1.0.x. `ValueGivenTwice` is only for one input that carries a quantity in two units at once: `aprs-corpus diff build` builds such a recipe once with each unit and names the first code in the shared order among both builds' refusals and `ValueGivenTwice` (vectors README, Builder rules).
 
 Third-party packets
 
@@ -38,7 +39,7 @@ Decoding
 
 Tools
 
-- `aprs-corpus diff encode` holds an addressee, name, query type or symbol left out of the data as empty, so the encoder refuses it rather than the line being unsupported (absent text is empty text); a line nested too deep for its JSON reader is unsupported, not a crash; a symbol of one character no longer crashes it ("Index was outside the bounds of the array").
+- `aprs-corpus diff encode` holds an addressee, name, query type or symbol left out of the data as empty, so the encoder refuses it rather than the line being unsupported (absent text is empty text); a line nested too deep for its JSON reader is unsupported, not a crash; the generator's `NaN`, `Infinity` and `-Infinity` tokens are read; third-party data whose inner packet carries a tolerated diagnostic is built as the packet that reads with it, so it is refused (`invalid-third-party-header`); a symbol of one character no longer crashes it ("Index was outside the bounds of the array").
 - The vectors runner reads third-party data inside its refusal check, and skips the neutral read-back of nested third-party packets with undecoded data at any depth.
 
 ## 1.0.1 (2026-11-12)

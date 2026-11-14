@@ -161,7 +161,20 @@ internal static class NeutralReader
 
         // A Mic-E report's destination is computed from it; the neutral form's is that one.
         AprsData inner = Data(data);
-        return AprsThirdPartyTraffic.Create(source, inner, inner is AprsMicEReport ? null : destination, path);
+        AprsThirdPartyTraffic traffic = AprsThirdPartyTraffic.Create(source, inner, inner is AprsMicEReport ? null : destination, path);
+
+        // Diagnostics on the inner packet are part of its data (a tolerated header defect such as
+        // several used markers): the packet is the one that reads with them, its header as
+        // given, which the encoder then refuses (vectors encode/third-party-inner-header-with-a-
+        // tolerated-defect).
+        if (Strings(p["diagnostics"]).Any(d => !d.StartsWith("info:", StringComparison.Ordinal)))
+        {
+            string header = $"{Str(p, "source")}>{traffic.Packet.Destination.Value}{string.Concat(Strings(p["path"]).Select(e => "," + e))}:";
+            byte[] line = [.. System.Text.Encoding.UTF8.GetBytes(header), .. traffic.Packet.Information.ToArray()];
+            traffic = new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(line, AprsParseOptions.Lenient) };
+        }
+
+        return traffic;
     }
 
     private static T Positioned<T>(JsonObject d, T data, params string[] ownFields)
