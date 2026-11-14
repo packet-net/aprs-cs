@@ -13,4 +13,4 @@ dotnet test Packet.Aprs.slnx
 
 Releases: push a `vX.Y.Z` tag; `publish.yml` tests, packs and pushes to nuget.org with Trusted Publishing. Versions continue from the 0.54.0 published from packet-net/packet.net.
 
-Licence: AGPL-3.0-or-later.
+Licence: MIT.

@@ -28,7 +28,7 @@
     <Authors>Tom Fanning M0LTE and Packet.NET contributors</Authors>
     <Company>Packet.NET</Company>
     <Copyright>Copyright © 2026 Tom Fanning and Packet.NET contributors</Copyright>
-    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/packet-net/aprs-cs</PackageProjectUrl>
     <RepositoryUrl>https://github.com/packet-net/aprs-cs</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
