@@ -521,13 +521,6 @@ internal static class CommentCodec
 
     private static void WriteTrailer(InfoWriter w, AprsPositionedData d, bool includeWeatherSoftware)
     {
-        if (includeWeatherSoftware && d.AltitudeFeet is { } given)
-        {
-            // A weather report has no place for an /A= altitude, but NaN or an infinity is
-            // not-a-number at every check that also catches it (vectors README, Refusal reasons).
-            w.Field(() => NotANumber.Refuse(given, "altitude"));
-        }
-
         if (includeWeatherSoftware && (d.Telemetry is not null || d.Frequency is not null || d.SignpostText is not null
             || (d.AltitudeFeet is not null && !(d.IsCompressed && d.CompressionType?.Source == AprsCompressionSource.Gga))))
         {

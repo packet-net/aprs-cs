@@ -864,13 +864,9 @@ internal static class MicECodec
                 char first = (char)((value / (91 * 91)) + 33);
                 if (r.TypeCode is null && first is '`' or '\'' or '>' or ']')
                 {
-                    if (Steps.Whole(feet) is < -99999 or > 999999)
-                    {
-                        // Only the Mic-E bytes can hold it, and they read back as a type code.
-                        throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "without a TypeCode this Mic-E altitude would decode as a device type code, and no /A= holds it");
-                    }
-
-                    w.Defer(AprsRefusalCode.TextReadsAsField, "without a TypeCode this Mic-E altitude would decode as a device type code; set TypeCode");
+                    // A /A= that held it exactly was chosen before this point, so what reaches here
+                    // has no form: the bytes read back as a type code (vectors README, Refusal reasons).
+                    w.Defer(AprsRefusalCode.ValueHasNoForm, "without a TypeCode this Mic-E altitude would decode as a device type code, and no /A= holds it exactly");
                 }
 
                 w.Base91(value, 3).Char('}');

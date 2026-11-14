@@ -70,7 +70,7 @@ internal static class NeutralReader
             }, "timestamp", "locator", "symbol", "beam", "text"),
             "telemetry" => Only(d, new AprsTelemetryReport
             {
-                Sequence = Str(d, "sequence"),
+                Sequence = Absent(d, "sequence"),
                 Analog = [.. (d["analog"] as JsonArray ?? []).Select(v => v is null ? (double?)null : (double)v)],
                 Bits = OptStr(d, "bits"),
                 Comment = OptStr(d, "comment") ?? "",

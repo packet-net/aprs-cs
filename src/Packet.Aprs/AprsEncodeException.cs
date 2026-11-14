@@ -43,6 +43,9 @@ public sealed class AprsEncodeException : ArgumentException
         Code = code;
     }
 
+    /// <summary>True for the refusal of an information field over 256 bytes, the last check, which tools use to tell it from a field over its own limit.</summary>
+    internal bool IsInformationFieldSize { get; init; }
+
     /// <summary>
     /// The rule the refusal is under, for a caller that acts on the reason rather than reading the
     /// message. The codes are shared with the other APRS libraries and the vectors. A code this

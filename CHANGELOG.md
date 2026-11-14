@@ -2,11 +2,11 @@
 
 ## Unreleased
 
-The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `9f3e07d`, aprs-vectors#29). The licence is now MIT.
+The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `fe7d451`, aprs-vectors#29). The licence is now MIT.
 
 Breaking changes for callers
 
-- An encoder or builder refuses an information field over 256 bytes (`TooLong`), whatever it writes, third-party packets counted on the outermost field. A decoder sets no limit, so a decoded packet over 256 bytes decodes as before and re-encoding it is refused.
+- An encoder or builder refuses an information field over 256 bytes (`TooLong`), whatever it writes, third-party packets counted on the outermost field. The size is the last check, on the bytes actually written: a record any other rule refuses (a missing field, a bad symbol, a fault in a third-party packet's inner field, the read-back) gets that rule's code, and only an otherwise sound record over 256 bytes is `TooLong` for its size. A field over its own limit (message text over 67 characters, more than five analog values) stays `TooLong` at its place in the order. A decoder sets no limit, so a decoded packet over 256 bytes decodes as before and re-encoding it is refused.
 - Text with a control character (a byte below 0x20 or 0x7F, a TAB or a CR or LF inside the text included) is refused as `InvalidCharacter`, not only a CR or LF; a Mic-E status text starting with 0x1D is refused too, not written after a `/`. A decoder gives the new warning `ControlCharacterInText` for such text, so a strict decoder (`AllowControlCharacterInText` off) now rejects those packets.
 - A run-on weather value (a fixed-width field whose digits run on by two or more) followed by the end of the information field or by a defined field it goes on to read is dropped with `OutOfRangeValue`, and the fields carry on after it, so `t2147483647r000p000` has a rain of 0 and no temperature.
 - An object or a positionless weather report built with no timestamp is refused (`MissingField`) instead of being stamped from the clock. A builder never reads the clock: pass `AprsTimestamp.FromDateTime(DateTime.UtcNow)` (a positionless weather report: with `AprsTimestampFormat.MonthDayHoursMinutesUtc`) for the time now. `AprsWeatherReport.Timestamp` is now `AprsTimestamp?`, null meaning none given.
@@ -17,8 +17,11 @@ Breaking changes for callers
 Other changes
 
 - New diagnostic codes `ControlCharacterInText` (a warning, tolerated by the new `AllowControlCharacterInText` flag, on in `Lenient`, off in `Strict`) and `ImplementationLimit`, which Packet.Aprs has no use for (it has no fixed capacity) but which is in the shared code catalogue.
-- A non-finite altitude on a weather report is `NotANumber`, not whatever an earlier fault in the record was named; the weather report has no place for the altitude, but NaN and infinity are `NotANumber` at every check that also catches them.
+- A field the report has no place for gets none of its checks: a NaN or infinite altitude on a weather report that has no place for it (anything but a GGA altitude in the cs bytes of a compressed one) is `FieldNotAllowed`, or whatever an earlier fault in the record is named, not `NotANumber`. A GGA altitude of NaN or an infinity in the cs bytes is `NotANumber`, before a longitude out of range.
+- A status symbol given with no locator is `MissingField` (was `FieldNotAllowed`), in a builder and in neutral data alike. Neutral telemetry data with no sequence is `MissingField` (was `Malformed`); a sequence that is there but not letters or digits is still `Malformed`.
+- A Mic-E altitude the bytes cannot carry in place (the first byte would read as a type code, with no type code given) and no `/A=` holds exactly is `ValueHasNoForm` (was `TextReadsAsField` for some values).
 - The builder defaults are written into the vectors' rules and are as before: no path, destination `APZ001`, messaging off, a Mic-E report with no message off duty, a weather report with no symbol `/_`, a telemetry report with no bits `00000000`.
+- The vectors test runner runs the new `build` case input (`cases/builder.json`) through the same recipe builder as `aprs-corpus diff build` (`tests/Packet.Aprs.Tests/Vectors/RecipeBuilder.cs`, linked into the tool), comparing the TNC2 line built or the refusal code. `diff encode` and `diff build` records carry the input's own `n`, so a rerun of a subset lines up with the set.
 - `aprs-corpus diff build` passes only the keys a recipe gives. A telemetry sequence left out is refused as `missing-field` (the builder takes the sequence as an argument, so it is built with a placeholder only to name an earlier fault in the shared order); a message, bulletin or status with no `text` still gets empty text, as absent text is empty text.
 
 Review fixes

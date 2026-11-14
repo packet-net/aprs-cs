@@ -67,13 +67,6 @@ public abstract record AprsData
             writer.Defer(AprsRefusalCode.InvalidCharacter, "the information field would end with a line break, which a decoder strips with a warning");
         }
 
-        if (info.Length > MaxInformationField)
-        {
-            // Measured on the bytes the data's fields make as given, so it is known before every
-            // other check has passed (vectors README, Encoding).
-            writer.Defer(AprsRefusalCode.TooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)");
-        }
-
         writer.ThrowDeferred();
         if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)
         {
@@ -83,6 +76,14 @@ public abstract record AprsData
         if (this is AprsMessage message)
         {
             MessageCodec.VerifyReadsBack(message, info);
+        }
+
+        if (info.Length > MaxInformationField)
+        {
+            // The last check, on the bytes actually written: a record any other rule refuses gets
+            // that rule's code, and nothing is measured that was not written (vectors README,
+            // Encoding and Refusal reasons).
+            throw new AprsEncodeException(AprsRefusalCode.TooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)") { IsInformationFieldSize = true };
         }
 
         return info;
