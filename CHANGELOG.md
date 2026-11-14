@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `9f3e07d`, aprs-vectors#29). The licence is now MIT.
+
+Breaking changes for callers
+
+- An encoder or builder refuses an information field over 256 bytes (`TooLong`), whatever it writes, third-party packets counted on the outermost field. A decoder sets no limit, so a decoded packet over 256 bytes decodes as before and re-encoding it is refused.
+- Text with a control character (a byte below 0x20 or 0x7F, a TAB or a CR or LF inside the text included) is refused as `InvalidCharacter`, not only a CR or LF; a Mic-E status text starting with 0x1D is refused too, not written after a `/`. A decoder gives the new warning `ControlCharacterInText` for such text, so a strict decoder (`AllowControlCharacterInText` off) now rejects those packets.
+- A run-on weather value (a fixed-width field whose digits run on by two or more) followed by the end of the information field or by a defined field it goes on to read is dropped with `OutOfRangeValue`, and the fields carry on after it, so `t2147483647r000p000` has a rain of 0 and no temperature.
+- An object or a positionless weather report built with no timestamp is refused (`MissingField`) instead of being stamped from the clock. A builder never reads the clock: pass `AprsTimestamp.FromDateTime(DateTime.UtcNow)` (a positionless weather report: with `AprsTimestampFormat.MonthDayHoursMinutesUtc`) for the time now. `AprsWeatherReport.Timestamp` is now `AprsTimestamp?`, null meaning none given.
+- A Mic-E altitude goes in the Mic-E altitude bytes, rounded once to the nearest metre from the value given (1000 feet is 305 m), instead of a `/A=` in the status text for a builder given feet. A builder's altitude outside -10000 to 743570 m is `ValueOutOfRange`.
+- Neutral Mic-E data (not decoded from a `/A=`): an altitude of -50000 feet is written as `/A=-50000` instead of refused, and one that is neither a whole number of feet nor of metres (100.5 feet) goes in the Mic-E bytes as 31 m instead of `/A=000101`. A `/A=` is written only for a whole number of feet within its six digits that the Mic-E bytes do not hold exactly; an altitude read from a `/A=` is still written back as one.
+- A position, object, item or Mic-E report built with no symbol is refused as `InvalidSymbol` (a builder used to throw `InvalidOperationException`); a builder still throws it for an object or item with no position.
+
+Other changes
+
+- New diagnostic codes `ControlCharacterInText` (a warning, tolerated by the new `AllowControlCharacterInText` flag, on in `Lenient`, off in `Strict`) and `ImplementationLimit`, which Packet.Aprs has no use for (it has no fixed capacity) but which is in the shared code catalogue.
+- A non-finite altitude on a weather report is `NotANumber`, not whatever an earlier fault in the record was named; the weather report has no place for the altitude, but NaN and infinity are `NotANumber` at every check that also catches them.
+- The builder defaults are written into the vectors' rules and are as before: no path, destination `APZ001`, messaging off, a Mic-E report with no message off duty, a weather report with no symbol `/_`, a telemetry report with no bits `00000000`.
+- `aprs-corpus diff build` passes only the keys a recipe gives. A telemetry sequence left out is refused as `missing-field` (the builder takes the sequence as an argument, so it is built with a placeholder only to name an earlier fault in the shared order); a message, bulletin or status with no `text` still gets empty text, as absent text is empty text.
+
+Review fixes
+
 - Fixed: `AprsTimestamp.Resolve(DateTime)` used a Local reference's wall-clock fields as if they were UTC, so on a machine ahead of UTC it could pick the wrong day. A Local reference is now converted to UTC first; Unspecified is still taken as UTC (documented). New overload `Resolve(DateTimeOffset)`, which never depends on the machine's time zone.
 - Fixed the package README's worked example 2, which did not compile (`mobile.Message` is `mobile.MicEMessage`).
 - Tests: every `csharp` block in the README is now checked against the tested copy in `ReadmeExamples`, so the two cannot drift apart unnoticed.
