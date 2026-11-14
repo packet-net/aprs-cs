@@ -11,10 +11,10 @@ public sealed class AprsMessageBuilder : AprsBuilder
     internal AprsMessageBuilder(AprsStation station, string addressee, string text)
         : base(station)
     {
-        ArgumentNullException.ThrowIfNull(addressee);
-        ArgumentNullException.ThrowIfNull(text);
-        this.addressee = addressee;
-        this.text = text;
+        // Absent text is empty text: a missing addressee is refused as InvalidAddressee when built,
+        // not thrown as an argument error (vectors README, Refusal reasons).
+        this.addressee = addressee ?? "";
+        this.text = text ?? "";
     }
 
     /// <summary>A message ID (1-5 letters or digits), which asks the other station to acknowledge it.</summary>
@@ -53,10 +53,8 @@ public sealed class AprsAckBuilder : AprsBuilder
     internal AprsAckBuilder(AprsStation station, string addressee, string messageId, bool reject)
         : base(station)
     {
-        ArgumentNullException.ThrowIfNull(addressee);
-        ArgumentNullException.ThrowIfNull(messageId);
-        this.addressee = addressee;
-        this.messageId = messageId;
+        this.addressee = addressee ?? "";
+        this.messageId = messageId ?? "";
         this.reject = reject;
     }
 
@@ -86,8 +84,7 @@ public sealed class AprsStatusBuilder : AprsBuilder
     internal AprsStatusBuilder(AprsStation station, string text)
         : base(station)
     {
-        ArgumentNullException.ThrowIfNull(text);
-        this.text = text;
+        this.text = text ?? "";
     }
 
     /// <summary>When the status was set, sent as day, hours and minutes UTC. Not with <see cref="Locator(string)"/>.</summary>

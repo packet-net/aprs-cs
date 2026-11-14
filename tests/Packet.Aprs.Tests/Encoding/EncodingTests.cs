@@ -410,7 +410,7 @@ public class EncodingTests : AprsSpec
         ThenEncodedIs("!4903.50N/07201.75W>" + comment);
 
         var tooLong = new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), Comment = comment + "x" };
-        FluentActions.Invoking(() => tooLong.ToInformationField()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.TooLong);
+        FluentActions.Invoking(() => tooLong.ToInformationField()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InformationFieldTooLong);
     }
 
     [Fact]

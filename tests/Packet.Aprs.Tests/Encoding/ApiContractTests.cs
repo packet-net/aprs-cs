@@ -43,7 +43,11 @@ public class ApiContractTests
     {
         FluentActions.Invoking(() => Me.Object("MYRPTR").Symbol(AprsSymbol.Repeater).Build()).Should().Throw<InvalidOperationException>();
         FluentActions.Invoking(() => Me.Position(51, 0).Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidSymbol);
-        FluentActions.Invoking(() => Me.Message(null!, "x")).Should().Throw<ArgumentNullException>();
+        // Absent text is empty text: a missing addressee is a refusal with its code, not an argument error.
+        FluentActions.Invoking(() => Me.Message(null!, "x").Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidAddressee);
+        FluentActions.Invoking(() => Me.Ack(null!, "1").Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidAddressee);
+        FluentActions.Invoking(() => Me.Reject(null!, "1").Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidAddressee);
+        FluentActions.Invoking(() => Me.Position(51, 0).ToData()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidSymbol);
         FluentActions.Invoking(() => AprsPacket.Create("M0LTE", null!)).Should().Throw<ArgumentNullException>();
     }
 

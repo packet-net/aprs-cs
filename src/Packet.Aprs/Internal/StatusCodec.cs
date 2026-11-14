@@ -333,6 +333,11 @@ internal static class TelemetryCodec
         {
             w.Defer(AprsRefusalCode.Malformed, "telemetry sequence is letters or digits");
         }
+        else if (r.Sequence.StartsWith("MIC", StringComparison.Ordinal) && r.Sequence != "MIC")
+        {
+            // It would read back as MIC and a value (vectors README, Refusal reasons).
+            w.Defer(AprsRefusalCode.Malformed, "a telemetry sequence that starts MIC is MIC itself");
+        }
 
         if (r.Analog.Count > 5)
         {

@@ -46,7 +46,7 @@ internal static class WeatherCodec
     {
         var probe = new DecodeContext(AprsParseOptions.Lenient) { Depth = ctx.Depth };
         var weather = new AprsWeather();
-        return TryReadRun(info, ref pos, probe, ref weather, windAsFields: true, positionless: false, out bool direction, out _, out _) && direction;
+        return TryReadRun(info, ref pos, probe, ref weather, windAsFields: true, positionless: false, [], out bool direction, out _, out _) && direction;
     }
 
     /// <summary>Reads a 7-byte <c>DDD/SSS</c> wind extension at <paramref name="pos"/>.</summary>
@@ -84,7 +84,19 @@ internal static class WeatherCodec
     public static bool TryReadFields(ReadOnlySpan<byte> info, ref int pos, DecodeContext ctx, ref AprsWeather weather, bool positionless, bool windAsFields = false, bool windMustBeComplete = false)
     {
         int start = pos;
-        if (!TryReadRun(info, ref pos, ctx, ref weather, positionless || windAsFields, positionless, out bool direction, out bool speed, out HashSet<char> seen))
+
+        // In a positioned report a trailing !DAO! or base-91 telemetry is lifted first, so where it
+        // starts the weather text ends (vectors README, Weather).
+        List<(int Start, int Length)> trailer = [];
+        if (!positionless)
+        {
+            foreach ((int s, int l) in CommentCodec.TrailerSpans([.. info[pos..].ToArray()]))
+            {
+                trailer.Add((s + pos, l));
+            }
+        }
+
+        if (!TryReadRun(info, ref pos, ctx, ref weather, positionless || windAsFields, positionless, trailer, out bool direction, out bool speed, out HashSet<char> seen))
         {
             return false;
         }
@@ -114,7 +126,7 @@ internal static class WeatherCodec
     /// once the wind is known. Extra fields are kept as a list, so a repeated extra letter does not
     /// end it (vectors interpretations.md, "Which weather field a letter is").
     /// </summary>
-    private static bool TryReadRun(ReadOnlySpan<byte> info, ref int pos, DecodeContext ctx, ref AprsWeather weather, bool windAsFields, bool positionless, out bool direction, out bool speed, out HashSet<char> seen)
+    private static bool TryReadRun(ReadOnlySpan<byte> info, ref int pos, DecodeContext ctx, ref AprsWeather weather, bool windAsFields, bool positionless, List<(int Start, int Length)> trailer, out bool direction, out bool speed, out HashSet<char> seen)
     {
         seen = [];
         direction = false;
@@ -147,7 +159,7 @@ internal static class WeatherCodec
             // carry on after the run (vectors README, Weather). The dropped value was sent, so it counts
             // as present.
             if (width > 0 && !snow && !seen.Contains(key) && RunOnLength(info, pos, width, letter) is var runOn and > 0
-                && RunOnIsFollowedByAField(info, pos + 1 + runOn, seen, key, windAsFields, positionless, direction || letter == 'c', speed || letter == 's'))
+                && RunOnIsFollowedByAField(info, pos + 1 + runOn, trailer, seen, key, windAsFields, positionless, direction || letter == 'c', speed || letter == 's'))
             {
                 if (!ctx.Tolerate(
                         ctx.Options.AllowOutOfRangeValue,
@@ -242,9 +254,9 @@ internal static class WeatherCodec
     /// Whether the run ends the information field, or goes on to a defined field not yet read, with
     /// a value (the field the loop would read next), which tells a run-on value from a comment.
     /// </summary>
-    private static bool RunOnIsFollowedByAField(ReadOnlySpan<byte> info, int after, HashSet<char> seen, char runKey, bool windAsFields, bool positionless, bool direction, bool speed)
+    private static bool RunOnIsFollowedByAField(ReadOnlySpan<byte> info, int after, List<(int Start, int Length)> trailer, HashSet<char> seen, char runKey, bool windAsFields, bool positionless, bool direction, bool speed)
     {
-        if (after >= info.Length)
+        if (after >= info.Length || EndsInTrailer(info.Length, after, trailer))
         {
             return true;
         }
@@ -268,6 +280,28 @@ internal static class WeatherCodec
 
         return width > 0 && key != runKey && !seen.Contains(key)
             && TryFieldValue(info, after, width, next, snow, new DecodeContext(AprsParseOptions.Lenient), out _, out _) == FieldResult.Field;
+    }
+
+    /// <summary>Whether everything from <paramref name="after"/> to the end is a trailing element that is lifted first.</summary>
+    private static bool EndsInTrailer(int length, int after, List<(int Start, int Length)> trailer)
+    {
+        int at = after;
+        bool moved = true;
+        while (at < length && moved)
+        {
+            moved = false;
+            foreach ((int start, int len) in trailer)
+            {
+                if (start <= at && at < start + len)
+                {
+                    at = start + len;
+                    moved = true;
+                    break;
+                }
+            }
+        }
+
+        return at >= length;
     }
 
     private enum FieldResult
@@ -502,7 +536,7 @@ internal static class WeatherCodec
             int pos = 0;
             var probe = new DecodeContext(AprsParseOptions.Lenient);
             var back = new AprsWeather();
-            if (!TryReadRun(written, ref pos, probe, ref back, positionless, positionless, out _, out _, out _)
+            if (!TryReadRun(written, ref pos, probe, ref back, positionless, positionless, [], out _, out _, out _)
                 || pos != fieldsEnd - start || !CommentCodec.IsSoftwareAndUnit(written.AsSpan(pos)))
             {
                 w.Defer(AprsRefusalCode.TextReadsAsField, $"the software type and unit '{sw}{weather.UnitType}' would read back as weather fields or comment text (APRS12c ch. 12)");

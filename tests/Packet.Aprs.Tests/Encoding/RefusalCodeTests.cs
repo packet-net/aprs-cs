@@ -69,7 +69,7 @@ public class RefusalCodeTests
         { "mic-e-altitude-bytes-read-as-type-code", AprsRefusalCode.ValueHasNoForm },
         { "message-control-character", AprsRefusalCode.InvalidCharacter },
         { "mic-e-status-text-starting-0x1d", AprsRefusalCode.InvalidCharacter },
-        { "status-257-bytes", AprsRefusalCode.TooLong },
+        { "status-257-bytes", AprsRefusalCode.InformationFieldTooLong },
         { "storm-beside-wind", AprsRefusalCode.ValueOutOfRange },
         { "third-party-mic-e-destination", AprsRefusalCode.FieldNotAllowed },
         { "bad-source", AprsRefusalCode.InvalidAddress },
@@ -174,6 +174,6 @@ public class RefusalCodeTests
         string[] ours = [.. Enum.GetValues<AprsRefusalCode>().Select(c => NeutralJson.Kebab(c.ToString()))];
 
         ours.Should().Equal(listed);
-        ((int)AprsRefusalCode.DoesNotReadBack).Should().Be(listed.Length);
+        ((int)AprsRefusalCode.InformationFieldTooLong).Should().Be(listed.Length);
     }
 }

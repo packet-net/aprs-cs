@@ -22,6 +22,9 @@ public abstract class AprsBuilder
     /// again still has everything set on it.</summary>
     public abstract AprsData ToData();
 
+    /// <summary>The data for <see cref="Build"/>, where a fault is found when the packet is encoded so that the first in the shared order is named.</summary>
+    private protected virtual AprsData Assemble() => ToData();
+
     /// <summary>
     /// The packet: the station's header and this data, encoded. Throws <see cref="AprsEncodeException"/>
     /// for anything APRS12c does not allow, a symbol, an object's timestamp or a position never given
@@ -34,7 +37,7 @@ public abstract class AprsBuilder
     /// </summary>
     public AprsPacket Build()
     {
-        AprsData data = ToData();
+        AprsData data = Assemble();
         return AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
     }
 }
@@ -244,10 +247,26 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     private protected AprsPosition RequirePosition(string what) =>
         position ?? throw new InvalidOperationException($"{what} needs a position: call At(latitude, longitude)");
 
-    /// <summary>The symbol, or the unset one when none was given: the report is then refused as
-    /// <see cref="AprsRefusalCode.InvalidSymbol"/>, in its place in the reason-code order, as neutral
-    /// data with no symbol is.</summary>
-    private protected AprsSymbol RequireSymbol(string what) => symbol ?? default;
+    /// <summary>The symbol. With none given, <c>ToData</c> refuses as <see cref="AprsRefusalCode.InvalidSymbol"/>;
+    /// <c>Build</c> carries the unset one to the encoder, which refuses it in its place in the reason-code order.</summary>
+    private protected AprsSymbol RequireSymbol(string what) =>
+        symbol ?? (assembling ? default : throw new AprsEncodeException(AprsRefusalCode.InvalidSymbol, $"{what} needs a symbol: call Symbol(...)"));
+
+    private bool assembling;
+
+    private protected override AprsData Assemble()
+    {
+        // Build leaves a missing symbol to the encoder, which names it in its place in the order.
+        assembling = true;
+        try
+        {
+            return ToData();
+        }
+        finally
+        {
+            assembling = false;
+        }
+    }
 
     /// <summary>Copies the shared fields onto <paramref name="data"/>, which carries only its own.</summary>
     private protected T Apply<T>(T data)

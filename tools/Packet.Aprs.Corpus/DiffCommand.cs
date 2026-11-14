@@ -422,6 +422,7 @@ internal static class DiffCommand
                 // The neutral reader's own refusals: an inner packet with nothing to encode (it was
                 // not decoded), or one with no destination (a header an inner packet cannot have).
                 o["refusal"] = (string?)neutral["packet"]!["data"]!["type"] == "unrecognized" ? "not-encodable" : "invalid-third-party-header";
+                o["via"] = "tool";
             }
 
             return o;

@@ -141,10 +141,10 @@ public sealed class AprsStation
     public AprsAckBuilder Reject(string addressee, string messageId) => new(this, addressee, messageId, reject: true);
 
     /// <summary>A general bulletin (<paramref name="id"/> <c>0</c>-<c>9</c>) or an announcement (<c>A</c>-<c>Z</c>) (APRS12c §14).</summary>
-    public AprsDataBuilder Bulletin(char id, string text) => Data(AprsBulletin.Create(id, text));
+    public AprsDataBuilder Bulletin(char id, string text) => Data(AprsBulletin.Create(id, text ?? ""));
 
     /// <summary>A group bulletin, e.g. <c>BLN4WX</c> for id <c>4</c> and group <c>WX</c> (APRS12c §14).</summary>
-    public AprsDataBuilder GroupBulletin(char id, string group, string text) => Data(AprsBulletin.CreateGroup(id, group, text));
+    public AprsDataBuilder GroupBulletin(char id, string group, string text) => Data(AprsBulletin.CreateGroup(id, group ?? "", text ?? ""));
 
     /// <summary>A status report (APRS12c §16).</summary>
     public AprsStatusBuilder Status(string text = "") => new(this, text);
@@ -174,7 +174,7 @@ public sealed class AprsStation
     /// with B1 first, and the project title (<c>BITS.</c>, APRS12c §13). Addressed to this station
     /// unless <see cref="AprsTelemetryMetadataBuilder.Addressee(string)"/> says otherwise.</summary>
     public AprsTelemetryMetadataBuilder TelemetryBits(string bits, string project = "") =>
-        new(this, source => new AprsTelemetryBitSense { Addressee = source, Bits = bits, Project = project });
+        new(this, source => new AprsTelemetryBitSense { Addressee = source, Bits = bits, Project = project ?? "" });
 
     /// <summary>Any data built by hand, sent from this station.</summary>
     public AprsDataBuilder Data(AprsData data) => new(this, data);

@@ -18,10 +18,10 @@ public class ReadmeExamples
         if (packet.Data is AprsPositionReport p)
         {
             matched = true;
-            $"{p.Position.Latitude}, {p.Position.Longitude}".Should().Be("51.5, -0.11666666666666667");
+            FormattableString.Invariant($"{p.Position.Latitude}, {p.Position.Longitude}").Should().Be("51.5, -0.11666666666666667");
             p.Symbol.Description.Should().Be("Car");
-            $"{p.CourseDegrees} deg at {p.SpeedKnots} kn".Should().Be("88 deg at 36 kn");
-            $"{p.AltitudeFeet} ft, \"{p.Comment}\"".Should().Be("1234 ft, \"Hello\"");
+            FormattableString.Invariant($"{p.CourseDegrees} deg at {p.SpeedKnots} kn").Should().Be("88 deg at 36 kn");
+            FormattableString.Invariant($"{p.AltitudeFeet} ft, \"{p.Comment}\"").Should().Be("1234 ft, \"Hello\"");
         }
 
         matched.Should().BeTrue();
@@ -93,9 +93,9 @@ public class ReadmeExamples
         AprsPacket packet = AprsPacket.Decode("N1JCM-9>TRQP7T,WA1PLE-4*:`c'wl|+>/`\"4-}_%");
         var mobile = (AprsMicEReport)packet.Data;
 
-        $"{mobile.Position.Latitude}, {mobile.Position.Longitude}".Should().Be("42.179, -71.1985");
-        $"{mobile.SpeedKnots} kn heading {mobile.CourseDegrees} deg".Should().Be("9 kn heading 215 deg");
-        $"{mobile.AltitudeFeet:F0} ft".Should().Be("72 ft");
+        FormattableString.Invariant($"{mobile.Position.Latitude}, {mobile.Position.Longitude}").Should().Be("42.179, -71.1985");
+        FormattableString.Invariant($"{mobile.SpeedKnots} kn heading {mobile.CourseDegrees} deg").Should().Be("9 kn heading 215 deg");
+        FormattableString.Invariant($"{mobile.AltitudeFeet:F0} ft").Should().Be("72 ft");
         mobile.MicEMessage.Should().Be(AprsMicEMessage.OffDuty);
         mobile.Device!.ToString().Should().Be("Yaesu FTM-400DR");
         mobile.MessagingCapable.Should().BeTrue();
@@ -113,9 +113,9 @@ public class ReadmeExamples
         AprsWeather wx = report.Weather!;
 
         double celsius = (wx.TemperatureFahrenheit!.Value - 32) / 1.8;
-        $"{celsius:F1} C, {wx.HumidityPercent}% humidity, {wx.PressureMillibars} hPa".Should().Be("27.2 C, 54% humidity, 1000.1 hPa");
-        $"wind {wx.WindDirectionDegrees} deg at {wx.WindSpeedMph} mph, gusting {wx.WindGustMph}".Should().Be("wind 310 deg at 4 mph, gusting 15");
-        $"{wx.RainSinceMidnightInches} in of rain since midnight".Should().Be("0.02 in of rain since midnight");
+        FormattableString.Invariant($"{celsius:F1} C, {wx.HumidityPercent}% humidity, {wx.PressureMillibars} hPa").Should().Be("27.2 C, 54% humidity, 1000.1 hPa");
+        FormattableString.Invariant($"wind {wx.WindDirectionDegrees} deg at {wx.WindSpeedMph} mph, gusting {wx.WindGustMph}").Should().Be("wind 310 deg at 4 mph, gusting 15");
+        FormattableString.Invariant($"{wx.RainSinceMidnightInches} in of rain since midnight").Should().Be("0.02 in of rain since midnight");
 
         DateTime? observed = report.Timestamp?.Resolve(receivedAt);
         observed.Should().Be(new DateTime(2026, 9, 9, 18, 42, 0, DateTimeKind.Utc));
@@ -194,7 +194,7 @@ public class ReadmeExamples
                     {
                         if (t.Analog[channel - 1] is double raw)
                         {
-                            output.Add($"{names.Names[channel - 1]}: {equations.Scale(channel, raw):0.##} {units.Units[channel - 1]}");
+                            output.Add(FormattableString.Invariant($"{names.Names[channel - 1]}: {equations.Scale(channel, raw):0.##} {units.Units[channel - 1]}"));
                         }
                     }
 

@@ -30,7 +30,7 @@ public abstract record AprsData
     /// split between the information field and the destination address: make its packet with
     /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>.
     /// An information field is at most 256 bytes (APRS12c ch. 3): more is refused as
-    /// <see cref="AprsRefusalCode.TooLong"/>, whatever the output, though a decoder sets no limit.
+    /// <see cref="AprsRefusalCode.InformationFieldTooLong"/>, though a decoder sets no limit.
     /// </summary>
     public byte[] ToInformationField() => this is AprsMicEReport
         ? throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "a Mic-E report carries part of its position in the destination address, so its information field alone is not a position; make a packet with AprsPacket.Create")
@@ -83,7 +83,7 @@ public abstract record AprsData
             // The last check, on the bytes actually written: a record any other rule refuses gets
             // that rule's code, and nothing is measured that was not written (vectors README,
             // Encoding and Refusal reasons).
-            throw new AprsEncodeException(AprsRefusalCode.TooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)") { IsInformationFieldSize = true };
+            throw new AprsEncodeException(AprsRefusalCode.InformationFieldTooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)");
         }
 
         return info;

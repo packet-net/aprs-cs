@@ -307,7 +307,7 @@ public class BuilderTests
         Sent(packet).Should().Be(line);
 
         // Decoding sets no limit; the field is over 256 bytes, so writing it again is refused.
-        FluentActions.Invoking(() => packet.Data.ToInformationField()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.TooLong);
+        FluentActions.Invoking(() => packet.Data.ToInformationField()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InformationFieldTooLong);
         _ = Packet.Aprs.Tests.Vectors.NeutralJson.Data(packet.Data).ToJsonString();
     }
 

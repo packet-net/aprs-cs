@@ -58,10 +58,13 @@ internal static class RecipeBuilder
     }
 
     private static Outcome Refused(Exception ex) =>
-        new(null, ex is AprsEncodeException e ? NeutralJson.Kebab(e.Code.ToString()) : null, ex.Message, null);
+        new(null, ex is AprsEncodeException e ? NeutralJson.Kebab(e.Code.ToString()) : null, ex.Message, null, ViaTool: ex.Data.Contains(ToolMade));
+
+    /// <summary>Marks a refusal the tool's reader makes, not the library, which a dump record carries as <c>"via": "tool"</c>.</summary>
+    private const string ToolMade = "via-tool";
 
     /// <summary>Where the refusal is for the information field's size, last in the order, it ranks after every other code.</summary>
-    private static int RankOf(Exception ex) => ex is AprsEncodeException { IsInformationFieldSize: true } ? int.MaxValue : ex is AprsEncodeException e ? InfoWriter.Rank(e.Code) : -1;
+    private static int RankOf(Exception ex) => ex is AprsEncodeException e ? InfoWriter.Rank(e.Code) : -1;
 
     private static readonly (string A, string B, string What)[] Units =
     [
@@ -177,7 +180,7 @@ internal static class RecipeBuilder
         {
             packet = builder.Build();
         }
-        catch (AprsEncodeException ex) when (!a.SequenceMissing || (!ex.IsInformationFieldSize && InfoWriter.Rank(ex.Code) < InfoWriter.Rank(AprsRefusalCode.MissingField)))
+        catch (AprsEncodeException ex) when (!a.SequenceMissing || InfoWriter.Rank(ex.Code) < InfoWriter.Rank(AprsRefusalCode.MissingField))
         {
             throw;
         }
@@ -189,7 +192,13 @@ internal static class RecipeBuilder
         return a.SequenceMissing ? throw MissingSequence() : packet;
     }
 
-    private static AprsEncodeException MissingSequence() => new(AprsRefusalCode.MissingField, "a telemetry report needs a sequence");
+    private static AprsEncodeException MissingSequence()
+    {
+        // The refusal is the tool's: the builder takes the sequence as an argument, so the library never sees it missing.
+        var ex = new AprsEncodeException(AprsRefusalCode.MissingField, "a telemetry report needs a sequence");
+        ex.Data[ToolMade] = true;
+        return ex;
+    }
 
     // ------------------------------------------------------------------ positioned reports
 
@@ -455,7 +464,7 @@ internal static class RecipeBuilder
 
     private static AprsMessageBuilder Message(AprsStation from, Args a)
     {
-        AprsMessageBuilder b = from.Message(a.Str("addressee")!, a.Str("text") ?? "");
+        AprsMessageBuilder b = from.Message(a.Str("addressee")!, a.Str("text")!);
         if (a.Str("message_id") is { } id)
         {
             b.MessageId(id);
@@ -478,13 +487,13 @@ internal static class RecipeBuilder
             id = "0";
         }
 
-        string text = a.Str("text") ?? "";
+        string text = a.Str("text")!;
         return a.Str("group") is { } group ? from.GroupBulletin(id[0], group, text) : from.Bulletin(id[0], text);
     }
 
     private static AprsStatusBuilder Status(AprsStation from, Args a)
     {
-        AprsStatusBuilder b = from.Status(a.Str("text") ?? "");
+        AprsStatusBuilder b = from.Status(a.Str("text")!);
         if (Timestamp(a) is { } t)
         {
             b.Timestamp(t);
@@ -540,7 +549,7 @@ internal static class RecipeBuilder
         Metadata(a, from.TelemetryCoefficients([.. (a.Node("coefficients") as JsonArray ?? []).Select(v => (double)v!)]));
 
     private static AprsTelemetryMetadataBuilder Bits(AprsStation from, Args a) =>
-        Metadata(a, from.TelemetryBits(a.Str("bits")!, a.Str("project") ?? ""));
+        Metadata(a, from.TelemetryBits(a.Str("bits")!, a.Str("project")!));
 
     // ------------------------------------------------------------------ values
 
