@@ -19,7 +19,7 @@ public enum AprsTimestampFormat
 /// <summary>
 /// A timestamp as carried in an APRS packet. APRS timestamps are partial (no year, and some
 /// have no month or day), so they are kept as their fields and resolved against a reference time
-/// with <see cref="Resolve"/>.
+/// with <see cref="Resolve(DateTime)"/>.
 /// </summary>
 public readonly record struct AprsTimestamp
 {
@@ -54,7 +54,7 @@ public readonly record struct AprsTimestamp
     /// <summary>
     /// False for a timestamp decoded with out-of-range fields (e.g. day 0 or hour 41), which is only
     /// possible when <see cref="AprsParseOptions.AllowInvalidTimestamp"/> tolerated it. An invalid
-    /// timestamp does not <see cref="Resolve"/> and cannot be encoded.
+    /// timestamp does not <see cref="Resolve(DateTime)"/> and cannot be encoded.
     /// </summary>
     public bool IsValid => Format switch
     {
@@ -114,8 +114,20 @@ public readonly record struct AprsTimestamp
     /// <paramref name="reference"/> (normally the time the packet was received). Returns null
     /// if no such date exists (for example 31 February). For <see cref="AprsTimestampFormat.DayHoursMinutesLocal"/>
     /// the result is in the sender's unknown local time zone and has <see cref="DateTimeKind.Unspecified"/>.
+    /// A <see cref="DateTimeKind.Local"/> reference is converted to UTC first; a
+    /// <see cref="DateTimeKind.Utc"/> or <see cref="DateTimeKind.Unspecified"/> reference is taken as
+    /// UTC as it stands.
     /// </summary>
-    public DateTime? Resolve(DateTime reference)
+    public DateTime? Resolve(DateTime reference) =>
+        ResolveUtc(reference.Kind == DateTimeKind.Local ? reference.ToUniversalTime() : reference);
+
+    /// <summary>
+    /// As <see cref="Resolve(DateTime)"/>, for a reference with an offset: it is converted to UTC
+    /// first, so the machine's time zone never matters.
+    /// </summary>
+    public DateTime? Resolve(DateTimeOffset reference) => ResolveUtc(reference.UtcDateTime);
+
+    private DateTime? ResolveUtc(DateTime reference)
     {
         if (!IsValid)
         {

@@ -14,11 +14,17 @@ public class ReadmeExamples
     {
         AprsPacket packet = AprsPacket.Decode("N0CALL-9>APZ001,WIDE1-1,qAR,M0LTE-10:!5130.00N/00007.00W>088/036/A=001234Hello");
 
-        var p = packet.Data.Should().BeOfType<AprsPositionReport>().Subject;
-        $"{p.Position.Latitude}, {p.Position.Longitude}".Should().Be("51.5, -0.11666666666666667");
-        p.Symbol.Description.Should().Be("Car");
-        $"{p.CourseDegrees} deg at {p.SpeedKnots} kn".Should().Be("88 deg at 36 kn");
-        $"{p.AltitudeFeet} ft, \"{p.Comment}\"".Should().Be("1234 ft, \"Hello\"");
+        bool matched = false;
+        if (packet.Data is AprsPositionReport p)
+        {
+            matched = true;
+            $"{p.Position.Latitude}, {p.Position.Longitude}".Should().Be("51.5, -0.11666666666666667");
+            p.Symbol.Description.Should().Be("Car");
+            $"{p.CourseDegrees} deg at {p.SpeedKnots} kn".Should().Be("88 deg at 36 kn");
+            $"{p.AltitudeFeet} ft, \"{p.Comment}\"".Should().Be("1234 ft, \"Hello\"");
+        }
+
+        matched.Should().BeTrue();
         packet.QConstruct!.Value.Station!.Value.Value.Should().Be("M0LTE-10");
 
         AprsPacket beacon = AprsStation.From("M0LTE-9").Via("WIDE1-1", "WIDE2-1")
@@ -127,7 +133,11 @@ public class ReadmeExamples
         outgoing.ToString().Should().Be("M0LTE-9>APZ001,WIDE1-1,WIDE2-1::N0CALL-7 :Meet at the club at 8?{42");
 
         AprsPacket incoming = AprsPacket.Decode("N0CALL-7>APDR16,WIDE1-1,qAR,N0CALL-10::M0LTE-9  :ack42");
-        bool delivered = incoming.Data is AprsMessageAck ack && ack.Addressee == me.Source.Value && ack.AcknowledgedId == "42";
+        bool delivered = false;
+        if (incoming.Data is AprsMessageAck ack && ack.Addressee == me.Source.Value && ack.AcknowledgedId == "42")
+        {
+            delivered = true;
+        }
 
         delivered.Should().BeTrue();
 
@@ -215,8 +225,13 @@ public class ReadmeExamples
         const string beacon = "N1EOE>APN391,N1NCI-3*,WIDE2-1:!4216.95n/07243.20w#phg6230/ Easthampton MA";
 
         AprsPacket strict = AprsPacket.Decode(beacon, AprsParseOptions.Strict);
-        strict.Diagnostics.Select(d => $"{d.Severity} {d.Code}: {d.Message}")
-            .Should().Equal("Error LowercaseHemisphere: hemisphere 'n' must be upper case (UAP 5.9)");
+        var printed = new List<string>();
+        foreach (AprsDiagnostic d in strict.Diagnostics)
+        {
+            printed.Add($"{d.Severity} {d.Code}: {d.Message}");
+        }
+
+        printed.Should().Equal("Error LowercaseHemisphere: hemisphere 'n' must be upper case (UAP 5.9)");
         strict.Data.Should().BeOfType<AprsUnrecognizedData>();
 
         AprsPacket lenient = AprsPacket.Decode(beacon);
@@ -232,10 +247,12 @@ public class ReadmeExamples
         AprsPacket packet = AprsPacket.Create("M0LTE-9", new AprsStatusReport { Text = "hi" }, "APZ001");
 
         AprsPacket received = AprsPacket.DecodeAx25(frame.ToBytes());
-        Ax25Frame.TryParse(packet.ToAx25Frame(), out Ax25Frame? toSend).Should().BeTrue();
+        Ax25Frame.TryParse(packet.ToAx25Frame(), out Ax25Frame? toSend);
 
         AprsAddress me = AprsAddress.FromCallsign(new Callsign("M0LTE", 9));
-        received.Source.TryGetCallsign(out Callsign source).Should().BeTrue();
+        if (received.Source.TryGetCallsign(out Callsign source)) { /* an AX.25 station, not an APRS-IS name */ }
+
+        received.Source.TryGetCallsign(out source).Should().BeTrue();
 
         received.Data.Should().BeOfType<AprsPositionReport>();
         toSend!.Info.ToArray().Should().Equal(">hi"u8.ToArray());
@@ -250,6 +267,10 @@ public class ReadmeExamples
     public void Strict_or_lenient()
     {
         const string line = "W1TG2>APU25N:@091842z4256.20N/07049.42W_310/004g015t081r000p033P002h54b10001/ - Hampton, NH Wx";
+        AprsPacket.Decode(line);
+        AprsPacket.Decode(line, AprsParseOptions.Strict);
+        AprsPacket.Decode(line, AprsParseOptions.Lenient with { AllowWeatherComment = false });
+
         AprsPacket.Decode(line).Data.Should().BeOfType<AprsPositionReport>();
         AprsPacket.Decode(line, AprsParseOptions.Strict).Data.Should().BeOfType<AprsUnrecognizedData>();
         AprsPacket.Decode(line, AprsParseOptions.Lenient with { AllowWeatherComment = false }).Data.Should().BeOfType<AprsUnrecognizedData>();

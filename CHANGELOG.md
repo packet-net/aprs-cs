@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: `AprsTimestamp.Resolve(DateTime)` used a Local reference's wall-clock fields as if they were UTC, so on a machine ahead of UTC it could pick the wrong day. A Local reference is now converted to UTC first; Unspecified is still taken as UTC (documented). New overload `Resolve(DateTimeOffset)`, which never depends on the machine's time zone.
+- Fixed the package README's worked example 2, which did not compile (`mobile.Message` is `mobile.MicEMessage`).
+- Tests: every `csharp` block in the README is now checked against the tested copy in `ReadmeExamples`, so the two cannot drift apart unnoticed.
+
 ## 1.1.0 (2026-11-14)
 
 The aprs-vectors round 3 rulings (vectors pinned at `10d4e25`, aprs-vectors#24).
