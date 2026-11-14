@@ -370,6 +370,22 @@ internal static class DiffCommand
     /// </summary>
     private static JsonObject EncodeRecord(long n, JsonObject input)
     {
+        JsonObject record = StandIns.Collect(() => EncodeOnce(n, input), out (AprsRefusalCode Code, string Reason)? own);
+        if (own is not { } mine || (string?)record["result"] == "unsupported")
+        {
+            return record;
+        }
+
+        // Input the data cannot hold, whose value alone decides a code (vectors README, Encode records):
+        // what the record with it left out came to wins if it is refused for an earlier code.
+        bool earlier = (string?)record["result"] == "refused" && (record["refusal"] is null || (Enum.TryParse(((string)record["refusal"]!).Replace("-", "", StringComparison.Ordinal), ignoreCase: true, out AprsRefusalCode code) && StandIns.Earlier(code, mine.Code)));
+        return earlier
+            ? record
+            : new JsonObject { ["n"] = n, ["result"] = "refused", ["reason"] = mine.Reason, ["refusal"] = NeutralJson.Kebab(mine.Code.ToString()), ["via"] = "tool" };
+    }
+
+    private static JsonObject EncodeOnce(long n, JsonObject input)
+    {
         var o = new JsonObject { ["n"] = n };
         JsonObject neutral = input["data"]!.AsObject();
 

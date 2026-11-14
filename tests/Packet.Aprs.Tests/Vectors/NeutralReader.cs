@@ -108,9 +108,47 @@ internal static class NeutralReader
                 Data = System.Text.Encoding.Latin1.GetBytes(OptStr(d, "data") ?? ""),
             }, "user_id", "packet_type", "data"),
             "test" => Only(d, new AprsTestData { Data = OptStr(d, "data") ?? "" }, "data"),
-            "agrelo-df" => Only(d, new AprsAgreloDfReport { BearingDegrees = (int)d["bearing_degrees"]!, Quality = (int)d["quality"]! }, "bearing_degrees", "quality"),
+            "agrelo-df" => Only(d, Agrelo(d), "bearing_degrees", "quality"),
             _ => throw new NotSupportedException($"no neutral reader for '{type}' data"),
         };
+    }
+
+    /// <summary>
+    /// An Agrelo report. The bearing is degrees, rounded to the nearest one like a course (half away
+    /// from zero); the library then range-checks it. A value that is not a number is
+    /// <c>not-a-number</c> whatever else is wrong, which the library's whole numbers cannot hold, so
+    /// it is noted for <see cref="StandIns"/> and read as 0.
+    /// </summary>
+    private static AprsAgreloDfReport Agrelo(JsonObject d)
+    {
+        double bearing = (double)d["bearing_degrees"]!;
+        double quality = (double)d["quality"]!;
+        bool noNumber = false;
+        if (!double.IsFinite(bearing))
+        {
+            noNumber = true;
+            bearing = 0;
+        }
+
+        if (!double.IsFinite(quality))
+        {
+            noNumber = true;
+            quality = 0;
+        }
+
+        if (noNumber)
+        {
+            StandIns.Note(AprsRefusalCode.NotANumber, "an Agrelo bearing or quality is not a number");
+        }
+
+        if (quality != Math.Floor(quality))
+        {
+            throw new InvalidOperationException($"quality {quality.ToString(CultureInfo.InvariantCulture)}: the data takes a whole quality");
+        }
+
+        return new AprsAgreloDfReport { BearingDegrees = Clamp(Math.Round(bearing, MidpointRounding.AwayFromZero)), Quality = Clamp(quality) };
+
+        static int Clamp(double v) => (int)Math.Clamp(v, int.MinValue, int.MaxValue);
     }
 
     /// <summary>

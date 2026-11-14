@@ -16,9 +16,27 @@ internal static class RecipeBuilder
     private sealed class UnsupportedException(string reason) : Exception(reason);
 
     /// <summary>What a recipe came to: a packet, a refusal (with its code when it has one), or something the builder cannot say.</summary>
-    internal sealed record Outcome(AprsPacket? Packet, string? Refusal, string? Reason, string? Unsupported);
+    /// <param name="Packet">The packet built.</param>
+    /// <param name="Refusal">The refusal's code, when it has one.</param>
+    /// <param name="Reason">Why, in words.</param>
+    /// <param name="Unsupported">What the builder has no way to say.</param>
+    /// <param name="ViaTool">The refusal is the reader's: the input is something the builder cannot hold, whose value alone decides the code.</param>
+    internal sealed record Outcome(AprsPacket? Packet, string? Refusal, string? Reason, string? Unsupported, bool ViaTool = false);
 
     public static Outcome Run(JsonObject recipe)
+    {
+        Outcome outcome = StandIns.Collect(() => RunOnce(recipe), out (AprsRefusalCode Code, string Reason)? own);
+        if (own is not { } mine || outcome.Unsupported is not null)
+        {
+            return outcome;
+        }
+
+        // The record with that input left out was refused, for a code earlier in the order than the input's own: that one. (A refusal with no code is the builder's own and comes first.)
+        bool earlier = outcome.Packet is null && (outcome.Refusal is null || (Enum.TryParse(outcome.Refusal.Replace("-", "", StringComparison.Ordinal), ignoreCase: true, out AprsRefusalCode code) && StandIns.Earlier(code, mine.Code)));
+        return earlier ? outcome : new Outcome(null, NeutralJson.Kebab(mine.Code.ToString()), mine.Reason, null, ViaTool: true);
+    }
+
+    private static Outcome RunOnce(JsonObject recipe)
     {
         if (GivenTwice(recipe["args"] as JsonObject) is { } twice)
         {
@@ -41,6 +59,9 @@ internal static class RecipeBuilder
 
     private static Outcome Refused(Exception ex) =>
         new(null, ex is AprsEncodeException e ? NeutralJson.Kebab(e.Code.ToString()) : null, ex.Message, null);
+
+    /// <summary>Where the refusal is for the information field's size, last in the order, it ranks after every other code.</summary>
+    private static int RankOf(Exception ex) => ex is AprsEncodeException { IsInformationFieldSize: true } ? int.MaxValue : ex is AprsEncodeException e ? InfoWriter.Rank(e.Code) : -1;
 
     private static readonly (string A, string B, string What)[] Units =
     [
@@ -83,20 +104,19 @@ internal static class RecipeBuilder
             }
             catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
             {
-                if (first is null || Rank(ex) < Rank(first))
+                if (first is null || RankOf(ex) < RankOf(first))
                 {
                     first = ex;
                 }
             }
         }
 
-        return first is not null && Rank(first) < InfoWriter.Rank(AprsRefusalCode.ValueGivenTwice)
+        // Something the packet needs and was never given has no code; it is the builder's own
+        // refusal and comes before the codes. A refusal for the size alone comes after
+        // value-given-twice, as the size is judged only on a record with no other fault.
+        return first is not null && RankOf(first) < InfoWriter.Rank(AprsRefusalCode.ValueGivenTwice)
             ? Refused(first)
             : new Outcome(null, "value-given-twice", $"the recipe gives {twice} in two units", null);
-
-        // Something the packet needs and was never given has no code; it is the builder's own
-        // refusal and comes before the codes.
-        static int Rank(Exception ex) => ex is AprsEncodeException e ? InfoWriter.Rank(e.Code) : -1;
     }
 
     /// <summary>The first quantity the recipe gives in two units, or null.</summary>
@@ -454,7 +474,8 @@ internal static class RecipeBuilder
         string id = a.Str("id")!;
         if (id.Length != 1)
         {
-            throw new UnsupportedException("bulletin id: the builder takes one character");
+            StandIns.Note(AprsRefusalCode.InvalidAddressee, $"bulletin id '{id}': an id is one character");
+            id = "0";
         }
 
         string text = a.Str("text") ?? "";
@@ -551,6 +572,12 @@ internal static class RecipeBuilder
     private static int Whole(JsonNode? v, string key, string? why = null)
     {
         double d = (double)v!;
+        if (!double.IsFinite(d))
+        {
+            StandIns.Note(AprsRefusalCode.NotANumber, $"{key} {d.ToString(CultureInfo.InvariantCulture)}: not a number");
+            return 0;
+        }
+
         return d == Math.Floor(d) && d is >= int.MinValue and <= int.MaxValue ? (int)d
             : throw new UnsupportedException($"{key} {d.ToString(CultureInfo.InvariantCulture)}: {why ?? "the builder takes a whole number"}");
     }

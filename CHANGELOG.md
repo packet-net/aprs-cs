@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `fe7d451`, aprs-vectors#29). The licence is now MIT.
+The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `c423a29`, aprs-vectors#29). The licence is now MIT.
 
 Breaking changes for callers
 
@@ -23,6 +23,9 @@ Other changes
 - The builder defaults are written into the vectors' rules and are as before: no path, destination `APZ001`, messaging off, a Mic-E report with no message off duty, a weather report with no symbol `/_`, a telemetry report with no bits `00000000`.
 - The vectors test runner runs the new `build` case input (`cases/builder.json`) through the same recipe builder as `aprs-corpus diff build` (`tests/Packet.Aprs.Tests/Vectors/RecipeBuilder.cs`, linked into the tool), comparing the TNC2 line built or the refusal code. `diff encode` and `diff build` records carry the input's own `n`, so a rerun of a subset lines up with the set.
 - `aprs-corpus diff build` passes only the keys a recipe gives. A telemetry sequence left out is refused as `missing-field` (the builder takes the sequence as an argument, so it is built with a placeholder only to name an earlier fault in the shared order); a message, bulletin or status with no `text` still gets empty text, as absent text is empty text.
+- `aprs-corpus diff build`: a recipe giving a quantity in two units is `value-given-twice` even when each one-unit build is over 256 bytes, since the size is judged last (a field over its own limit keeps its place).
+- `aprs-corpus diff encode` and `diff build` no longer report `unsupported` for input the data cannot hold when its value alone decides a refusal: a NaN or infinite sequence, ambiguity or Agrelo bearing or quality (`not-a-number`), a bulletin id that is not one character (`invalid-addressee`). The record is built or encoded with that input left out, and the refusal is that result's code if it comes earlier in the Refusal reasons order, otherwise the input's own code, written with `"via": "tool"`.
+- The neutral reader rounds an Agrelo bearing to the nearest degree, halves away from zero, then the encoder range-checks it (12.5 is `%013/5`, 360.5 is `ValueOutOfRange`).
 
 Review fixes
 

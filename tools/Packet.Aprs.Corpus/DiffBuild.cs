@@ -32,6 +32,11 @@ internal static class DiffBuild
                 o["refusal"] = refusal;
             }
 
+            if (outcome.ViaTool)
+            {
+                o["via"] = "tool";
+            }
+
             return o;
         }
 
