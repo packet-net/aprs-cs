@@ -99,16 +99,16 @@ internal static class StatusCodec
             // A timestamp's own fault comes before the text's (the shared order of reasons).
             if (given.Format != AprsTimestampFormat.DayHoursMinutesUtc)
             {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "a status report timestamp must be DHM UTC (APRS12c ch. 16)");
+                w.Defer(AprsRefusalCode.InvalidTimestamp, "a status report timestamp must be DHM UTC (APRS12c ch. 16)");
             }
 
             if (!given.IsValid)
             {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, $"timestamp {given} has a field out of range");
+                w.Defer(AprsRefusalCode.InvalidTimestamp, $"timestamp {given} has a field out of range");
             }
         }
 
-        Text.RequireNoLineBreaks(r.Text);
+        w.Field(() => Text.RequireNoLineBreaks(r.Text));
         w.Char('>');
         if (r.Locator is { } locator)
         {
@@ -123,12 +123,15 @@ internal static class StatusCodec
                 symbol = AprsSymbol.Car;
             }
 
-            if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator)) || locator.Length is not (4 or 6))
+            // A locator in lower case reads back in upper case, so it is not the fixed form either
+            // (vectors README, Refusal reasons).
+            if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(locator)) || locator.Length is not (4 or 6)
+                || !locator.Equals(locator.ToUpperInvariant(), StringComparison.Ordinal))
             {
-                throw new AprsEncodeException(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator");
+                w.Defer(AprsRefusalCode.Malformed, $"'{locator}' is not a 4 or 6 character Maidenhead locator in upper case");
             }
 
-            symbol.Validate();
+            w.Field(symbol.Validate);
             w.Ascii(locator.ToUpperInvariant()).Char(symbol.Table).Char(symbol.Code);
             if (r.Text.Length > 0 || r.BeamHeading is not null)
             {
@@ -141,12 +144,7 @@ internal static class StatusCodec
         }
         else if (r.Timestamp is { } ts)
         {
-            if (ts.Format != AprsTimestampFormat.DayHoursMinutesUtc)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidTimestamp, "a status report timestamp must be DHM UTC (APRS12c ch. 16)");
-            }
-
-            TimestampCodec.Write(w, ts, allowMonthDay: false);
+            w.Field(() => TimestampCodec.Write(w, ts, allowMonthDay: false));
         }
 
         byte[] text = System.Text.Encoding.UTF8.GetBytes(r.Text);
@@ -165,7 +163,7 @@ internal static class StatusCodec
         {
             if (!beam.IsValid)
             {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "beam heading code must be 0-9 or A-Z and power code 1-K");
+                w.Defer(AprsRefusalCode.InvalidCode, "beam heading code must be 0-9 or A-Z and power code 1-K");
             }
 
             w.Char('^').Char(beam.HeadingCode).Char(beam.PowerCode);
@@ -313,37 +311,49 @@ internal static class TelemetryCodec
 
     public static void Write(InfoWriter w, AprsTelemetryReport r)
     {
+        // Every fault is found, and the first in the shared order is named (InfoWriter.Defer).
         if (r.Analog.Any(v => v is { } d && !double.IsFinite(d)))
         {
-            throw new AprsEncodeException(AprsRefusalCode.NotANumber, "a telemetry value is a finite number");
+            w.Defer(AprsRefusalCode.NotANumber, "a telemetry value is a finite number");
         }
 
         if (r.Sequence == "MIC" && r.Analog.Count > 0 && r.Analog[0] is null)
         {
             // No form reads back with the first channel empty after MIC: T#MIC,,033 is read
             // otherwise (vectors ruling F12).
-            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)");
+            w.Defer(AprsRefusalCode.ValueHasNoForm, "a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)");
         }
 
-        Text.RequireNoLineBreaks(r.Comment);
-        if (r.Sequence.Length == 0)
+        w.Field(() => Text.RequireNoLineBreaks(r.Comment));
+        if (r.Sequence.Length == 0 || !r.Sequence.All(char.IsAsciiLetterOrDigit))
         {
-            throw new AprsEncodeException(AprsRefusalCode.Malformed, "telemetry sequence is letters or digits");
+            w.Defer(AprsRefusalCode.Malformed, "telemetry sequence is letters or digits");
         }
 
-        if (!r.Sequence.All(char.IsAsciiLetterOrDigit))
+        if (r.Analog.Count > 5)
         {
-            throw new AprsEncodeException(AprsRefusalCode.Malformed, "telemetry sequence is letters or digits");
+            // More values than the report holds is a list longer than its field; fewer is not the
+            // form (vectors README, Refusal reasons).
+            w.Defer(AprsRefusalCode.TooLong, "a telemetry report carries 5 analog values (APRS12c ch. 13)");
+        }
+        else if (r.Analog.Count < 5)
+        {
+            w.Defer(AprsRefusalCode.Malformed, "a telemetry report carries 5 analog values (APRS12c ch. 13)");
         }
 
-        if (r.Analog.Count != 5 || (!string.IsNullOrEmpty(r.Bits) && (r.Bits.Length != 8 || r.Bits.Any(c => c is not ('0' or '1')))))
+        if (!string.IsNullOrEmpty(r.Bits) && (r.Bits.Length != 8 || r.Bits.Any(c => c is not ('0' or '1'))))
         {
-            throw new AprsEncodeException(AprsRefusalCode.Malformed, "a telemetry report carries 5 analog values and the 8 digital bits (APRS12c ch. 13)");
+            w.Defer(AprsRefusalCode.Malformed, "a telemetry report carries the 8 digital bits, each 0 or 1 (APRS12c ch. 13)");
         }
 
         if (string.IsNullOrEmpty(r.Bits))
         {
-            throw new AprsEncodeException(AprsRefusalCode.MissingField, "a telemetry report carries the 8 digital bits (APRS12c ch. 13)");
+            w.Defer(AprsRefusalCode.MissingField, "a telemetry report carries the 8 digital bits (APRS12c ch. 13)");
+        }
+
+        if (w.HasDeferred)
+        {
+            return;
         }
 
         string bits = r.Bits!;

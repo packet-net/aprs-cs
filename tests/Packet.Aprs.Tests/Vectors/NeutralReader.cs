@@ -39,7 +39,7 @@ internal static class NeutralReader
             {
                 Position = default,
                 Symbol = default,
-                Name = Str(d, "name"),
+                Name = Absent(d, "name"),
                 IsKilled = Flag(d, "killed"),
                 Timestamp = Timestamp(d["timestamp"]),
             }, "name", "killed", "timestamp"),
@@ -47,19 +47,19 @@ internal static class NeutralReader
             {
                 Position = default,
                 Symbol = default,
-                Name = Str(d, "name"),
+                Name = Absent(d, "name"),
                 IsKilled = Flag(d, "killed"),
             }, "name", "killed"),
-            "message" => Only(d, new AprsTextMessage { Addressee = Str(d, "addressee"), Text = OptStr(d, "text") ?? "", ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "text", "reply_ack", "message_id"),
-            "ack" => Only(d, new AprsMessageAck { Addressee = Str(d, "addressee"), AcknowledgedId = Str(d, "acked_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "acked_id", "reply_ack", "message_id"),
-            "reject" => Only(d, new AprsMessageReject { Addressee = Str(d, "addressee"), RejectedId = Str(d, "rejected_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "rejected_id", "reply_ack", "message_id"),
-            "bulletin" => Only(d, new AprsBulletin { Addressee = Str(d, "addressee"), Text = OptStr(d, "text") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "text", "message_id"),
-            "nws-bulletin" => Only(d, new AprsNwsBulletin { Addressee = Str(d, "addressee"), Text = OptStr(d, "text") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "text", "message_id"),
-            "telemetry-names" => Only(d, new AprsTelemetryParameterNames { Addressee = Str(d, "addressee"), Names = Strings(d["names"]), MessageId = OptStr(d, "message_id") }, "addressee", "names", "message_id"),
-            "telemetry-units" => Only(d, new AprsTelemetryUnits { Addressee = Str(d, "addressee"), Units = Strings(d["units"]), MessageId = OptStr(d, "message_id") }, "addressee", "units", "message_id"),
-            "telemetry-coefficients" => Only(d, new AprsTelemetryCoefficients { Addressee = Str(d, "addressee"), Coefficients = [.. (d["coefficients"] as JsonArray ?? []).Select(v => (double)v!)], MessageId = OptStr(d, "message_id") }, "addressee", "coefficients", "message_id"),
-            "telemetry-bits" => Only(d, new AprsTelemetryBitSense { Addressee = Str(d, "addressee"), Bits = Str(d, "bits"), Project = OptStr(d, "project") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "bits", "project", "message_id"),
-            "directed-query" => Only(d, new AprsDirectedQuery { Addressee = Str(d, "addressee"), QueryType = Str(d, "query_type"), Target = OptStr(d, "target"), MessageId = OptStr(d, "message_id") }, "addressee", "query_type", "target", "message_id"),
+            "message" => Only(d, new AprsTextMessage { Addressee = Absent(d, "addressee"), Text = OptStr(d, "text") ?? "", ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "text", "reply_ack", "message_id"),
+            "ack" => Only(d, new AprsMessageAck { Addressee = Absent(d, "addressee"), AcknowledgedId = Str(d, "acked_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "acked_id", "reply_ack", "message_id"),
+            "reject" => Only(d, new AprsMessageReject { Addressee = Absent(d, "addressee"), RejectedId = Str(d, "rejected_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "rejected_id", "reply_ack", "message_id"),
+            "bulletin" => Only(d, new AprsBulletin { Addressee = Absent(d, "addressee"), Text = OptStr(d, "text") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "text", "message_id"),
+            "nws-bulletin" => Only(d, new AprsNwsBulletin { Addressee = Absent(d, "addressee"), Text = OptStr(d, "text") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "text", "message_id"),
+            "telemetry-names" => Only(d, new AprsTelemetryParameterNames { Addressee = Absent(d, "addressee"), Names = Strings(d["names"]), MessageId = OptStr(d, "message_id") }, "addressee", "names", "message_id"),
+            "telemetry-units" => Only(d, new AprsTelemetryUnits { Addressee = Absent(d, "addressee"), Units = Strings(d["units"]), MessageId = OptStr(d, "message_id") }, "addressee", "units", "message_id"),
+            "telemetry-coefficients" => Only(d, new AprsTelemetryCoefficients { Addressee = Absent(d, "addressee"), Coefficients = [.. (d["coefficients"] as JsonArray ?? []).Select(v => (double)v!)], MessageId = OptStr(d, "message_id") }, "addressee", "coefficients", "message_id"),
+            "telemetry-bits" => Only(d, new AprsTelemetryBitSense { Addressee = Absent(d, "addressee"), Bits = Str(d, "bits"), Project = OptStr(d, "project") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "bits", "project", "message_id"),
+            "directed-query" => Only(d, new AprsDirectedQuery { Addressee = Absent(d, "addressee"), QueryType = Absent(d, "query_type"), Target = OptStr(d, "target"), MessageId = OptStr(d, "message_id") }, "addressee", "query_type", "target", "message_id"),
             "status" => Only(d, new AprsStatusReport
             {
                 Timestamp = Timestamp(d["timestamp"]),
@@ -93,7 +93,7 @@ internal static class NeutralReader
             "maidenhead-beacon" => Only(d, new AprsMaidenheadBeacon { Locator = Str(d, "locator"), Comment = OptStr(d, "comment") ?? "" }, "locator", "comment"),
             "query" => Only(d, new AprsGeneralQuery
             {
-                QueryType = Str(d, "query_type"),
+                QueryType = OptStr(d, "query_type") ?? "",
                 Footprint = d["footprint"] is JsonObject f ? new AprsQueryFootprint((double)f["latitude"]!, (double)f["longitude"]!, (double)f["radius_miles"]!) : null,
             }, "query_type", "footprint"),
             "capabilities" => Only(d, new AprsStationCapabilities
@@ -113,8 +113,34 @@ internal static class NeutralReader
         };
     }
 
+    /// <summary>
+    /// Refuses third-party data nested more than four deep, counted from the top without
+    /// recursion, so it is refused for its header before anything inside it is built (vectors
+    /// encode/third-party-nested-five-deep). <paramref name="data"/> is the data inside one
+    /// third-party packet, or any data at all.
+    /// </summary>
+    public static void CheckNesting(JsonNode? data)
+    {
+        int depth = 1;
+        JsonNode? d = data;
+        while (d is JsonObject o && (string?)o["type"] == "third-party")
+        {
+            depth++;
+            d = o["packet"]?["data"];
+        }
+
+        // Undecoded data at the end is not-encodable, which comes first in the order.
+        bool undecoded = d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty";
+        if (depth > 4 && !undecoded)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+        }
+    }
+
     private static AprsThirdPartyTraffic ThirdParty(JsonObject p)
     {
+        CheckNesting(p["data"]);
+
         IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
         AprsAddress source = AprsAddress.Parse(Str(p, "source"));
         AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
@@ -128,10 +154,27 @@ internal static class NeutralReader
             throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
         }
 
-        AprsPacket inner = Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty"
-            ? AprsPacket.Decode(source, destination, path, [])
-            : AprsPacket.Create(source, Data(data), destination, path);
-        return new AprsThirdPartyTraffic { Packet = inner };
+        if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty")
+        {
+            return new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(source, destination, path, []) };
+        }
+
+        // A Mic-E report's destination is computed from it; the neutral form's is that one.
+        AprsData inner = Data(data);
+        AprsThirdPartyTraffic traffic = AprsThirdPartyTraffic.Create(source, inner, inner is AprsMicEReport ? null : destination, path);
+
+        // Diagnostics on the inner packet are part of its data (a tolerated header defect such as
+        // several used markers): the packet is the one that reads with them, its header as
+        // given, which the encoder then refuses (vectors encode/third-party-inner-header-with-a-
+        // tolerated-defect).
+        if (Strings(p["diagnostics"]).Any(d => !d.StartsWith("info:", StringComparison.Ordinal)))
+        {
+            string header = $"{Str(p, "source")}>{traffic.Packet.Destination.Value}{string.Concat(Strings(p["path"]).Select(e => "," + e))}:";
+            byte[] line = [.. System.Text.Encoding.UTF8.GetBytes(header), .. traffic.Packet.Information.ToArray()];
+            traffic = new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(line, AprsParseOptions.Lenient) };
+        }
+
+        return traffic;
     }
 
     private static T Positioned<T>(JsonObject d, T data, params string[] ownFields)
@@ -142,7 +185,7 @@ internal static class NeutralReader
         return data with
         {
             Position = new AprsPosition((double)d["latitude"]!, (double)d["longitude"]!, (int?)d["ambiguity"] ?? 0),
-            Symbol = Symbol(Str(d, "symbol")),
+            Symbol = Symbol(Absent(d, "symbol")),
             IsCompressed = Flag(d, "compressed"),
             CompressionType = d["compression"] is JsonObject ct
                 ? new AprsCompressionType(Enum<AprsCompressionFix>(Str(ct, "fix")), Enum<AprsCompressionSource>(Str(ct, "source")), Enum<AprsCompressionOrigin>(Str(ct, "origin")))
@@ -250,7 +293,12 @@ internal static class NeutralReader
         return rounded is >= int.MinValue and <= int.MaxValue ? (int)rounded : throw new OverflowException($"{node.ToJsonString()} is outside a 32-bit whole number");
     }
 
-    private static AprsSymbol Symbol(string s) => new(s[0], s[1]);
+    /// <summary>
+    /// Two characters, table and code. Any other length is held as one the encoder refuses
+    /// (invalid-symbol), with a NUL for each character missing and none of any extra.
+    /// </summary>
+    private static AprsSymbol Symbol(string s) =>
+        s.Length == 2 ? new(s[0], s[1]) : new(s.Length > 0 ? s[0] : '\0', '\0');
 
     private static T Enum<T>(string kebab)
         where T : struct, Enum => System.Enum.Parse<T>(kebab.Replace("-", "", StringComparison.Ordinal), ignoreCase: true);
@@ -260,6 +308,13 @@ internal static class NeutralReader
     private static string Str(JsonObject d, string name) => (string?)d[name] ?? throw new FormatException($"'{name}' is required");
 
     private static string? OptStr(JsonObject d, string name) => (string?)d[name];
+
+    /// <summary>
+    /// A text field the data must have, held as empty when it is left out, so the encoder refuses
+    /// it for what it is (an addressee of the wrong length, a missing query type, a sequence that
+    /// is not the form, no symbol) rather than the data not being held at all.
+    /// </summary>
+    private static string Absent(JsonObject d, string name) => (string?)d[name] ?? "";
 
     /// <summary>A string where empty is meaningful (reply_ack).</summary>
     private static string? RawStr(JsonObject d, string name) => d.ContainsKey(name) ? (string?)d[name] : null;

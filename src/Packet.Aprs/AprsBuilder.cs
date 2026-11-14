@@ -26,7 +26,9 @@ public abstract class AprsBuilder
     /// The packet: the station's header and this data, encoded. Throws <see cref="AprsEncodeException"/>
     /// for anything APRS12c does not allow, and <see cref="InvalidOperationException"/> when
     /// something the packet needs, such as a symbol, was never given. A Mic-E report gets its
-    /// computed destination, whatever the station's.
+    /// computed destination, whatever the station's. A setter replaces its quantity whatever
+    /// unit it was given in, so the last one called wins (<c>SpeedKnots</c> then <c>SpeedKmh</c>
+    /// sends the km/h).
     /// </summary>
     public AprsPacket Build()
     {

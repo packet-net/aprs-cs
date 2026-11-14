@@ -38,13 +38,28 @@ public abstract record AprsData
     internal byte[] EncodeInformation()
     {
         var writer = new InfoWriter();
-        Encode(writer);
+        try
+        {
+            Encode(writer);
+        }
+        catch (AprsEncodeException ex)
+        {
+            writer.Interrupted = true;
+            writer.Hold(ex);
+        }
+        catch (Exception) when (writer.HasDeferred)
+        {
+            writer.Interrupted = true;
+            // A field written after one already refused may not make sense on its own; the
+            // refusal held for the earlier field is the answer.
+        }
+
         byte[] info = writer.ToArray();
-        if (info.Length > 0 && info[^1] is (byte)'\r' or (byte)'\n')
+        if (!writer.Interrupted && info.Length > 0 && info[^1] is (byte)'\r' or (byte)'\n')
         {
             // A field ending in CR or LF reads back with trailing-line-break, a warning, and
             // without the byte (Mic-E telemetry ending 13, say), so no clean form exists.
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "the information field would end with a line break, which a decoder strips with a warning");
+            writer.Defer(AprsRefusalCode.InvalidCharacter, "the information field would end with a line break, which a decoder strips with a warning");
         }
 
         writer.ThrowDeferred();

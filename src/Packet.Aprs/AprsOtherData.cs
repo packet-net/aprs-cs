@@ -121,18 +121,31 @@ public sealed record AprsNmeaReport : AprsData
         byte[] sentence = System.Text.Encoding.Latin1.GetBytes(Sentence);
         if (Sentence.Any(c => c > 0xFF) || Internal.NmeaCodec.SentenceLength(sentence) != sentence.Length)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, "an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum");
+            writer.Defer(AprsRefusalCode.InvalidNmea, "an NMEA sentence is an address field (5 upper-case letters or digits, or P and 3 or more) and comma-separated fields in printable ASCII, ending at any *hh checksum");
         }
-
-        if (Internal.NmeaCodec.TryReadChecksum(Sentence, out _, out byte expected, out byte sum) && sum != expected)
+        else if (Internal.NmeaCodec.TryReadChecksum(Sentence, out _, out byte expected, out byte sum) && sum != expected)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, $"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
+            writer.Defer(AprsRefusalCode.InvalidNmea, $"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
         }
 
-        Internal.Text.RequireNoLineBreaks(Comment);
+        writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));
+
+        // A field given as NaN or an infinity is not-a-number whatever the sentence is (vectors
+        // README, Refusal reasons: at every check that also catches it).
+        if (new double?[] { Position?.Latitude, Position?.Longitude, CourseDegrees, SpeedKnots, AltitudeMetres }.Any(v => v is { } x && !double.IsFinite(x)))
+        {
+            writer.Defer(AprsRefusalCode.NotANumber, "an NMEA field is not a number");
+        }
+
         if (Comment.Length > 0 && !HasChecksum)
         {
-            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, "a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence");
+            // Only a checksum ends a sentence (vectors interpretations.md, "NMEA data is its sentence").
+            writer.Defer(AprsRefusalCode.InvalidNmea, "a comment after an NMEA sentence needs the sentence's *hh checksum before it, or it would read back as part of the sentence");
+        }
+
+        if (writer.HasDeferred)
+        {
+            return;
         }
 
         writer.Char('$').Ascii(Sentence).Utf8(Comment);
@@ -185,12 +198,13 @@ public sealed record AprsMaidenheadBeacon : AprsData
 
     internal override void Encode(InfoWriter writer)
     {
-        if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(Locator)))
+        // A locator in lower case reads back in upper case, so it is not the fixed form either.
+        if (!Maidenhead.IsLocator(System.Text.Encoding.ASCII.GetBytes(Locator)) || !Locator.Equals(Locator.ToUpperInvariant(), StringComparison.Ordinal))
         {
-            throw new AprsEncodeException(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator");
+            writer.Defer(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator in upper case");
         }
 
-        Internal.Text.RequireNoLineBreaks(Comment);
+        writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));
         writer.Char('[').Ascii(Locator.ToUpperInvariant()).Char(']').Utf8(Comment);
     }
 }
@@ -317,12 +331,51 @@ public sealed record AprsThirdPartyTraffic : AprsData
     /// <inheritdoc/>
     public override char DataTypeIdentifier => '}';
 
+    private const string HeaderRefusal = "the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -, every path entry before a used one marked used), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)";
+
+    /// <summary>
+    /// Builds third-party traffic from the inner packet's header and data. The header is checked
+    /// first, so a header that cannot be written is refused as
+    /// <see cref="AprsRefusalCode.InvalidThirdPartyHeader"/> whatever is wrong with the data
+    /// (vectors README, Refusal reasons); then the inner packet is made as
+    /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>
+    /// makes it, with the same destination rules: null is <see cref="AprsStation.DefaultDestination"/>,
+    /// and a Mic-E report computes its own, so one given with it is refused.
+    /// </summary>
+    public static AprsThirdPartyTraffic Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (ThirdPartyCodec.Depth(data) >= ThirdPartyCodec.MaxDepth)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, NestingRefusal);
+        }
+
+        List<AprsPathEntry> entries = path?.ToList() ?? [];
+
+        // A computed Mic-E destination is letters and digits, so only a given one can make the
+        // header unwritable; with none, the default stands in for the check.
+        AprsAddress checkedDestination = destination ?? AprsAddress.Parse(AprsStation.DefaultDestination);
+        if (!ThirdPartyCodec.HeaderCanBeWritten(source, checkedDestination, entries))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
+        }
+
+        return new AprsThirdPartyTraffic { Packet = AprsPacket.CreateUnchecked(source, data, destination, entries) };
+    }
+
+    private const string NestingRefusal = "third-party packets nest at most four deep: a decoder does not read a fifth header (vectors interpretations.md, \"Third-party packets nest at most four deep\")";
+
     internal override void Encode(InfoWriter writer)
     {
+        if (ThirdPartyCodec.Depth(this) > ThirdPartyCodec.MaxDepth)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, NestingRefusal);
+        }
+
         byte[] inner = Packet.ToTnc2();
         if (!ThirdPartyCodec.CanWrite(Packet, inner))
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the inner packet's header is not one a strict decoder reads (source 1-9 printable ASCII characters other than > and :, destination and path 1-9 letters, digits or -), or a defect in it was tolerated when it was decoded (APRS12c ch. 17)");
+            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
         }
 
         writer.Char('}').Bytes(inner);

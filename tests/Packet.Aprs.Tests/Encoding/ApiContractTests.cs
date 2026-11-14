@@ -19,8 +19,8 @@ public class ApiContractTests
         FluentActions.Invoking(() => position.ToInformationField()).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.Position(51, 0).Symbol(AprsSymbol.Car).CourseDegrees(400).Build()).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.Telemetry(1000)).Should().Throw<AprsEncodeException>();
-        FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6)).Should().Throw<AprsEncodeException>();
-        FluentActions.Invoking(() => Me.Telemetry(1).Bits("1010")).Should().Throw<AprsEncodeException>();
+        FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6).Build()).Should().Throw<AprsEncodeException>();
+        FluentActions.Invoking(() => Me.Telemetry(1).Bits("1010").Build()).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => AprsStation.From("not a callsign!")).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.To("")).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.Via("WIDE1-1", "no good")).Should().Throw<AprsEncodeException>();

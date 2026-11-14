@@ -200,21 +200,23 @@ internal static class CommentCodec
             }
 
             f.Dao = dao;
-            if (dao.Precision != AprsDaoPrecision.None && !f.IsCompressed)
+            if (f.Position.Ambiguity != 0 && !f.IsCompressed)
             {
-                if (f.Position.Ambiguity == 0)
-                {
-                    f.Position = DaoCodec.Apply(f.Position, lat, lon);
-                }
-                else if (!ctx.Tolerate(
-                             ctx.Options.AllowDaoWithAmbiguity,
-                             AprsDiagnosticCode.DaoWithAmbiguity,
-                             "!DAO! adds precision to an ambiguous position; the extra precision is ignored",
-                             offset + i))
+                // Whatever its precision, !W  ! included (vectors interpretations.md, "!DAO! on an
+                // ambiguous position").
+                if (!ctx.Tolerate(
+                        ctx.Options.AllowDaoWithAmbiguity,
+                        AprsDiagnosticCode.DaoWithAmbiguity,
+                        "!DAO! on an ambiguous position; any extra precision is ignored",
+                        offset + i))
                 {
                     ok = false;
                     return -1;
                 }
+            }
+            else if (dao.Precision != AprsDaoPrecision.None && !f.IsCompressed)
+            {
+                f.Position = DaoCodec.Apply(f.Position, lat, lon);
             }
 
             c.RemoveRange(i, 5);
@@ -457,10 +459,16 @@ internal static class CommentCodec
         if (altitude)
         {
             // An altitude written as /A= must fit it: a fault of its own, before the comment's text.
-            CheckAltitude(d.AltitudeFeet!.Value);
+            w.Field(() => CheckAltitude(d.AltitudeFeet!.Value));
         }
 
-        CheckComment(w, d);
+        w.Field(() => CheckComment(w, d));
+        w.Field(() => WriteFreeText(w, d, altitude));
+        WriteTrailer(w, d, includeWeatherSoftware: false);
+    }
+
+    private static void WriteFreeText(InfoWriter w, AprsPositionedData d, bool altitude)
+    {
         bool braces = d.SignpostText is not null || d.AreaObject is { CorridorWidthMiles: not null };
         if (d.Frequency is { } freq)
         {
@@ -497,8 +505,6 @@ internal static class CommentCodec
 
             w.Utf8(d.Comment);
         }
-
-        WriteTrailer(w, d, includeWeatherSoftware: false);
     }
 
     private static void WriteBracesAndAltitude(InfoWriter w, AprsPositionedData d, bool altitude)
@@ -523,29 +529,35 @@ internal static class CommentCodec
             w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment, so it cannot carry telemetry, frequency, signpost or /A= altitude (APRS12c ch. 12)");
         }
 
-        if (d.Telemetry is { } t)
+        if (d.Telemetry is { } t && !includeWeatherSoftware)
         {
-            t.Validate(w);
-            w.Char('|').Base91(t.Sequence, 2);
-            foreach (int v in t.Analog)
-            {
-                w.Base91(v, 2);
-            }
-
-            if (t.Digital is { } bits)
-            {
-                w.Base91(bits, 2);
-            }
-
-            w.Char('|');
+            // A weather report has no place for telemetry, so its own checks do not run.
+            w.Field(() => WriteTelemetry(w, t));
         }
 
         if (d.Dao is { } dao)
         {
             // On a compressed position the digits are not applied, so they are written to agree
             // with the position the compressed bytes report (vectors ruling E2).
-            DaoCodec.Write(w, d.IsCompressed ? PositionCodec.CompressedReported(d.Position) : d.Position, dao);
+            w.Field(() => DaoCodec.Write(w, d.IsCompressed ? PositionCodec.CompressedReported(d.Position) : d.Position, dao));
         }
+    }
+
+    internal static void WriteTelemetry(InfoWriter w, AprsCommentTelemetry t)
+    {
+        t.Validate(w);
+        w.Char('|').Base91(t.Sequence, 2);
+        foreach (int v in t.Analog)
+        {
+            w.Base91(v, 2);
+        }
+
+        if (t.Digital is { } bits)
+        {
+            w.Base91(bits, 2);
+        }
+
+        w.Char('|');
     }
 
     /// <summary>

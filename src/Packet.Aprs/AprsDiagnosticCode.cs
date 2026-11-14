@@ -29,7 +29,8 @@ public enum AprsDiagnosticCode
     /// <summary>An AX.25 address is padded with NUL rather than spaces (UAP §5.29).</summary>
     NulPaddedAddress = 7,
 
-    /// <summary>An AX.25 address has characters other than upper-case letters and digits.</summary>
+    /// <summary>An AX.25 address has lower-case letters; any other character that is not an upper-case
+    /// letter or digit makes the address invalid (<see cref="InvalidAddress"/>).</summary>
     InvalidAx25AddressCharacters = 8,
 
     /// <summary>The AX.25 frame has more than 8 digipeater addresses.</summary>
@@ -84,7 +85,7 @@ public enum AprsDiagnosticCode
     /// <summary>A compressed position is malformed (APRS12c §9).</summary>
     InvalidCompressedPosition = 47,
 
-    /// <summary>A <c>!DAO!</c> adds precision to an ambiguous position, which contradicts it.</summary>
+    /// <summary>A <c>!DAO!</c> on an ambiguous position, whatever its precision, which contradicts it.</summary>
     DaoWithAmbiguity = 48,
 
     /// <summary>A data extension (PHG, RNG, DFS) appears later in the comment (UAP §5.15).</summary>

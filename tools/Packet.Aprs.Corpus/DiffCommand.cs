@@ -50,9 +50,9 @@ internal static class DiffCommand
             case "dump" when args.Length == 3:
                 return Each(args[1], args[2], limit, "packets", (n, line) => DecodeRecord(n, Convert.FromHexString(line)));
             case "encode" when args.Length == 3:
-                return Each(args[1], args[2], limit, "data", (n, line) => EncodeRecord(n, JsonNode.Parse(line)!.AsObject()));
+                return Each(args[1], args[2], limit, "data", (n, line) => Parsed(line) is { } o ? EncodeRecord(n, o) : TooDeep(n));
             case "build" when args.Length == 3:
-                return Each(args[1], args[2], limit, "recipes", (n, line) => DiffBuild.Record(n, JsonNode.Parse(line)!.AsObject()));
+                return Each(args[1], args[2], limit, "recipes", (n, line) => Parsed(line) is { } o ? DiffBuild.Record(n, o) : TooDeep(n));
             default:
                 Console.Error.WriteLine(Usage);
                 return 2;
@@ -100,6 +100,120 @@ internal static class DiffCommand
     }
 
     // ------------------------------------------------------------------ decode
+
+    /// <summary>A line of JSON, or null when it nests deeper than the reader takes (a third-party chain thousands deep).</summary>
+    private static JsonObject? Parsed(string line)
+    {
+        try
+        {
+            bool nonFinite = false;
+            string text = NonFiniteToStrings(line, ref nonFinite);
+            JsonObject o = JsonNode.Parse(text, documentOptions: new System.Text.Json.JsonDocumentOptions { MaxDepth = 256 })!.AsObject();
+            if (nonFinite)
+            {
+                RestoreNonFinite(o);
+            }
+
+            return o;
+        }
+        catch (System.Text.Json.JsonException ex) when (ex.Message.Contains("depth", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+    }
+
+    private const string NonFiniteMark = "\u0001\u0002nonfinite:";
+
+    /// <summary>
+    /// The generator's <c>--nonfinite</c> lines hold the non-standard tokens <c>NaN</c>,
+    /// <c>Infinity</c> and <c>-Infinity</c>, which System.Text.Json does not read: outside
+    /// strings they become marked strings, turned back into numbers by <see cref="RestoreNonFinite"/>.
+    /// </summary>
+    private static string NonFiniteToStrings(string line, ref bool found)
+    {
+        if (!line.Contains("NaN", StringComparison.Ordinal) && !line.Contains("Infinity", StringComparison.Ordinal))
+        {
+            return line;
+        }
+
+        var sb = new System.Text.StringBuilder(line.Length + 16);
+        bool inString = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (inString)
+            {
+                sb.Append(c);
+                if (c == '\\' && i + 1 < line.Length)
+                {
+                    sb.Append(line[++i]);
+                }
+                else if (c == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            string? token = c == 'N' && string.CompareOrdinal(line, i, "NaN", 0, 3) == 0 ? "NaN"
+                : c == 'I' && string.CompareOrdinal(line, i, "Infinity", 0, 8) == 0 ? "Infinity"
+                : c == '-' && string.CompareOrdinal(line, i, "-Infinity", 0, 9) == 0 ? "-Infinity"
+                : null;
+            if (token is not null)
+            {
+                sb.Append("\"\\u0001\\u0002nonfinite:").Append(token).Append('"');
+                i += token.Length - 1;
+                found = true;
+                continue;
+            }
+
+            inString = c == '"';
+            sb.Append(c);
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Turns the marked strings back into NaN and the infinities, without recursion.</summary>
+    private static void RestoreNonFinite(JsonNode root)
+    {
+        var pending = new Stack<JsonNode>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            JsonNode node = pending.Pop();
+            IEnumerable<(JsonNode? Child, Action<JsonNode> Set)> children = node switch
+            {
+                JsonObject o => [.. o.Select(kv => ((JsonNode?)kv.Value, (Action<JsonNode>)(v => o[kv.Key] = v)))],
+                JsonArray a => [.. a.Select((v, i) => (v, (Action<JsonNode>)(x => a[i] = x)))],
+                _ => [],
+            };
+            foreach ((JsonNode? child, Action<JsonNode> set) in children)
+            {
+                if (child is JsonValue v && v.TryGetValue(out string? s) && s.StartsWith(NonFiniteMark, StringComparison.Ordinal) && s[NonFiniteMark.Length..] is "NaN" or "Infinity" or "-Infinity")
+                {
+                    set(JsonValue.Create(s[NonFiniteMark.Length..] switch
+                    {
+                        "NaN" => double.NaN,
+                        "Infinity" => double.PositiveInfinity,
+                        _ => double.NegativeInfinity,
+                    }));
+                }
+                else if (child is not null)
+                {
+                    pending.Push(child);
+                }
+            }
+        }
+    }
+
+    private static JsonObject TooDeep(long n) => new()
+    {
+        ["n"] = n,
+        ["result"] = "unsupported",
+        ["reason"] = "the line nests deeper than the JSON reader takes (256 levels)",
+    };
 
     private static JsonObject DecodeRecord(long n, byte[] line)
     {
@@ -256,6 +370,11 @@ internal static class DiffCommand
         AprsData data;
         try
         {
+            if (thirdParty)
+            {
+                NeutralReader.CheckNesting(neutral["packet"]!["data"]);
+            }
+
             if (thirdParty && (string?)neutral["packet"]!["data"]!["type"] != "unrecognized")
             {
                 _ = NeutralReader.Data(neutral["packet"]!["data"]!.AsObject());

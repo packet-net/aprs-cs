@@ -32,14 +32,27 @@ internal static class Steps
     }
 
     /// <summary><see cref="Nearest(double)"/> of <paramref name="value"/> x <paramref name="stepsPerUnit"/>, as a whole number of steps.</summary>
-    public static long Count(double value, double stepsPerUnit = 1) => checked((long)Nearest(value * stepsPerUnit));
+    public static long Count(double value, double stepsPerUnit = 1) => Whole(Nearest(value * stepsPerUnit), value);
 
     /// <summary>
     /// <paramref name="value"/> x <paramref name="stepsPerUnit"/> cut to a whole number of steps
     /// (towards zero for a value that is not negative), where a value within
     /// <see cref="HalfTolerance"/> below a step is that step: the step the decimal text means.
     /// </summary>
-    public static long Cut(double value, double stepsPerUnit) => checked((long)Math.Floor((value * stepsPerUnit) + HalfTolerance));
+    public static long Cut(double value, double stepsPerUnit) => Whole(Math.Floor((value * stepsPerUnit) + HalfTolerance), value);
+
+    /// <summary>
+    /// A count of steps as a whole number. A value that is not a number, an infinity included,
+    /// is <c>not-a-number</c>, and one too large for any field <c>value-out-of-range</c>, wherever
+    /// it is met (vectors README, Refusal reasons), never an overflow.
+    /// </summary>
+    private static long Whole(double steps, double value)
+    {
+        NotANumber.Refuse(value, "a value");
+        return steps is >= -9.2e18 and <= 9.2e18
+            ? (long)steps
+            : throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a value too large for any field");
+    }
 
     /// <summary><paramref name="value"/> rounded to whole units.</summary>
     public static double Whole(double value) => Nearest(value);

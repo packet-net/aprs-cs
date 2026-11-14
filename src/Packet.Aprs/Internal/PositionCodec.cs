@@ -625,8 +625,8 @@ internal static class PositionCodec
 
     public static void WriteBody(InfoWriter w, AprsPositionedData d)
     {
-        d.Position.Validate();
-        d.Symbol.Validate();
+        w.Field(d.Position.Validate);
+        w.Field(d.Symbol.Validate);
         if (d.Symbol.IsWeatherStation && d.Weather is null)
         {
             // A report with the weather station symbol is weather even with no fields (vectors
@@ -636,12 +636,12 @@ internal static class PositionCodec
 
         if (d.IsCompressed)
         {
-            WriteCompressed(w, d);
+            w.Field(() => WriteCompressed(w, d));
         }
         else
         {
-            WriteUncompressed(w, d.Position, d.Symbol, d.Dao);
-            WriteDataExtension(w, d);
+            w.Field(() => WriteUncompressed(w, d.Position, d.Symbol, d.Dao));
+            w.Field(() => WriteDataExtension(w, d));
         }
 
         if (d.Weather is { } weather)
@@ -651,7 +651,7 @@ internal static class PositionCodec
                 w.Defer(AprsRefusalCode.SymbolMismatch, "weather data needs a weather-station symbol (_) (APRS12c ch. 12)");
             }
 
-            WeatherCodec.WriteFields(w, weather, positionless: false);
+            w.Field(() => WeatherCodec.WriteFields(w, weather, positionless: false));
             if (d.Comment.Length > 0)
             {
                 w.Defer(AprsRefusalCode.FieldNotAllowed, "a weather report has no comment field (APRS12c ch. 12, UAP 2.7.1)");
@@ -751,9 +751,14 @@ internal static class PositionCodec
         }
 
         char table = d.Symbol.Table is >= '0' and <= '9' ? (char)('a' + (d.Symbol.Table - '0')) : d.Symbol.Table;
-        long y = Steps.Count(90 - d.Position.Latitude, LatitudeScale);
-        long x = Steps.Count(180 + d.Position.Longitude, LongitudeScale);
-        w.Char(table).Base91(Math.Min(y, Base91.MaxValue(4)), 4).Base91(Math.Min(x, Base91.MaxValue(4)), 4).Char(d.Symbol.Code);
+        // The position's bytes are a field of their own, so a position out of range leaves the cs
+        // values after it still checked.
+        w.Field(() =>
+        {
+            long y = Steps.Count(90 - d.Position.Latitude, LatitudeScale);
+            long x = Steps.Count(180 + d.Position.Longitude, LongitudeScale);
+            w.Char(table).Base91(Math.Min(y, Base91.MaxValue(4)), 4).Base91(Math.Min(x, Base91.MaxValue(4)), 4).Char(d.Symbol.Code);
+        });
 
         if (d.Phg is not null || d.DfSignalStrength is not null || d.AreaObject is not null || d.DfBearing is not null || d.Storm is not null)
         {
@@ -764,11 +769,23 @@ internal static class PositionCodec
         if (d.RangeMiles is { } rangeMiles)
         {
             // A range outside the format is a fault of its own, whatever else is given.
-            _ = RangeStep(rangeMiles);
+            w.Field(() => RangeStep(rangeMiles));
+        }
+
+        // So are a course and a speed, and a GGA altitude, before anything else is found to want
+        // the cs bytes or a companion is found missing (vectors README, Refusal reasons).
+        w.Field(() => CheckCompressedCourseSpeed(d.CourseDegrees, d.SpeedKnots));
+        if (type?.Source == AprsCompressionSource.Gga && d.AltitudeFeet is { } ggaAltitude)
+        {
+            w.Field(() => GgaStep(ggaAltitude));
         }
 
         bool windInCs = d.Weather is { } weather && (weather.WindDirectionDegrees is not null || weather.WindSpeedMph is not null);
-        if (windInCs && (type?.Source == AprsCompressionSource.Gga || d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null))
+        // A course and speed beside weather want the bytes that hold its wind even when no wind is
+        // given; a range is written there when they hold no wind (vectors encode/compressed-weather-
+        // with-a-course, corpus/1149).
+        if ((windInCs && (type?.Source == AprsCompressionSource.Gga || d.RangeMiles is not null))
+            || (d.Weather is not null && (d.CourseDegrees is not null || d.SpeedKnots is not null)))
         {
             // One pair of cs bytes carries wind, course/speed, a range or a GGA altitude, never
             // two of them (APRS12c ch. 9); writing one would drop the other.
@@ -783,6 +800,18 @@ internal static class PositionCodec
             {
                 NotANumber.Refuse(wx.WindDirectionDegrees, "wind direction");
                 NotANumber.Refuse(wx.WindSpeedMph, "wind speed");
+
+                // The one given is still checked on its own (vectors README, Refusal reasons).
+                if (wx.WindDirectionDegrees is { } direction && Steps.Whole(direction) is < 0 or > 360)
+                {
+                    throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a wind direction is 0-360 degrees");
+                }
+
+                if (wx.WindSpeedMph is { } speed)
+                {
+                    _ = SpeedCode(Units.MphToKnots(speed));
+                }
+
                 w.Defer(AprsRefusalCode.MissingField, "the cs bytes of a compressed weather position carry wind direction and speed together; one without the other cannot be written (APRS12c ch. 9)");
                 w.Ascii(" sT");
                 return;
@@ -810,13 +839,7 @@ internal static class PositionCodec
                 w.Defer(AprsRefusalCode.ExtensionConflict, "with a GGA compression type the cs bytes carry altitude, so course/speed and range cannot also be sent");
             }
 
-            long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
-            if (cs > (91 * 91) - 1)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "altitude too high for compressed form");
-            }
-
-            w.Base91(cs, 2);
+            w.Base91(GgaStep(alt), 2);
             WriteType(w, type.Value);
         }
         else if (type?.Source == AprsCompressionSource.Gga && d.AltitudeFeet is null)
@@ -890,6 +913,35 @@ internal static class PositionCodec
         }
     }
 
+    private static long GgaStep(double alt)
+    {
+        long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
+        return cs > (91 * 91) - 1
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "altitude too high for compressed form")
+            : cs;
+    }
+
+    /// <summary>A compressed course and speed checked on their own: each in its range, then a course that has a form.</summary>
+    private static void CheckCompressedCourseSpeed(double? course, double? speed)
+    {
+        NotANumber.Refuse(course, "course");
+        NotANumber.Refuse(speed, "speed");
+        if (course is { } c && Steps.Whole(c) is < 0 or > 360)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
+        }
+
+        if (speed is { } s)
+        {
+            _ = SpeedCode(s);
+        }
+
+        if (course is { } c1 && Steps.Whole(c1) < 1)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a compressed course/speed needs a course 1-360; compressed form has no 'unknown' course (APRS12c ch. 9)");
+        }
+    }
+
     private static int RangeStep(double range)
     {
         NotANumber.Refuse(range, "range");
@@ -924,13 +976,19 @@ internal static class PositionCodec
     private static void WriteDataExtension(InfoWriter w, AprsPositionedData d)
     {
         bool courseSpeed = d.CourseDegrees is not null || d.SpeedKnots is not null || d.DfBearing is not null || d.Storm is not null;
-        if (d.Weather is null)
-        {
-            // A course or speed outside its field is a fault of its own, whatever else is given.
-            _ = CheckCourseSpeed(d.CourseDegrees, d.SpeedKnots);
-        }
+        // A course or speed outside its field is a fault of its own, whatever else is given, the
+        // wind of a weather report wanting the same place included.
+        w.Field(() => CheckCourseSpeed(d.CourseDegrees, d.SpeedKnots));
         int count = (courseSpeed ? 1 : 0) + (d.Phg is null ? 0 : 1) + (d.RangeMiles is null ? 0 : 1)
             + (d.DfSignalStrength is null ? 0 : 1) + (d.AreaObject is null ? 0 : 1);
+        if (count > 1 || (count > 0 && d.Weather is not null) || (d.DfBearing is not null && d.Storm is not null))
+        {
+            // Each extension has its place, so each is checked on its own before the two are found
+            // to want it at once: a PHG digit of 10 beside a course is value-out-of-range (vectors
+            // README, Refusal reasons).
+            CheckExtensions(w, d);
+        }
+
         if (count > 1)
         {
             w.Defer(AprsRefusalCode.ExtensionConflict, "only one data extension (course/speed, PHG, RNG, DFS or area object) fits in a report (APRS12c ch. 7)");
@@ -1002,21 +1060,58 @@ internal static class PositionCodec
         }
         else if (d.RangeMiles is { } range)
         {
-            // Rounded to whole miles, then checked (vectors ruling F2).
-            NotANumber.Refuse(range, "RNG");
-            double miles = Steps.Whole(range);
-            if (miles is < 0 or > 9999)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999");
-            }
-
-            w.Ascii("RNG").Digits((int)miles, 4);
+            w.Ascii("RNG").Digits((int)RangeMilesUncompressed(range), 4);
         }
         else if (d.DfSignalStrength is { } dfs)
         {
             dfs.Validate();
             w.Ascii("DFS").Digits(dfs.StrengthCode, 1).Char((char)('0' + dfs.HeightCode)).Digits(dfs.GainCode, 1).Digits(dfs.DirectivityCode, 1);
         }
+    }
+
+    /// <summary>The checks each 7-byte data extension given has of its own, whatever else is given.</summary>
+    private static void CheckExtensions(InfoWriter w, AprsPositionedData d)
+    {
+        if (d.Phg is { } phg)
+        {
+            w.Field(phg.Validate);
+        }
+
+        if (d.DfSignalStrength is { } dfs)
+        {
+            w.Field(dfs.Validate);
+        }
+
+        if (d.AreaObject is { } area)
+        {
+            w.Field(area.Validate);
+        }
+
+        if (d.DfBearing is { } bearing)
+        {
+            w.Field(bearing.Validate);
+        }
+
+        if (d.Storm is { } storm)
+        {
+            // Each value must fit its digits; written to a scratch writer only to check them.
+            w.Field(() => StormCodec.Write(new InfoWriter(), storm));
+        }
+
+        if (d.RangeMiles is { } range)
+        {
+            w.Field(() => _ = RangeMilesUncompressed(range));
+        }
+    }
+
+    private static double RangeMilesUncompressed(double range)
+    {
+        // Rounded to whole miles, then checked (vectors ruling F2).
+        NotANumber.Refuse(range, "RNG");
+        double miles = Steps.Whole(range);
+        return miles is < 0 or > 9999
+            ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "RNG carries whole miles 0-9999")
+            : miles;
     }
 
     internal static void WritePhg(InfoWriter w, AprsPhg phg)

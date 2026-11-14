@@ -154,10 +154,11 @@ public class AprsVectorTests
         JsonObject c = VectorCases.Get(id);
         JsonObject input = Input(c);
         JsonObject expect = c["expect"]!.AsObject();
-        AprsData data = NeutralReader.Data(input["encode"]!.AsObject());
         AprsPacket packet;
         try
         {
+            // Third-party data is made with its inner packet, whose header is checked first.
+            AprsData data = NeutralReader.Data(input["encode"]!.AsObject());
             packet = AprsPacket.Create(VectorCases.Source(input), data, data is AprsMicEReport ? null : VectorCases.Destination(input));
         }
         catch (AprsEncodeException ex)
@@ -197,14 +198,27 @@ public class AprsVectorTests
     {
         JsonObject c = VectorCases.Get(id);
         AprsPacket? packet = VectorCases.Decode(Input(c), AprsParseOptions.Lenient, out _);
-        if (packet is null || packet.Data is AprsUnrecognizedData || packet.Data is AprsThirdPartyTraffic { Packet.Data: AprsUnrecognizedData })
+        if (packet is null)
         {
-            return; // nothing to build: undecoded data cannot be encoded
+            return;
         }
 
-        if (packet.Data is AprsThirdPartyTraffic { Packet.Diagnostics.Count: > 0 })
+        for (AprsPacket level = packet; ; level = ((AprsThirdPartyTraffic)level.Data).Packet)
         {
-            return; // an inner packet's diagnostics come from decoding it: data built from the neutral form has none
+            if (level.Data is AprsUnrecognizedData)
+            {
+                return; // nothing to build: undecoded data cannot be encoded, at any depth
+            }
+
+            if (level != packet && level.Diagnostics.Count > 0)
+            {
+                return; // an inner packet's diagnostics come from decoding it: data built from the neutral form has none
+            }
+
+            if (level.Data is not AprsThirdPartyTraffic)
+            {
+                break;
+            }
         }
 
         JsonObject written = JsonNode.Parse(NeutralJson.Data(packet.Data).ToJsonString())!.AsObject();

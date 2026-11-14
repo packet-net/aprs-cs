@@ -348,18 +348,21 @@ internal static class QueryCodec
 
     public static void WriteGeneral(InfoWriter w, AprsGeneralQuery q)
     {
+        ArgumentNullException.ThrowIfNull(q.QueryType);
+        // An empty type is not upper-case letters (vectors interpretations.md, "Absent text is empty text").
         if (!IsQueryType(q.QueryType))
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "query type must be upper-case letters (APRS12c ch. 15)");
+            w.Defer(AprsRefusalCode.InvalidCode, "query type must be upper-case letters (APRS12c ch. 15)");
         }
 
-        w.Char('?').Ascii(q.QueryType).Char('?');
+        w.Char('?').Field(() => w.Ascii(q.QueryType));
+        w.Char('?');
         if (q.Footprint is { } f)
         {
             double radius = Steps.Whole(f.RadiusMiles);
             NotANumber.Refuse(f.RadiusMiles, "footprint radius");
-            NotANumber.Refuse(f.Latitude, "footprint latitude", orInfinity: true);
-            NotANumber.Refuse(f.Longitude, "footprint longitude", orInfinity: true);
+            NotANumber.Refuse(f.Latitude, "footprint latitude");
+            NotANumber.Refuse(f.Longitude, "footprint longitude");
             if (radius is < 0 or > 9999 || f.Latitude is not (>= -90 and <= 90) || f.Longitude is not (>= -180 and <= 180))
             {
                 throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "footprint latitude, longitude or radius out of range");
@@ -425,7 +428,7 @@ internal static class CapabilitiesCodec
 
 internal static class ThirdPartyCodec
 {
-    private const int MaxDepth = 4;
+    public const int MaxDepth = 4;
 
     public static AprsData? Decode(ReadOnlySpan<byte> info, DecodeContext ctx)
     {
@@ -463,8 +466,58 @@ internal static class ThirdPartyCodec
             return false;
         }
 
-        var ctx = new DecodeContext(AprsParseOptions.Strict);
-        return Tnc2Codec.TrySplit(tnc2, ctx, out _, out _, thirdParty: true);
+        return HeaderCanBeWritten(packet.Path) && Tnc2Codec.TrySplit(tnc2, new DecodeContext(AprsParseOptions.Strict), out _, out _, thirdParty: true);
+    }
+
+    /// <summary>
+    /// How deep <paramref name="data"/> nests third-party packets: 0 for other data, 1 for one
+    /// third-party packet, and so on, counted without recursion and no further than
+    /// <paramref name="limit"/> + 1, however long a chain a caller has made.
+    /// </summary>
+    public static int Depth(AprsData data, int limit = MaxDepth)
+    {
+        int depth = 0;
+        while (data is AprsThirdPartyTraffic t && depth <= limit)
+        {
+            depth++;
+            data = t.Packet.Data;
+        }
+
+        return depth;
+    }
+
+    /// <summary>
+    /// For the encoder: whether a third-party header can be written as given, before anything in
+    /// the inner packet's data is looked at (vectors README, Refusal reasons: the header first).
+    /// </summary>
+    public static bool HeaderCanBeWritten(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path) =>
+        HeaderCanBeWritten(path)
+        && Tnc2Codec.TrySplit(Tnc2Codec.Format(source, destination, path, []), new DecodeContext(AprsParseOptions.Strict), out _, out _, thirdParty: true);
+
+    /// <summary>
+    /// A path entry before a used one is used too, so one not marked used there reads back marked
+    /// (vectors interpretations.md, "Third-party header addresses").
+    /// </summary>
+    private static bool HeaderCanBeWritten(IReadOnlyList<AprsPathEntry> path)
+    {
+        int lastUsed = -1;
+        for (int i = 0; i < path.Count; i++)
+        {
+            if (path[i].Used)
+            {
+                lastUsed = i;
+            }
+        }
+
+        for (int i = 0; i < lastUsed; i++)
+        {
+            if (!path[i].Used)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 

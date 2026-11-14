@@ -109,7 +109,7 @@ public sealed record AprsPositionReport : AprsPositionedData
         writer.Char(DataTypeIdentifier);
         if (Timestamp is { } ts)
         {
-            Internal.TimestampCodec.Write(writer, ts, allowMonthDay: false);
+            writer.Field(() => Internal.TimestampCodec.Write(writer, ts, allowMonthDay: false));
         }
 
         Internal.PositionCodec.WriteBody(writer, this);
@@ -141,11 +141,12 @@ public sealed record AprsObjectReport : AprsPositionedData
 
     internal override void Encode(Internal.InfoWriter writer)
     {
-        Internal.ObjectCodec.ValidateObjectName(Name);
-        writer.Char(';').Ascii(Name.PadRight(9)).Char(IsKilled ? '_' : '*');
+        writer.Field(() => Internal.ObjectCodec.ValidateObjectName(Name));
+        writer.Char(';').Field(() => writer.Ascii(Name.PadRight(9)));
+        writer.Char(IsKilled ? '_' : '*');
         if (Timestamp is { } timestamp)
         {
-            Internal.TimestampCodec.Write(writer, timestamp, allowMonthDay: false);
+            writer.Field(() => Internal.TimestampCodec.Write(writer, timestamp, allowMonthDay: false));
         }
         else
         {
@@ -174,8 +175,9 @@ public sealed record AprsItemReport : AprsPositionedData
 
     internal override void Encode(Internal.InfoWriter writer)
     {
-        Internal.ObjectCodec.ValidateItemName(Name);
-        writer.Char(')').Ascii(Name).Char(IsKilled ? '_' : '!');
+        writer.Field(() => Internal.ObjectCodec.ValidateItemName(Name));
+        writer.Char(')').Field(() => writer.Ascii(Name));
+        writer.Char(IsKilled ? '_' : '!');
         Internal.PositionCodec.WriteBody(writer, this);
     }
 }

@@ -50,6 +50,12 @@ public abstract record AprsMessage : AprsData
         {
             if (replyAck is not null)
             {
+                // The reply-ack has its place after a message ID, so its own checks come first.
+                if (replyAck.Length > 0)
+                {
+                    MessageCodec.ValidateId(replyAck);
+                }
+
                 throw new AprsEncodeException(AprsRefusalCode.MissingField, "a reply-ack needs a message ID");
             }
 
@@ -259,17 +265,18 @@ public sealed record AprsDirectedQuery : AprsMessage
         }
 
         bool known = KnownTypes.Contains(QueryType);
+        // An empty type is not upper-case letters (vectors interpretations.md, "Absent text is empty text").
         if (!known && !QueryCodec.IsQueryType(QueryType))
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "a query type is upper-case letters (APRS12c ch. 15)");
+            writer.Defer(AprsRefusalCode.InvalidCode, "a query type is upper-case letters (APRS12c ch. 15)");
         }
 
-        writer.Char('?').Ascii(QueryType);
+        writer.Char('?').Field(() => writer.Ascii(QueryType));
         if (Target is not null)
         {
             if (!MessageCodec.IsCallsign(Target))
             {
-                throw new AprsEncodeException(AprsRefusalCode.InvalidAddressee, "a query target is one callsign: 1-9 letters, digits or -");
+                writer.Defer(AprsRefusalCode.InvalidAddressee, "a query target is one callsign: 1-9 letters, digits or -");
             }
 
             // A defined type is followed straight by its target, APRSH's padded to 9 characters

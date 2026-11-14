@@ -38,7 +38,9 @@ public readonly record struct AprsDao(char Datum, AprsDaoPrecision Precision)
 
         if (Precision != AprsDaoPrecision.None && Datum is >= '0' and <= '9')
         {
-            throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a numeric (local) datum cannot signal a precision form; use AprsDaoPrecision.None");
+            // A digit datum is read only with no added precision, so for this precision a digit is
+            // outside the datum's set (vectors interpretations.md, "DAO datum digits").
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCode, "a numeric (local) datum cannot signal a precision form; use AprsDaoPrecision.None");
         }
     }
 }

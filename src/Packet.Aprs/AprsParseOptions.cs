@@ -133,8 +133,9 @@ public sealed record AprsParseOptions
     /// second colon (APRS12c §14).</summary>
     public bool AllowUnpaddedAddressee { get; init; } = true;
 
-    /// <summary>Accept an AX.25 frame address containing characters other than upper-case letters
-    /// and digits, such as lower case (UAP §1.1). The address is kept as received.</summary>
+    /// <summary>Accept an AX.25 frame address containing lower-case letters (UAP §1.1). The address
+    /// is kept as received. Any other character that is not an upper-case letter or digit makes
+    /// the address unusable whatever this says.</summary>
     public bool AllowInvalidAx25AddressCharacters { get; init; } = true;
 
     /// <summary>Accept status text straight after a grid locator's symbol without the mandatory
@@ -190,7 +191,7 @@ public sealed record AprsParseOptions
     /// start (APRS12c §10). Driver: several radios put it at the end.</summary>
     public bool AllowMicEAltitudeNotFirst { get; init; } = true;
 
-    /// <summary>Accept a <c>!DAO!</c> with extra precision on an ambiguous position, which contradict
+    /// <summary>Accept a <c>!DAO!</c> on an ambiguous position, whatever its precision, which contradict
     /// each other; the extra precision is ignored and the datum kept.</summary>
     public bool AllowDaoWithAmbiguity { get; init; } = true;
 

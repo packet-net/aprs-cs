@@ -28,6 +28,14 @@ internal static class Ax25Codec
                 return false;
             }
 
+            if (empty && addresses.Count == 1)
+            {
+                // A source of spaces only is empty, and an empty source is unusable, as in TNC2
+                // (vectors interpretations.md, "An AX.25 address is letters and digits").
+                ctx.Error(AprsDiagnosticCode.InvalidAddress, "source address is all spaces");
+                return false;
+            }
+
             if (empty && addresses.Count == 0)
             {
                 if (!ctx.Tolerate(ctx.Options.AllowEmptyDestination, AprsDiagnosticCode.EmptyDestination, "destination address is all spaces (UAP 5.2)"))
@@ -109,6 +117,16 @@ internal static class Ax25Codec
                 return false;
             }
 
+            // Upper-case letters and digits (AX.25 2.2 section 3.12); a lower-case letter is
+            // tolerated, and anything else would write a TNC2 header that reads back as another
+            // (vectors interpretations.md, "An AX.25 address is letters and digits").
+            if (c is not ((>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9')))
+            {
+                ctx.Error(AprsDiagnosticCode.InvalidAddress, $"{role} address has a character other than a letter or digit (0x{(int)c:X2})");
+                hBit = empty = false;
+                return false;
+            }
+
             invalid |= !AprsAddress.IsAx25Char(c);
             chars[length++] = c;
         }
@@ -126,7 +144,7 @@ internal static class Ax25Codec
         if (invalid && !ctx.Tolerate(
                 ctx.Options.AllowInvalidAx25AddressCharacters,
                 AprsDiagnosticCode.InvalidAx25AddressCharacters,
-                $"{role} address '{call}' has characters other than upper-case letters and digits (UAP 1.1)"))
+                $"{role} address '{call}' has lower-case letters (UAP 1.1)"))
         {
             return false;
         }

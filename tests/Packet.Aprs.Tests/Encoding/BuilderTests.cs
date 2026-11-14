@@ -238,7 +238,67 @@ public class BuilderTests
         FluentActions.Invoking(() => Me.Message("G3NRW", "Hi").MessageId("TOOLONG").Build()).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.Object("NAMEISTOOLONG").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build()).Should().Throw<AprsEncodeException>();
         FluentActions.Invoking(() => Me.Position(51.4543, -0.9781).Symbol(AprsSymbol.Car).Compressed().Phg(new AprsPhg(5, 3, 6, 0)).Build()).Should().Throw<AprsEncodeException>();
-        FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6)).Should().Throw<AprsEncodeException>();
+        FluentActions.Invoking(() => Me.Telemetry(1).Analog(1, 2, 3, 4, 5, 6).Build()).Should().Throw<AprsEncodeException>();
+    }
+
+    [Fact]
+    public void A_setter_replaces_its_quantity_whatever_the_unit_so_a_kept_builder_can_be_reused()
+    {
+        var b = Me.Position(51.4543, -0.9781).Symbol(AprsSymbol.Car).SpeedKnots(10).SpeedKmh(20).SpeedKnots(5);
+        b.ToData().SpeedKnots.Should().Be(5);
+        Sent(b.Build()).Should().Be(Sent(b.Build()));
+        Sent(b.Build()).Should().Contain("/005");
+
+        var wx = Me.Weather().TemperatureFahrenheit(50).TemperatureCelsius(10).RainLastHourMillimetres(25.4).RainLastHourInches(2);
+        wx.ToData().Should().BeOfType<AprsWeatherReport>().Which.Weather.TemperatureFahrenheit.Should().Be(50);
+        ((AprsWeatherReport)wx.ToData()).Weather.RainLastHourInches.Should().Be(2);
+    }
+
+    [Fact]
+    public void Third_party_mic_e_gets_its_computed_destination()
+    {
+        var mic = new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car };
+        AprsThirdPartyTraffic t = AprsThirdPartyTraffic.Create(AprsAddress.Parse("N0CALL"), mic);
+        t.Packet.Destination.Should().Be(AprsPacket.Create("N0CALL", mic).Destination);
+    }
+
+    [Fact]
+    public void A_caller_built_third_party_chain_stops_at_four_levels_however_long_it_is_made()
+    {
+        AprsAddress a = AprsAddress.Parse("A");
+        AprsAddress b = AprsAddress.Parse("B");
+        AprsData data = new AprsStatusReport { Text = "hi" };
+        int built = 0;
+        int refused = 0;
+        for (int i = 0; i < 10_000; i++)
+        {
+            try
+            {
+                data = AprsThirdPartyTraffic.Create(a, data, b);
+                built++;
+            }
+            catch (AprsEncodeException ex)
+            {
+                ex.Code.Should().Be(AprsRefusalCode.InvalidThirdPartyHeader);
+                refused++;
+            }
+        }
+
+        built.Should().Be(4);
+        refused.Should().Be(10_000 - 4);
+        // Wrapped by hand instead, a fifth level is refused when it is encoded.
+        FluentActions.Invoking(() => new AprsThirdPartyTraffic { Packet = AprsPacket.Create(a, data, b) }.ToInformationField())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidThirdPartyHeader);
+    }
+
+    [Fact]
+    public void A_line_nested_ten_thousand_deep_decodes_and_writes_without_recursing()
+    {
+        string line = "N0CALL>APZ001:" + string.Concat(Enumerable.Repeat("}A>B:", 10_000)) + ">hi";
+        AprsPacket packet = AprsPacket.Decode(line);
+        Sent(packet).Should().Be(line);
+        packet.Data.ToInformationField().Should().Equal(packet.Information.ToArray());
+        _ = Packet.Aprs.Tests.Vectors.NeutralJson.Data(packet.Data).ToJsonString();
     }
 
     // ------------------------------------------------------------ builder rules (vectors rulings B1-B8)
