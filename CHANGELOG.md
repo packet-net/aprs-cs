@@ -16,6 +16,7 @@ Breaking changes for callers
 
 Other changes
 
+- A path entry of only `*` is not an empty entry but is not an address either: it is `InvalidAddress` in an outer header, and a third-party packet whose inner header has one is unrecognized (malformed) with `InvalidThirdParty`, not read as an empty entry plus several used markers (vectors `0c625fc`).
 - New diagnostic codes `ControlCharacterInText` (a warning, tolerated by the new `AllowControlCharacterInText` flag, on in `Lenient`, off in `Strict`) and `ImplementationLimit`, which Packet.Aprs has no use for (it has no fixed capacity) but which is in the shared code catalogue.
 - A field the report has no place for gets none of its checks: a NaN or infinite altitude on a weather report that has no place for it (anything but a GGA altitude in the cs bytes of a compressed one) is `FieldNotAllowed`, or whatever an earlier fault in the record is named, not `NotANumber`. A GGA altitude of NaN or an infinity in the cs bytes is `NotANumber`, before a longitude out of range.
 - A status symbol given with no locator is `MissingField` (was `FieldNotAllowed`), in a builder and in neutral data alike. Neutral telemetry data with no sequence is `MissingField` (was `Malformed`); a sequence that is there but not letters or digits is still `Malformed`.
