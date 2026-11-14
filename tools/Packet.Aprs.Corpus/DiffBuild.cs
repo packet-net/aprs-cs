@@ -170,8 +170,35 @@ internal static class DiffBuild
             _ => throw new UnsupportedException($"report '{report}': no builder for it"),
         };
         a.Done();
-        return builder.Build();
+        return BuildWithRequired(builder, a);
     }
+
+    /// <summary>
+    /// A telemetry sequence the recipe leaves out is <c>missing-field</c>, but the builder takes
+    /// the sequence as an argument and cannot be asked for a report without one. So it is built
+    /// with a placeholder, for the faults the recipe has that come first in the reason order, and
+    /// refused as <c>missing-field</c> unless one of those applies. Nothing is built from the placeholder.
+    /// </summary>
+    private static AprsPacket BuildWithRequired(AprsBuilder builder, Args a)
+    {
+        AprsPacket packet;
+        try
+        {
+            packet = builder.Build();
+        }
+        catch (AprsEncodeException ex) when (!a.SequenceMissing || InfoWriter.Rank(ex.Code) < InfoWriter.Rank(AprsRefusalCode.MissingField))
+        {
+            throw;
+        }
+        catch (AprsEncodeException) when (a.SequenceMissing)
+        {
+            throw MissingSequence();
+        }
+
+        return a.SequenceMissing ? throw MissingSequence() : packet;
+    }
+
+    private static AprsEncodeException MissingSequence() => new(AprsRefusalCode.MissingField, "a telemetry report needs a sequence");
 
     // ------------------------------------------------------------------ positioned reports
 
@@ -323,7 +350,8 @@ internal static class DiffBuild
         if (a.Node("telemetry") is JsonObject telemetry)
         {
             var t = new Args(telemetry, "telemetry");
-            int sequence = t.Int("sequence")!.Value;
+            int sequence = t.Int("sequence") ?? 0;
+            a.SequenceMissing |= t.Missing("sequence");
             int[] analog = [.. (t.Node("analog") as JsonArray ?? []).Select(v => Whole(v, "telemetry.analog"))];
             _ = t.Int("digital") is { } digital ? b.Telemetry(sequence, analog, (byte)digital) : b.Telemetry(sequence, analog);
             t.Done();
@@ -492,7 +520,8 @@ internal static class DiffBuild
 
     private static AprsTelemetryBuilder Telemetry(AprsStation from, Args a)
     {
-        AprsTelemetryBuilder b = from.Telemetry(a.Int("sequence", "the builder takes a whole sequence number")!.Value);
+        AprsTelemetryBuilder b = from.Telemetry(a.Int("sequence", "the builder takes a whole sequence number") ?? 0);
+        a.SequenceMissing |= a.Missing("sequence");
         if (a.Node("analog") is JsonArray analog)
         {
             b.Analog([.. analog.Select(v => v is null ? (double?)null : v.GetValue<double>())]);
@@ -570,6 +599,11 @@ internal static class DiffBuild
         }
 
         public string? Str(string key) => Node(key) is { } v ? (string?)v : null;
+
+        /// <summary>Set when a recipe leaves out the telemetry sequence, which the builder cannot say.</summary>
+        public bool SequenceMissing { get; set; }
+
+        public bool Missing(string key) => o[key] is null;
 
         public bool Bool(string key) => Node(key) is { } v && (bool)v;
 
