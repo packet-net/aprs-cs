@@ -282,26 +282,21 @@ internal static class WeatherCodec
             && TryFieldValue(info, after, width, next, snow, new DecodeContext(AprsParseOptions.Lenient), out _, out _) == FieldResult.Field;
     }
 
-    /// <summary>Whether everything from <paramref name="after"/> to the end is a trailing element that is lifted first.</summary>
+    /// <summary>
+    /// Whether the weather text ends at <paramref name="after"/>: a lifted base-91 telemetry block or
+    /// <c>!DAO!</c> starts there, wherever it sits in the field (text after it is comment text on its own).
+    /// </summary>
     private static bool EndsInTrailer(int length, int after, List<(int Start, int Length)> trailer)
     {
-        int at = after;
-        bool moved = true;
-        while (at < length && moved)
+        foreach ((int start, _) in trailer)
         {
-            moved = false;
-            foreach ((int start, int len) in trailer)
+            if (start == after)
             {
-                if (start <= at && at < start + len)
-                {
-                    at = start + len;
-                    moved = true;
-                    break;
-                }
+                return true;
             }
         }
 
-        return at >= length;
+        return false;
     }
 
     private enum FieldResult

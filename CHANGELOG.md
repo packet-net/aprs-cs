@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `11e59df`, aprs-vectors#29). The licence is MIT from this release; versions up to 1.1.0 were published under AGPL-3.0-or-later. The vectors are now CC0.
+The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `a405bac`, aprs-vectors#29). The licence is MIT from this release; versions up to 1.1.0 were published under AGPL-3.0-or-later. The vectors are now CC0.
 
 Breaking changes for callers
 
@@ -20,7 +20,7 @@ Breaking changes for callers
 - `ToData()` on a position, object, item or Mic-E builder with no symbol throws `AprsEncodeException` (`InvalidSymbol`), as `Build()` refuses it; it threw `InvalidOperationException` in 1.1.0. `Build()` still names the symbol in its place in the reason order.
 - A message, ack or reject builder given a null addressee (or null text or message ID), and a status, bulletin or telemetry-bits builder given null text, treats it as empty text: `Build()` refuses with `InvalidAddressee` (or the matching code) instead of throwing `ArgumentNullException`.
 
-- Mic-E status text: base-91 telemetry or a `!DAO!` straight after a locator is lifted before the locator's space is looked for, so `IO91/G|!:&0'p| DG2MM` has its space (no `MissingSpaceAfterLocator`; strict accepts). A comment written after a locator's space that would read back as a device suffix (`X`, giving ` X`) is written after a `/` (`IO91/G /X`).
+- Mic-E status text: base-91 telemetry or a `!DAO!` straight after a locator is lifted before the locator's space is looked for, so `IO91/G|!:&0'p| DG2MM` has its space (no `MissingSpaceAfterLocator`; strict accepts). A comment written after a locator's space that would read back as a device suffix (`X`, giving ` X`) is written after a `/` (`IO91/G /X`), and so is one after a voice frequency (`145.500MHz /X`); where telemetry or a `!DAO!` follows the comment, ` X` reads back as itself and takes no `/`. The read-back check now tries a comment with the space in front of it, so a comment that joins the space into a suffix is no longer written as `MHz X`. A run-on weather value that reaches a lifted telemetry block or `!DAO!` anywhere in the field (not only at the end) is dropped, and text after the element is comment text on its own.
 
 Other changes
 

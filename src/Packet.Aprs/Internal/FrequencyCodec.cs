@@ -157,12 +157,13 @@ internal static class FrequencyCodec
     /// position comment's braces and <c>/A=</c> altitude, which a decoder lifts out before it reads
     /// the frequency), then the comment. The usual separating space is left out when the comment
     /// starts with something that would otherwise be read as another tone/offset/range field
-    /// (e.g. <c>-500 ...</c>), so the pair reads back exactly as given.
+    /// (e.g. <c>-500 ...</c>), so the pair reads back exactly as given. With <paramref name="slashDelimiter"/>
+    /// the comment goes after a <c>/</c> whatever it starts with.
     /// </summary>
-    public static void WriteWithComment(InfoWriter w, AprsVoiceFrequency f, string comment, Action<InfoWriter>? between = null)
+    public static void WriteWithComment(InfoWriter w, AprsVoiceFrequency f, string comment, Action<InfoWriter>? between = null, bool slashDelimiter = false)
     {
         // The decoder drops one leading space or slash of the comment as a delimiter.
-        if (comment.Length > 0 && comment[0] is ' ' or '/')
+        if (comment.Length > 0 && comment[0] is ' ' or '/' || slashDelimiter && comment.Length > 0)
         {
             comment = "/" + comment;
         }

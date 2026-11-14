@@ -473,6 +473,81 @@ public class EncodingTests : AprsSpec
         ThenEncodedIs(Show(report.ToInformationField()));
     }
 
+    private static AprsMicEReport MicE(string comment, AprsVoiceFrequency? frequency = null, bool locator = false) => new()
+    {
+        Position = Somewhere,
+        Symbol = AprsSymbol.Parse("/>"),
+        TypeCode = '`',
+        Locator = locator ? "IO91" : null,
+        Frequency = frequency,
+        Comment = comment,
+    };
+
+    private static string MicEInfo(AprsMicEReport report) =>
+        Show(AprsPacket.Create(AprsAddress.Parse("N0CALL"), report).Information.Span);
+
+    private static AprsMicEReport MicEBack(AprsMicEReport report)
+    {
+        AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), report);
+        return (AprsMicEReport)AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data;
+    }
+
+    [Theory]
+    [InlineData("X", "MHz /X")]
+    [InlineData("Kenwood Z", "MHz Kenwood Z")]
+    [InlineData("Y", "MHz Y")]
+    [InlineData("Z", "MHz Z")]
+    public void A_mic_e_comment_after_a_frequency_goes_after_a_slash_only_where_the_space_would_join_it_into_a_suffix(string comment, string written)
+    {
+        // The space before the comment would make ' X' the device suffix when the text ends there.
+        var report = MicE(comment, new AprsVoiceFrequency { FrequencyMHz = 145.5 });
+        MicEInfo(report).Should().EndWith(written);
+        AprsMicEReport back = MicEBack(report);
+        back.Comment.Should().Be(comment);
+        back.DeviceSuffix.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_mic_e_comment_after_a_phg_reads_back_as_itself_or_is_refused()
+    {
+        var phg = new AprsPhg(7, 5, 3, 0);
+        MicEBack(MicE("X") with { Phg = phg }).Comment.Should().Be("X");
+        // A comment that is itself a device suffix at the end cannot be written as comment text.
+        FluentActions.Invoking(() => MicEBack(MicE(" X") with { Phg = phg })).Should().Throw<AprsEncodeException>();
+    }
+
+    [Fact]
+    public void A_mic_e_comment_after_a_frequency_with_telemetry_after_it_takes_no_slash()
+    {
+        var report = MicE("X", new AprsVoiceFrequency { FrequencyMHz = 145.5 }) with { Telemetry = new AprsCommentTelemetry { Sequence = 1, Analog = [1, 2, 3, 4, 5] } };
+        MicEInfo(report).Should().Contain("MHz X|");
+        MicEBack(report).Comment.Should().Be("X");
+    }
+
+    [Fact]
+    public void A_mic_e_comment_after_a_locator_takes_a_slash_only_where_nothing_follows_it()
+    {
+        MicEInfo(MicE("X", locator: true)).Should().EndWith("/G /X");
+        var telemetry = MicE("X", locator: true) with { Telemetry = new AprsCommentTelemetry { Sequence = 1, Analog = [1, 2, 3, 4, 5] } };
+        MicEInfo(telemetry).Should().Contain("/G X|");
+        MicEBack(telemetry).Comment.Should().Be("X");
+        var dao = MicE("X", locator: true) with { Dao = new AprsDao('W', AprsDaoPrecision.Thousandths) };
+        MicEInfo(dao).Should().Contain("/G X!");
+        MicEBack(dao).Comment.Should().Be("X");
+    }
+
+    [Theory]
+    [InlineData("!4903.50N/07201.75W_220/004g005t247483647!W12!12!", "12!")]
+    [InlineData("!4903.50N/07201.75W_220/004g005t247483647!W12! more", "more")]
+    [InlineData("!4903.50N/07201.75W_220/004g005r12345!W12!x", "x")]
+    public void A_weather_run_on_before_a_dao_is_dropped_and_the_text_after_it_stands_alone(string info, string comment)
+    {
+        GivenInformationField(info);
+        WhenDecoded();
+        ThenDiagnostic(AprsDiagnosticCode.OutOfRangeValue, AprsDiagnosticSeverity.Warning);
+        ThenCommentIs(comment);
+    }
+
     [Fact]
     public void Create_builds_the_whole_packet()
     {

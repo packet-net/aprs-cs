@@ -690,9 +690,11 @@ internal static class CommentCodec
         int pos = 0;
         bool startsWithExtension = r.Phg is null && r.RangeMiles is null && r.DfSignalStrength is null && r.Frequency is null
             && !PositionCodec.IsCourseSpeed(c) && PositionCodec.TryReadDataExtension(c, ref pos, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields { Position = r.Position, Symbol = r.Symbol }) && pos > 0;
+        // The space written in front of the comment (after a locator or a frequency) can join it into a
+        // suffix, so the comment is tried with a space in front as well; the finished field settles it.
         bool endsWithSuffix = r.DeviceSuffix.Length == 0 && r.Telemetry is null && r.Dao is null && r.TypeCode is { } t
             && (t is '`' or '\'' ? AprsDeviceIdentification.MicESuffixes : t is '>' or ']' ? AprsDeviceIdentification.MicELegacySuffixes(t) : [])
-                .Any(s => comment.EndsWith(s, StringComparison.Ordinal));
+                .Any(s => comment.EndsWith(s, StringComparison.Ordinal) || (" " + comment).EndsWith(s, StringComparison.Ordinal));
         // A '}' can end a Mic-E altitude (xxx}) with bytes written before it, which a decoder finds
         // anywhere in the status text when none comes first.
         bool mayFormAltitude = comment.Contains('}', StringComparison.Ordinal);

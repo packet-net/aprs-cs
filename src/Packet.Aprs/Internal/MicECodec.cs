@@ -969,6 +969,18 @@ internal static class MicECodec
         }
     }
 
+    /// <summary>
+    /// Whether the space written in front of <paramref name="comment"/> would join it into a device
+    /// suffix the decoder reads (" X"): only when the status text ends with the comment, which it
+    /// does not when telemetry, a !DAO! or a given suffix follows.
+    /// </summary>
+    private static bool SpaceJoinsSuffix(AprsMicEReport r, string comment)
+    {
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(comment);
+        return r.DeviceSuffix.Length == 0 && r.Telemetry is null && r.Dao is null && bytes.Length > 0
+            && MatchSuffix(r.TypeCode, [(byte)' ', .. bytes]).Length > bytes.Length;
+    }
+
     private static void WriteComment(InfoWriter w, AprsMicEReport r, bool altitudeAsFeet)
     {
         // Status text holds no control character, a leading 0x1D included (vectors README, "Control
@@ -984,7 +996,11 @@ internal static class MicECodec
                 w.Char('/');
             }
 
-            w.Field(() => FrequencyCodec.WriteWithComment(w, freq, r.Comment));
+            // The space before the comment can join it into a device suffix (" X") when the text ends
+            // there; the comment then goes after a '/'. Telemetry or a !DAO! after it ends the text
+            // instead, and the suffix is not read (vectors "Delimiters at the start of free text").
+            bool slash = SpaceJoinsSuffix(r, r.Comment);
+            w.Field(() => FrequencyCodec.WriteWithComment(w, freq, r.Comment, slashDelimiter: slash));
         }
 
         bool extensionJustWritten = r.Frequency is null && !altitudeAsFeet && (r.Phg is not null || r.RangeMiles is not null || r.DfSignalStrength is not null);
@@ -1002,8 +1018,7 @@ internal static class MicECodec
 
         // The space after a locator is part of the text, so a comment that with it ends in a device
         // suffix (" X") would read back as the suffix: it goes after a '/' as well.
-        bool spaceJoinsSuffix = commentFirst && r.Locator is not null && r.DeviceSuffix.Length == 0 && commentBytes.Length > 0
-            && MatchSuffix(r.TypeCode, [(byte)' ', .. commentBytes]).Length > commentBytes.Length;
+        bool spaceJoinsSuffix = commentFirst && r.Locator is not null && SpaceJoinsSuffix(r, r.Comment);
         if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode || spaceJoinsSuffix))
         {
             // A '/' delimiter can itself start a Mic-E altitude run (//x}, or 0/x} after /A=
