@@ -216,11 +216,12 @@ internal static class MicECodec
             // Base-91 telemetry and a !DAO! count as lifted before the locator is read, so a
             // locator followed straight by either has nothing after it (vectors ruling F16). They
             // are only lifted later, once a later altitude has been looked for (README Mic-E).
-            if (text.Count > 0 && !NothingButTrailer(text))
+            int spaceAt = text.Count > 0 ? FirstOutsideTrailer(text) : -1;
+            if (spaceAt >= 0)
             {
-                if (text[0] == (byte)' ')
+                if (text[spaceAt] == (byte)' ')
                 {
-                    text.RemoveAt(0);
+                    text.RemoveAt(spaceAt);
                 }
                 else if (!ctx.Tolerate(
                              ctx.Options.AllowMissingSpaceAfterLocator,
@@ -321,11 +322,19 @@ internal static class MicECodec
     }
 
     /// <summary>True when the text is only base-91 telemetry and a <c>!DAO!</c>, as a decoder lifts them.</summary>
-    private static bool NothingButTrailer(List<byte> text)
+    /// <summary>The index of the first byte not in base-91 telemetry or a <c>!DAO!</c>, which are lifted before the locator's space is looked for; -1 when nothing else is left.</summary>
+    private static int FirstOutsideTrailer(List<byte> text)
     {
-        var copy = new List<byte>(text);
-        var probe = new PositionedFields();
-        return CommentCodec.TryExtractTrailer(copy, 0, new DecodeContext(AprsParseOptions.Lenient), probe) && copy.Count == 0;
+        var spans = CommentCodec.TrailerSpans(text);
+        for (int i = 0; i < text.Count; i++)
+        {
+            if (!spans.Any(sp => i >= sp.Start && i < sp.Start + sp.Length))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static void ReadAltitude(List<byte> text, int at, PositionedFields fields)
@@ -990,7 +999,12 @@ internal static class MicECodec
         // a control character and is refused.
         bool readsAsTypeCode = commentFirst && r.TypeCode is null && r.Locator is null && r.AltitudeFeet is null
             && commentBytes.Length > 0 && commentBytes[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']';
-        if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode))
+
+        // The space after a locator is part of the text, so a comment that with it ends in a device
+        // suffix (" X") would read back as the suffix: it goes after a '/' as well.
+        bool spaceJoinsSuffix = commentFirst && r.Locator is not null && r.DeviceSuffix.Length == 0 && commentBytes.Length > 0
+            && MatchSuffix(r.TypeCode, [(byte)' ', .. commentBytes]).Length > commentBytes.Length;
+        if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode || spaceJoinsSuffix))
         {
             // A '/' delimiter can itself start a Mic-E altitude run (//x}, or 0/x} after /A=
             // digits); a space delimiter, which a decoder drops as well, cannot (vectors ruling E12).
