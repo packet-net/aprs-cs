@@ -610,8 +610,57 @@ internal static class MicECodec
     /// <summary>The speed and course in whole knots and degrees; refuses one the field cannot hold (vectors ruling F2).</summary>
     private static bool IsWholeMetres(double feet)
     {
-        long metres = Steps.Count(feet / Units.FeetPerMetre);
-        return Math.Abs((metres * Units.FeetPerMetre) - feet) <= 1e-6;
+        if (!double.IsFinite(feet))
+        {
+            return false;
+        }
+
+        double metres = feet / Units.FeetPerMetre;
+        return Math.Abs(metres - Math.Round(metres)) <= 1e-6;
+    }
+
+    /// <summary>
+    /// Whether the altitude is written as a <c>/A=</c> in the status text rather than in the Mic-E
+    /// altitude bytes (vectors interpretations.md, "A Mic-E altitude goes in the Mic-E altitude
+    /// bytes"). Decoded data knows where its altitude came from. A builder's altitude is always in
+    /// the bytes. Neutral data does not say, so its value does: a <c>/A=</c> only when only a
+    /// <c>/A=</c> holds it exactly, that is a whole number of feet within its six digits that the
+    /// bytes do not hold exactly (not a whole number of metres, or beyond their range), or one the
+    /// bytes hold but could only write as a type code.
+    /// </summary>
+    private static bool AltitudeAsFeet(AprsMicEReport r)
+    {
+        if (r.AltitudeFeet is not { } feet)
+        {
+            return false;
+        }
+
+        if (r.AltitudeInComment)
+        {
+            return true;
+        }
+
+        if (r.AltitudeInBytes || !double.IsFinite(feet))
+        {
+            return false;
+        }
+
+        bool wholeFeet = Math.Abs(feet - Math.Round(feet)) <= 1e-6 && Math.Round(feet) is >= -99999 and <= 999999;
+        if (!wholeFeet)
+        {
+            return false;
+        }
+
+        bool bytesHold = IsWholeMetres(feet) && Math.Round(feet / Units.FeetPerMetre) is >= -10000 and <= 743570;
+        if (!bytesHold)
+        {
+            return true;
+        }
+
+        // Where the bytes have no clean form (a first byte that is a type code character, with no
+        // type code before it) and a /A= holds the value exactly, it goes in the /A=.
+        long value = (long)Math.Round(feet / Units.FeetPerMetre) + 10000;
+        return r.TypeCode is null && (char)((value / (91 * 91)) + 33) is '`' or '\'' or '>' or ']';
     }
 
     private static (int Speed, int Course) CheckMotion(AprsMicEReport r)
@@ -652,7 +701,7 @@ internal static class MicECodec
 
         (int speed, int course) = (0, 0);
         w.Field(() => (speed, course) = CheckMotion(r));
-        if (r.AltitudeFeet is { } altitudeFeet && (r.AltitudeInComment || !IsWholeMetres(altitudeFeet)))
+        if (r.AltitudeFeet is { } altitudeFeet && AltitudeAsFeet(r))
         {
             // Written as /A=, so it must fit that, before the later value checks.
             w.Field(() => CommentCodec.CheckAltitude(altitudeFeet));
@@ -787,23 +836,23 @@ internal static class MicECodec
             w.CommentCheck ??= "the Mic-E status text would read back with a different device suffix";
         }
 
-        // Mic-E carries altitude in whole metres (xxx}); an altitude that is not a whole number of
-        // metres, e.g. one that arrived as /A= feet, is written as /A= so it survives unchanged.
-        bool altitudeAsFeet = r.AltitudeFeet is { } feetGiven && (r.AltitudeInComment || !IsWholeMetres(feetGiven));
+        // Mic-E carries altitude in whole metres (xxx}); a /A= only where the data came from one
+        // or only a /A= holds the value exactly (AltitudeAsFeet).
+        bool altitudeAsFeet = AltitudeAsFeet(r);
         if (r.AltitudeFeet is { } feet)
         {
-            w.Field(() => WriteAltitudeBytes(w, r, feet));
+            w.Field(() => WriteAltitudeBytes(w, r, feet, altitudeAsFeet));
         }
 
         WriteStatusText(w, r, altitudeAsFeet);
     }
 
-    private static void WriteAltitudeBytes(InfoWriter w, AprsMicEReport r, double feet)
+    private static void WriteAltitudeBytes(InfoWriter w, AprsMicEReport r, double feet, bool altitudeAsFeet)
     {
         {
             long metres = Steps.Count(feet / Units.FeetPerMetre);
             long value = metres + 10000;
-            if (!r.AltitudeInComment && IsWholeMetres(feet))
+            if (!altitudeAsFeet)
             {
                 if (value is < 0 or > (91 * 91 * 91) - 1)
                 {
@@ -917,6 +966,9 @@ internal static class MicECodec
 
     private static void WriteComment(InfoWriter w, AprsMicEReport r, bool altitudeAsFeet)
     {
+        // Status text holds no control character, a leading 0x1D included (vectors README, "Control
+        // characters in text").
+        w.Field(() => Text.RequireNoControlCharacters(r.Comment));
         if (r.Frequency is { } freq)
         {
             // Straight after a PHG, RNG or DFS the frequency follows a '/', as in a position
@@ -937,11 +989,11 @@ internal static class MicECodec
 
         // "The Mic-E status text must not start with ` , ' or 0x1d, otherwise it will be confused
         // with [now obsolete] telemetry data" (APRS12c ch. 10). A comment that would start it with a
-        // type code character or 0x1D goes after a '/' delimiter, which the decoder drops
-        // (interpretations.md, "Delimiters at the start of free text"). After Rev 0 telemetry a
-        // 0x1D is text, since the telemetry is only read at the start (vectors ruling E6).
+        // type code character goes after a '/' delimiter, which the decoder drops
+        // (interpretations.md, "Delimiters at the start of free text"); one that starts with 0x1D is
+        // a control character and is refused.
         bool readsAsTypeCode = commentFirst && r.TypeCode is null && r.Locator is null && r.AltitudeFeet is null
-            && commentBytes.Length > 0 && (commentBytes[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']' || (commentBytes[0] == 0x1d && r.LegacyTelemetry is null));
+            && commentBytes.Length > 0 && commentBytes[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']';
         if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode))
         {
             // A '/' delimiter can itself start a Mic-E altitude run (//x}, or 0/x} after /A=

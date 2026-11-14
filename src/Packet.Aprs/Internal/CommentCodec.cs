@@ -521,6 +521,13 @@ internal static class CommentCodec
 
     private static void WriteTrailer(InfoWriter w, AprsPositionedData d, bool includeWeatherSoftware)
     {
+        if (includeWeatherSoftware && d.AltitudeFeet is { } given)
+        {
+            // A weather report has no place for an /A= altitude, but NaN or an infinity is
+            // not-a-number at every check that also catches it (vectors README, Refusal reasons).
+            w.Field(() => NotANumber.Refuse(given, "altitude"));
+        }
+
         if (includeWeatherSoftware && (d.Telemetry is not null || d.Frequency is not null || d.SignpostText is not null
             || (d.AltitudeFeet is not null && !(d.IsCompressed && d.CompressionType?.Source == AprsCompressionSource.Gga))))
         {
@@ -630,7 +637,7 @@ internal static class CommentCodec
     {
         ArgumentNullException.ThrowIfNull(d.Comment);
         string comment = d.Comment;
-        Text.RequireNoLineBreaks(comment);
+        Text.RequireNoControlCharacters(comment);
         var probe = new PositionedFields { Position = d.Position, Symbol = d.Symbol, AreaObject = d.AreaObject, IsCompressed = d.IsCompressed, Phg = d.Phg, RangeMiles = d.RangeMiles, DfSignalStrength = d.DfSignalStrength };
         var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
         var ctx = new DecodeContext(AprsParseOptions.Lenient);
@@ -680,7 +687,7 @@ internal static class CommentCodec
     internal static void CheckMicEComment(InfoWriter w, AprsMicEReport r)
     {
         string comment = r.Comment ?? throw new ArgumentNullException(nameof(r));
-        Text.RequireNoLineBreaks(comment);
+        Text.RequireNoControlCharacters(comment);
         var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
         var probe = new PositionedFields { Position = r.Position, Symbol = r.Symbol, Phg = r.Phg, RangeMiles = r.RangeMiles, DfSignalStrength = r.DfSignalStrength };
         TryExtract(bytes, 0, new DecodeContext(AprsParseOptions.Lenient), probe, frequencyAtStart: r.Frequency is null);

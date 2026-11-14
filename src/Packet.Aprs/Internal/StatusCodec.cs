@@ -108,7 +108,7 @@ internal static class StatusCodec
             }
         }
 
-        w.Field(() => Text.RequireNoLineBreaks(r.Text));
+        w.Field(() => Text.RequireNoControlCharacters(r.Text));
         w.Char('>');
         if (r.Locator is { } locator)
         {
@@ -324,7 +324,7 @@ internal static class TelemetryCodec
             w.Defer(AprsRefusalCode.ValueHasNoForm, "a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)");
         }
 
-        w.Field(() => Text.RequireNoLineBreaks(r.Comment));
+        w.Field(() => Text.RequireNoControlCharacters(r.Comment));
         if (r.Sequence.Length == 0 || !r.Sequence.All(char.IsAsciiLetterOrDigit))
         {
             w.Defer(AprsRefusalCode.Malformed, "telemetry sequence is letters or digits");

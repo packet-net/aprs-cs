@@ -24,8 +24,10 @@ public abstract class AprsBuilder
 
     /// <summary>
     /// The packet: the station's header and this data, encoded. Throws <see cref="AprsEncodeException"/>
-    /// for anything APRS12c does not allow, and <see cref="InvalidOperationException"/> when
-    /// something the packet needs, such as a symbol, was never given. A Mic-E report gets its
+    /// for anything APRS12c does not allow, a symbol, an object's timestamp or a position never given
+    /// included (<see cref="AprsRefusalCode.InvalidSymbol"/>, <see cref="AprsRefusalCode.MissingField"/>),
+    /// and <see cref="InvalidOperationException"/> when a report that needs a position has none. A builder never
+    /// reads the clock. A Mic-E report gets its
     /// computed destination, whatever the station's. A setter replaces its quantity whatever
     /// unit it was given in, so the last one called wins (<c>SpeedKnots</c> then <c>SpeedKmh</c>
     /// sends the km/h).
@@ -119,7 +121,8 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     /// <summary>Speed over ground in kilometres per hour, sent in knots.</summary>
     public TSelf SpeedKmh(double kilometresPerHour) => SpeedKnots(kilometresPerHour / 1.852);
 
-    /// <summary>Altitude above mean sea level in feet (<c>/A=</c>).</summary>
+    /// <summary>Altitude above mean sea level in feet (<c>/A=</c>); in a Mic-E report, in its altitude bytes
+    /// in whole metres, rounded once from the value given (1000 feet is 305 m).</summary>
     public TSelf AltitudeFeet(double feet)
     {
         altitudeFeet = feet;
@@ -128,7 +131,8 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     }
 
     /// <summary>Altitude above mean sea level in metres, sent in feet (<c>/A=</c>, rounded once to
-    /// the foot), or in a Mic-E report in its altitude bytes, rounded to the metre (APRS12c ch. 10).</summary>
+    /// the foot), or in a Mic-E report in its altitude bytes, rounded to the metre (APRS12c ch. 10);
+    /// one outside -10000 to 743570 m is refused there (<see cref="AprsRefusalCode.ValueOutOfRange"/>).</summary>
     public TSelf AltitudeMetres(double metres)
     {
         altitudeFeet = metres * Units.FeetPerMetre;
@@ -240,8 +244,10 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     private protected AprsPosition RequirePosition(string what) =>
         position ?? throw new InvalidOperationException($"{what} needs a position: call At(latitude, longitude)");
 
-    private protected AprsSymbol RequireSymbol(string what) =>
-        symbol ?? throw new InvalidOperationException($"{what} needs a symbol: call Symbol(...), e.g. Symbol(AprsSymbol.Car)");
+    /// <summary>The symbol, or the unset one when none was given: the report is then refused as
+    /// <see cref="AprsRefusalCode.InvalidSymbol"/>, in its place in the reason-code order, as neutral
+    /// data with no symbol is.</summary>
+    private protected AprsSymbol RequireSymbol(string what) => symbol ?? default;
 
     /// <summary>Copies the shared fields onto <paramref name="data"/>, which carries only its own.</summary>
     private protected T Apply<T>(T data)
@@ -312,7 +318,9 @@ public sealed class AprsObjectBuilder : AprsPositionedBuilder<AprsObjectBuilder>
         this.name = name;
     }
 
-    /// <summary>When the object report was made. Without this, the time of <c>ToData()</c> or <c>Build()</c>, to the minute.</summary>
+    /// <summary>When the object report was made. An object always has one: without this, the report is refused as
+    /// <see cref="AprsRefusalCode.MissingField"/> (the builder never reads the clock; pass
+    /// <c>AprsTimestamp.FromDateTime(DateTime.UtcNow)</c> for the time now).</summary>
     public AprsObjectBuilder Timestamp(AprsTimestamp timestamp)
     {
         this.timestamp = timestamp;
@@ -338,7 +346,7 @@ public sealed class AprsObjectBuilder : AprsPositionedBuilder<AprsObjectBuilder>
     {
         Name = name,
         IsKilled = killed,
-        Timestamp = timestamp ?? AprsTimestamp.FromDateTime(DateTime.UtcNow),
+        Timestamp = timestamp,
         Position = RequirePosition("an object"),
         Symbol = RequireSymbol("an object"),
     });
@@ -422,9 +430,14 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
             report = report with { CourseDegrees = null };
         }
 
-        // An altitude in metres goes in the Mic-E altitude bytes, whose unit is the metre, rounded
-        // to the metre (ruling B2); one in feet goes in a /A=.
-        return AltitudeInMetres is { } metres ? report with { AltitudeFeet = Steps.Whole(metres) * Units.FeetPerMetre }
-            : report with { AltitudeInComment = report.AltitudeFeet is not null };
+        // An altitude goes in the Mic-E altitude bytes, whose unit is the metre, whatever unit it was
+        // given in, rounded once to the metre from the value given (1000 feet is 305 m). One the
+        // bytes cannot hold is value-out-of-range when the report is encoded.
+        return report.AltitudeFeet is null ? report
+            : report with
+            {
+                AltitudeFeet = AltitudeInMetres is { } metres ? Steps.Whole(metres) * Units.FeetPerMetre : report.AltitudeFeet,
+                AltitudeInBytes = true,
+            };
     }
 }

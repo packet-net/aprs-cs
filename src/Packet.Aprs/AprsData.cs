@@ -29,10 +29,15 @@ public abstract record AprsData
     /// value cannot be represented as APRS12c requires, and for a Mic-E report, whose position is
     /// split between the information field and the destination address: make its packet with
     /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>.
+    /// An information field is at most 256 bytes (APRS12c ch. 3): more is refused as
+    /// <see cref="AprsRefusalCode.TooLong"/>, whatever the output, though a decoder sets no limit.
     /// </summary>
     public byte[] ToInformationField() => this is AprsMicEReport
         ? throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "a Mic-E report carries part of its position in the destination address, so its information field alone is not a position; make a packet with AprsPacket.Create")
         : EncodeInformation();
+
+    /// <summary>The most bytes an information field holds (APRS12c ch. 3). A decoder sets no limit; an encoder refuses more.</summary>
+    internal const int MaxInformationField = 256;
 
     /// <summary>The information field, whatever the data type (for a Mic-E report, without its destination).</summary>
     internal byte[] EncodeInformation()
@@ -60,6 +65,13 @@ public abstract record AprsData
             // A field ending in CR or LF reads back with trailing-line-break, a warning, and
             // without the byte (Mic-E telemetry ending 13, say), so no clean form exists.
             writer.Defer(AprsRefusalCode.InvalidCharacter, "the information field would end with a line break, which a decoder strips with a warning");
+        }
+
+        if (info.Length > MaxInformationField)
+        {
+            // Measured on the bytes the data's fields make as given, so it is known before every
+            // other check has passed (vectors README, Encoding).
+            writer.Defer(AprsRefusalCode.TooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)");
         }
 
         writer.ThrowDeferred();

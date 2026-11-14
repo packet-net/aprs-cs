@@ -334,13 +334,11 @@ public class EncodingTests : AprsSpec
     }
 
     [Theory]
-    [InlineData("N1JCM-9>TRQP7T:`c'wl|+>/<0x1d>ABCD/<0x1d>ABCDEhello")]
     [InlineData("N0CALL>S32UVT:`(_fn\"Oj/]wO91SX/G Hello")]
-    [InlineData("KB3AWQ-9>T1QW8Q:`i[Yl*<0x1c>P\\`\"6,}444.900MHz <0x00>173 +500 4.7V S06")]
     public void A_mic_e_comment_gets_a_delimiter_only_where_it_needs_one(string tnc2)
     {
-        // E6: after Rev 0 telemetry a 0x1D is text. E7: no '/' after the type code where the
-        // comment reads back as itself, and a space after a frequency before a 0x00.
+        // E7: no '/' after the type code where the comment reads back as itself. (A 0x1D or 0x00 at
+        // the start of the text is a control character and is refused, as the vectors' round 4 say.)
         GivenPacket(tnc2);
         WhenDecoded();
         AprsPacket created = AprsPacket.Create(Packet.Source, (AprsMicEReport)Packet.Data);
@@ -404,12 +402,15 @@ public class EncodingTests : AprsSpec
     }
 
     [Fact]
-    public void An_information_field_has_no_size_limit()
+    public void An_information_field_is_at_most_256_bytes()
     {
-        // E11: refusing means the rule declines the data, never that a buffer is full.
-        string comment = new('x', 1000);
+        // 20 bytes of position, then the comment: 256 is written, 257 is refused as too-long.
+        string comment = new('x', 236);
         WhenEncoded(new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), Comment = comment });
         ThenEncodedIs("!4903.50N/07201.75W>" + comment);
+
+        var tooLong = new AprsPositionReport { Position = Somewhere, Symbol = AprsSymbol.Parse("/>"), Comment = comment + "x" };
+        FluentActions.Invoking(() => tooLong.ToInformationField()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.TooLong);
     }
 
     [Fact]

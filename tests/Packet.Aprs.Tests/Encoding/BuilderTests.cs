@@ -101,10 +101,14 @@ public class BuilderTests
     }
 
     [Fact]
-    public void An_object_is_stamped_now_unless_told_otherwise()
+    public void An_object_with_no_timestamp_is_refused_because_a_builder_never_reads_the_clock()
     {
+        FluentActions.Invoking(() => Me.Object("MYRPTR").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.MissingField);
+
+        // The time now is one explicit call away.
         DateTime before = DateTime.UtcNow;
-        var sent = (AprsObjectReport)AprsPacket.Decode(Sent(Me.Object("MYRPTR").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Build())).Data;
+        var sent = (AprsObjectReport)AprsPacket.Decode(Sent(Me.Object("MYRPTR").At(51.45, -0.98).Symbol(AprsSymbol.Repeater).Timestamp(DateTime.UtcNow).Build())).Data;
 
         sent.Timestamp!.Value.Format.Should().Be(AprsTimestampFormat.DayHoursMinutesUtc);
         sent.Timestamp.Value.Resolve(before).Should().BeCloseTo(before, TimeSpan.FromMinutes(1));
@@ -227,7 +231,11 @@ public class BuilderTests
     public void Missing_pieces_are_named()
     {
         FluentActions.Invoking(() => Me.Position(51.4543, -0.9781).Build())
-            .Should().Throw<InvalidOperationException>().WithMessage("*symbol*");
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidSymbol);
+        FluentActions.Invoking(() => Me.Object("MYRPTR").At(51.4543, -0.9781).Symbol(AprsSymbol.Repeater).Build())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.MissingField);
+        FluentActions.Invoking(() => Me.Weather().WindDirectionDegrees(10).Build())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.MissingField);
         FluentActions.Invoking(() => Me.Object("MYRPTR").Symbol(AprsSymbol.Repeater).Build())
             .Should().Throw<InvalidOperationException>().WithMessage("*position*");
     }
@@ -292,12 +300,14 @@ public class BuilderTests
     }
 
     [Fact]
-    public void A_line_nested_ten_thousand_deep_decodes_and_writes_without_recursing()
+    public void A_line_nested_ten_thousand_deep_decodes_and_is_refused_on_writing_without_recursing()
     {
         string line = "N0CALL>APZ001:" + string.Concat(Enumerable.Repeat("}A>B:", 10_000)) + ">hi";
         AprsPacket packet = AprsPacket.Decode(line);
         Sent(packet).Should().Be(line);
-        packet.Data.ToInformationField().Should().Equal(packet.Information.ToArray());
+
+        // Decoding sets no limit; the field is over 256 bytes, so writing it again is refused.
+        FluentActions.Invoking(() => packet.Data.ToInformationField()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.TooLong);
         _ = Packet.Aprs.Tests.Vectors.NeutralJson.Data(packet.Data).ToJsonString();
     }
 
@@ -347,14 +357,49 @@ public class BuilderTests
     }
 
     [Fact]
-    public void A_mic_e_altitude_in_metres_goes_in_the_altitude_bytes_and_one_in_feet_in_a_slash_a()
+    public void A_mic_e_altitude_goes_in_the_altitude_bytes_whatever_unit_it_is_given_in()
     {
         var metres = (AprsMicEReport)AprsPacket.Decode(Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(100.4).Build())).Data;
         metres.AltitudeFeet.Should().BeApproximately(100 / 0.3048, 1e-9);
         metres.Comment.Should().BeEmpty();
 
-        string feet = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeFeet(0).Build());
-        feet.Should().EndWith("/A=000000");
+        // 1000 feet is 304.8 m, written as 305 m; 100.5 feet is 30.6 m, written as 31 m.
+        foreach ((double feet, double expectedMetres) in new[] { (1000.0, 305.0), (100.5, 31.0), (0.0, 0.0), (-50000.0, double.NaN) })
+        {
+            if (double.IsNaN(expectedMetres))
+            {
+                // -15240 m is below the -10000 m the bytes hold: a builder never moves it to a /A=.
+                FluentActions.Invoking(() => Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeFeet(feet).Build())
+                    .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.ValueOutOfRange);
+                continue;
+            }
+
+            string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeFeet(feet).Build());
+            sent.Should().NotContain("/A=");
+            ((AprsMicEReport)AprsPacket.Decode(sent).Data).AltitudeFeet.Should().BeApproximately(expectedMetres / 0.3048, 1e-9);
+        }
+
+        FluentActions.Invoking(() => Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(743570.4).Build()).Should().NotThrow();
+        FluentActions.Invoking(() => Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(743570.6).Build())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.ValueOutOfRange);
+    }
+
+    [Fact]
+    public void A_report_with_no_symbol_is_refused_as_an_invalid_symbol_in_its_place_in_the_order()
+    {
+        // Not-a-number comes before invalid-symbol in the reason order, so it is the one named.
+        FluentActions.Invoking(() => Me.Position(double.NaN, 0).Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.NotANumber);
+        FluentActions.Invoking(() => Me.Item("ITEM").At(1, 2).Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidSymbol);
+        FluentActions.Invoking(() => Me.MicE(42.179, -71.1985).Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidSymbol);
+    }
+
+    [Fact]
+    public void A_builder_never_reads_the_clock_and_the_time_now_is_one_explicit_call_away()
+    {
+        FluentActions.Invoking(() => Me.Weather().WindDirectionDegrees(10).Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.MissingField);
+
+        string sent = Sent(Me.Weather().Timestamp(DateTime.UtcNow).WindDirectionDegrees(10).Build());
+        sent.Should().StartWith("M0LTE>APZ001:_");
     }
 
     [Fact]
@@ -407,9 +452,12 @@ public class BuilderTests
     [InlineData("/x}AB")]
     public void A_mic_e_comment_after_a_slash_a_takes_a_space_where_a_slash_would_join_an_altitude(string comment)
     {
-        // After /A=000000 a '/' delimiter would start //{} or 0/x} (ruling E12).
-        string sent = Sent(Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeFeet(0).Comment(comment).Build());
-        sent.Should().EndWith("/A=000000 " + comment);
+        // After /A=001000 a '/' delimiter would start //{} or 0/x} (ruling E12). Only data written
+        // with a /A= (a whole number of feet the Mic-E bytes do not hold) has one: a builder's altitude
+        // goes in the Mic-E altitude bytes.
+        var report = new AprsMicEReport { Position = new AprsPosition(42.179, -71.1985), Symbol = AprsSymbol.Car, AltitudeFeet = 1000, Comment = comment, TypeCode = '`' };
+        string sent = Sent(AprsPacket.Create(Me.Source, report));
+        sent.Should().EndWith("/A=001000 " + comment);
         ((AprsMicEReport)AprsPacket.Decode(sent).Data).Comment.Should().Be(comment);
     }
 

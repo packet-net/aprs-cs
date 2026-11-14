@@ -128,7 +128,7 @@ public sealed record AprsNmeaReport : AprsData
             writer.Defer(AprsRefusalCode.InvalidNmea, $"the NMEA checksum is {expected:X2} but the sentence sums to {sum:X2}");
         }
 
-        writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));
+        writer.Field(() => Internal.Text.RequireNoControlCharacters(Comment));
 
         // A field given as NaN or an infinity is not-a-number whatever the sentence is (vectors
         // README, Refusal reasons: at every check that also catches it).
@@ -204,7 +204,7 @@ public sealed record AprsMaidenheadBeacon : AprsData
             writer.Defer(AprsRefusalCode.Malformed, $"'{Locator}' is not a 4 or 6 character Maidenhead locator in upper case");
         }
 
-        writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));
+        writer.Field(() => Internal.Text.RequireNoControlCharacters(Comment));
         writer.Char('[').Ascii(Locator.ToUpperInvariant()).Char(']').Utf8(Comment);
     }
 }

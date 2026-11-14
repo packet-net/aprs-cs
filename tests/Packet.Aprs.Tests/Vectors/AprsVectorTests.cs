@@ -304,6 +304,7 @@ public class AprsVectorTests
         ["invalid-addressee-characters"] = nameof(AprsParseOptions.AllowInvalidAddresseeCharacters),
         ["letter-group-bulletin"] = nameof(AprsParseOptions.AllowLetterGroupBulletin),
         ["free-text-capabilities"] = nameof(AprsParseOptions.AllowFreeTextCapabilities),
+        ["control-character-in-text"] = nameof(AprsParseOptions.AllowControlCharacterInText),
     };
 
     // ------------------------------------------------------------------ checking
