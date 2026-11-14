@@ -16,7 +16,7 @@ Breaking changes for callers
 
 - Storm data fields are digits: a field of dots or spaces is not storm data (the whole storm is comment text), a whole gale radius that is not digits ends the storm data, and storm data given to an encoder with a required field missing is `MissingField` (no dots are written; they used to be).
 - A telemetry report whose sequence starts `MIC` and is not `MIC` (`MIC1`) is refused as `Malformed` (it used to be written and read back as `MIC` and a value).
-- A path entry of only `*` in an outer header is `InvalidAddress` in every mode. In 1.1.0 `AprsPacket.Decode("N0CALL>APZ001,WIDE1-1*,*,WIDE2-1*:>x")` was accepted leniently with `EmptyPathEntry` (the entry dropped); it now throws `AprsFormatException`.
+- A path entry of only `*` in an outer header is `InvalidAddress` in every mode. In 1.1.0 `AprsPacket.Decode("N0CALL>APZ001,WIDE1-1*,*,WIDE2-1*:>x")` was accepted leniently with `EmptyPathEntry` (the entry dropped) and `MultipleUsedMarkers`; it now throws `AprsFormatException`.
 - `ToData()` on a position, object, item or Mic-E builder with no symbol throws `AprsEncodeException` (`InvalidSymbol`), as `Build()` refuses it; it threw `InvalidOperationException` in 1.1.0. `Build()` still names the symbol in its place in the reason order.
 - A message, ack or reject builder given a null addressee (or null text or message ID), and a status, bulletin or telemetry-bits builder given null text, treats it as empty text: `Build()` refuses with `InvalidAddressee` (or the matching code) instead of throwing `ArgumentNullException`.
 

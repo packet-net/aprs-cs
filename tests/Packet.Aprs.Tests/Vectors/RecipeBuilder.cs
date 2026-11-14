@@ -61,7 +61,7 @@ internal static class RecipeBuilder
         new(null, ex is AprsEncodeException e ? NeutralJson.Kebab(e.Code.ToString()) : null, ex.Message, null, ViaTool: ex.Data.Contains(ToolMade));
 
     /// <summary>Marks a refusal the tool's reader makes, not the library, which a dump record carries as <c>"via": "tool"</c>.</summary>
-    private const string ToolMade = "via-tool";
+    private const string ToolMade = NeutralReader.ToolMade;
 
     /// <summary>Where the refusal is for the information field's size, last in the order, it ranks after every other code.</summary>
     private static int RankOf(Exception ex) => ex is AprsEncodeException e ? InfoWriter.Rank(e.Code) : -1;

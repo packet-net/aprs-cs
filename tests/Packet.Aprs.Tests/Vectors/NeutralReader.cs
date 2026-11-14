@@ -11,6 +11,17 @@ namespace Packet.Aprs.Tests.Vectors;
 /// </summary>
 internal static class NeutralReader
 {
+    /// <summary>The <see cref="Exception.Data"/> key marking a refusal the reader or tool made, not the library's public API.</summary>
+    internal const string ToolMade = "via-tool";
+
+    /// <summary>A refusal made by the reader or tool itself; the dump records it with <c>"via": "tool"</c>.</summary>
+    internal static AprsEncodeException ToolRefusal(AprsRefusalCode code, string reason)
+    {
+        var ex = new AprsEncodeException(code, reason);
+        ex.Data[ToolMade] = true;
+        return ex;
+    }
+
     public static AprsData Data(JsonObject d)
     {
         string type = Str(d, "type");
@@ -171,7 +182,7 @@ internal static class NeutralReader
         bool undecoded = d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty";
         if (depth > 4 && !undecoded)
         {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+            throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
         }
     }
 
@@ -181,7 +192,7 @@ internal static class NeutralReader
 
         IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
         AprsAddress source = AprsAddress.Parse(Str(p, "source"));
-        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
+        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
         JsonObject data = p["data"]!.AsObject();
 
         // An empty inner information field is data too: it is written back as it came, empty
@@ -189,7 +200,7 @@ internal static class NeutralReader
         // encoder declines it.
         if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") != "empty")
         {
-            throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
+            throw ToolRefusal(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
         }
 
         if (Str(data, "type") == "unrecognized" && OptStr(data, "reason") == "empty")

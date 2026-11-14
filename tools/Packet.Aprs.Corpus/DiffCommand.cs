@@ -416,6 +416,10 @@ internal static class DiffCommand
             if (ex is AprsEncodeException)
             {
                 AddRefusal(o, "refusal", ex);
+                if (ex.Data.Contains(NeutralReader.ToolMade))
+                {
+                    o["via"] = "tool";
+                }
             }
             else
             {
@@ -427,10 +431,9 @@ internal static class DiffCommand
 
             return o;
         }
-#pragma warning disable CA1031 // any failure to read the data is reported for that line alone
-        catch (Exception ex)
-#pragma warning restore CA1031
+        catch (Exception ex) when (ex is NotSupportedException or FormatException or OverflowException or InvalidOperationException or ArgumentException)
         {
+            // What the reader or the data cannot hold. Any other exception type is unexpected and fails the run.
             o["result"] = "unsupported";
             o["reason"] = $"the data cannot be held as Packet.Aprs data: {ex.Message}";
             return o;
@@ -451,7 +454,7 @@ internal static class DiffCommand
                 info = data.ToInformationField();
             }
         }
-        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
+        catch (AprsEncodeException ex)
         {
             o["result"] = "refused";
             o["reason"] = ex.Message;
