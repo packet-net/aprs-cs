@@ -1107,6 +1107,7 @@ namespace Packet.Aprs
         public int Month { get; }
         public int Second { get; }
         public System.DateTime? Resolve(System.DateTime reference) { }
+        public System.DateTime? Resolve(System.DateTimeOffset reference) { }
         public override string ToString() { }
         public static Packet.Aprs.AprsTimestamp DayHoursMinutes(int day, int hour, int minute, bool utc = true) { }
         public static Packet.Aprs.AprsTimestamp FromDateTime(System.DateTime utc, Packet.Aprs.AprsTimestampFormat format = 0) { }

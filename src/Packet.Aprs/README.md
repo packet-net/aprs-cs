@@ -96,7 +96,7 @@ var mobile = (AprsMicEReport)packet.Data;
 Console.WriteLine($"{mobile.Position.Latitude}, {mobile.Position.Longitude}");      // 42.179, -71.1985
 Console.WriteLine($"{mobile.SpeedKnots} kn heading {mobile.CourseDegrees} deg");  // 9 kn heading 215 deg
 Console.WriteLine($"{mobile.AltitudeFeet:F0} ft");                                // 72 ft
-Console.WriteLine(mobile.Message);                                                // OffDuty
+Console.WriteLine(mobile.MicEMessage);                                            // OffDuty
 Console.WriteLine(mobile.Device);                                                 // Yaesu FTM-400DR
 Console.WriteLine(mobile.MessagingCapable);                                       // True
 Console.WriteLine(packet.Path[0]);                                                // WA1PLE-4*
@@ -278,7 +278,7 @@ Each tolerance is a named flag, so you can turn off exactly the ones you don't w
 ## Good to know
 - **Units are in the names.** `SpeedKnots`, `AltitudeFeet`, `TemperatureFahrenheit`, `WindSpeedMph`, `PressureMillibars`: the units APRS uses on air, so nothing is converted behind your back. The builder takes the same units, with `SpeedKmh`, `AltitudeMetres`, `TemperatureCelsius` and `RainLastHourMillimetres` to convert.
 - **To pass a packet on unchanged, send `Information`.** It holds the bytes exactly as received. Re-encoding `Data` gives the canonical form, which can differ from what the sender wrote (filler bytes, field order, padding) while meaning the same thing.
-- **Timestamps are partial.** APRS timestamps have no year and some have no date; `AprsTimestamp.Resolve(reference)` picks the matching time nearest the moment you received the packet.
+- **Timestamps are partial.** APRS timestamps have no year and some have no date; `AprsTimestamp.Resolve(reference)` picks the matching time nearest the moment you received the packet (a Local reference is converted to UTC first, an Unspecified one is taken as UTC, and there is a `DateTimeOffset` overload).
 - **Text is UTF-8.** Invalid UTF-8 falls back to Latin-1 byte by byte, with a `NonUtf8Text` warning.
 - **Mic-E needs the destination.** Decode the whole packet; the information field alone isn't enough. Writing is the same: `AprsPacket.Create` computes a Mic-E report's destination, and `ToInformationField()` refuses one.
 - **Numbers keep their text.** A decoded telemetry value, `EQNS.` coefficient or query coordinate is a `double`, and its text as sent (`073`, `.53`) is in `AnalogText`, `CoefficientsText` or `LatitudeText`, which the encoder writes back while it still means the same number. Whole-number fields hold fractions too, and a fraction is rounded once, when it is encoded.
