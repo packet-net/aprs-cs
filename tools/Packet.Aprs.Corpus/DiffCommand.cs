@@ -122,7 +122,7 @@ internal static class DiffCommand
         }
     }
 
-    private const char NonFiniteMark = '\u0001';
+    private const string NonFiniteMark = "\u0001\u0002nonfinite:";
 
     /// <summary>
     /// The generator's <c>--nonfinite</c> lines hold the non-standard tokens <c>NaN</c>,
@@ -162,7 +162,7 @@ internal static class DiffCommand
                 : null;
             if (token is not null)
             {
-                sb.Append("\"\\u0001").Append(token).Append('"');
+                sb.Append("\"\\u0001\\u0002nonfinite:").Append(token).Append('"');
                 i += token.Length - 1;
                 found = true;
                 continue;
@@ -191,9 +191,9 @@ internal static class DiffCommand
             };
             foreach ((JsonNode? child, Action<JsonNode> set) in children)
             {
-                if (child is JsonValue v && v.TryGetValue(out string? s) && s.StartsWith(NonFiniteMark))
+                if (child is JsonValue v && v.TryGetValue(out string? s) && s.StartsWith(NonFiniteMark, StringComparison.Ordinal) && s[NonFiniteMark.Length..] is "NaN" or "Infinity" or "-Infinity")
                 {
-                    set(JsonValue.Create(s[1..] switch
+                    set(JsonValue.Create(s[NonFiniteMark.Length..] switch
                     {
                         "NaN" => double.NaN,
                         "Infinity" => double.PositiveInfinity,

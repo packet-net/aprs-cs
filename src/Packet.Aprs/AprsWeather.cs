@@ -104,7 +104,7 @@ public sealed record AprsWeather
 
     /// <summary>True when a value, rounded to <paramref name="stepsPerUnit"/> steps, is outside <paramref name="min"/>-<paramref name="max"/> steps.</summary>
     private static bool Outside(double? value, double stepsPerUnit, long min, long max) =>
-        value is { } v && !double.IsNaN(v) && Steps.Nearest(v * stepsPerUnit) is var steps && (steps < min || steps > max);
+        value is { } v && double.IsFinite(v) && Steps.Nearest(v * stepsPerUnit) is var steps && (steps < min || steps > max);
 
-    private static bool IsNaN(double? value) => value is { } v && double.IsNaN(v);
+    private static bool IsNaN(double? value) => value is { } v && !double.IsFinite(v);
 }

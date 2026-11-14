@@ -751,9 +751,14 @@ internal static class PositionCodec
         }
 
         char table = d.Symbol.Table is >= '0' and <= '9' ? (char)('a' + (d.Symbol.Table - '0')) : d.Symbol.Table;
-        long y = Steps.Count(90 - d.Position.Latitude, LatitudeScale);
-        long x = Steps.Count(180 + d.Position.Longitude, LongitudeScale);
-        w.Char(table).Base91(Math.Min(y, Base91.MaxValue(4)), 4).Base91(Math.Min(x, Base91.MaxValue(4)), 4).Char(d.Symbol.Code);
+        // The position's bytes are a field of their own, so a position out of range leaves the cs
+        // values after it still checked.
+        w.Field(() =>
+        {
+            long y = Steps.Count(90 - d.Position.Latitude, LatitudeScale);
+            long x = Steps.Count(180 + d.Position.Longitude, LongitudeScale);
+            w.Char(table).Base91(Math.Min(y, Base91.MaxValue(4)), 4).Base91(Math.Min(x, Base91.MaxValue(4)), 4).Char(d.Symbol.Code);
+        });
 
         if (d.Phg is not null || d.DfSignalStrength is not null || d.AreaObject is not null || d.DfBearing is not null || d.Storm is not null)
         {

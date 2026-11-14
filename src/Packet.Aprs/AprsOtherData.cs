@@ -129,6 +129,14 @@ public sealed record AprsNmeaReport : AprsData
         }
 
         writer.Field(() => Internal.Text.RequireNoLineBreaks(Comment));
+
+        // A field given as NaN or an infinity is not-a-number whatever the sentence is (vectors
+        // README, Refusal reasons: at every check that also catches it).
+        if (new double?[] { Position?.Latitude, Position?.Longitude, CourseDegrees, SpeedKnots, AltitudeMetres }.Any(v => v is { } x && !double.IsFinite(x)))
+        {
+            writer.Defer(AprsRefusalCode.NotANumber, "an NMEA field is not a number");
+        }
+
         if (Comment.Length > 0 && !HasChecksum)
         {
             // Only a checksum ends a sentence (vectors interpretations.md, "NMEA data is its sentence").

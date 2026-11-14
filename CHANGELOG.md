@@ -9,7 +9,7 @@ Behaviour changes for 1.x callers
 - Some data 1.0.x wrote is now refused: a locator in lower case (status, Mic-E, Maidenhead beacon), telemetry with too few or too many values, more than 15 `EQNS.` coefficients, third-party packets nested more than four deep, and a third-party path entry before a used one that is not marked used.
 - An AX.25 frame whose address holds punctuation or a control character is now an error (`InvalidAddress`) in both modes, not a tolerated `InvalidAx25AddressCharacters`.
 - Where data has several faults, the refusal code may differ from 1.0.x: it is now the first in the shared order.
-- An infinity is `NotANumber` wherever a NaN is (it was `ValueOutOfRange` at some checks), and a value too large for any field is `ValueOutOfRange` where an overflow could escape before.
+- An infinity is `NotANumber` wherever a NaN is (it was `ValueOutOfRange` at some checks, weather values included), an NMEA field given as NaN or an infinity is `NotANumber` whatever the sentence, and a value too large for any field is `ValueOutOfRange` where an overflow could escape before. A compressed position out of range no longer hides a fault in its cs values.
 - `AprsPacket.Create` and the builders now refuse a source, destination or path entry that is not 1-9 letters, digits or `-` (`InvalidAddress`), before the data is looked at. 1.0.x wrote such a header, which a decoder then rejected.
 
 Refusal reasons

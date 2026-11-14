@@ -65,6 +65,9 @@ public class RefusalCodeTests
         { "infinite-mic-e-altitude", AprsRefusalCode.NotANumber },
         { "infinite-course", AprsRefusalCode.NotANumber },
         { "huge-range", AprsRefusalCode.ValueOutOfRange },
+        { "infinite-weather-after-range", AprsRefusalCode.NotANumber },
+        { "compressed-latitude-then-infinite-speed", AprsRefusalCode.NotANumber },
+        { "nmea-infinite-field", AprsRefusalCode.NotANumber },
         { "bad-source-before-course", AprsRefusalCode.InvalidAddress },
         { "bad-source-before-mic-e-course", AprsRefusalCode.InvalidAddress },
     };
@@ -127,6 +130,9 @@ public class RefusalCodeTests
             "infinite-mic-e-altitude" => () => AprsPacket.Create("M0LTE", new AprsMicEReport { Position = new AprsPosition(51, 0), Symbol = AprsSymbol.Car, AltitudeFeet = double.NegativeInfinity }),
             "infinite-course" => () => (Report() with { CourseDegrees = double.PositiveInfinity, SpeedKnots = 1 }).ToInformationField(),
             "huge-range" => () => (Report() with { IsCompressed = true, RangeMiles = 1e300 }).ToInformationField(),
+            "infinite-weather-after-range" => () => (Report() with { Symbol = AprsSymbol.WeatherStation, Weather = new AprsWeather { WindGustMph = 5000, TemperatureFahrenheit = double.NegativeInfinity } }).ToInformationField(),
+            "compressed-latitude-then-infinite-speed" => () => (Report() with { Position = new AprsPosition(90.0001, 0), IsCompressed = true, CourseDegrees = 1, SpeedKnots = double.PositiveInfinity }).ToInformationField(),
+            "nmea-infinite-field" => () => new AprsNmeaReport { Sentence = "gprmc,1", CourseDegrees = double.NegativeInfinity, Comment = "a\rb" }.ToInformationField(),
             _ => throw new ArgumentException(what),
         };
         return FluentActions.Invoking(act).Should().Throw<AprsEncodeException>().Which;
