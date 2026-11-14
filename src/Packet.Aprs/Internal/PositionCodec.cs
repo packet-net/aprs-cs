@@ -915,6 +915,7 @@ internal static class PositionCodec
 
     private static long GgaStep(double alt)
     {
+        NotANumber.Refuse(alt, "altitude");
         long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
         return cs > (91 * 91) - 1
             ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "altitude too high for compressed form")

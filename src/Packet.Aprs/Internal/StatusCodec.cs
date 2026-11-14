@@ -108,7 +108,7 @@ internal static class StatusCodec
             }
         }
 
-        w.Field(() => Text.RequireNoLineBreaks(r.Text));
+        w.Field(() => Text.RequireNoControlCharacters(r.Text));
         w.Char('>');
         if (r.Locator is { } locator)
         {
@@ -140,7 +140,7 @@ internal static class StatusCodec
         }
         else if (r.Symbol is not null)
         {
-            w.Defer(AprsRefusalCode.FieldNotAllowed, "a status symbol only goes with a grid locator");
+            w.Defer(AprsRefusalCode.MissingField, "a status symbol only goes with a grid locator, which is missing");
         }
         else if (r.Timestamp is { } ts)
         {
@@ -324,8 +324,12 @@ internal static class TelemetryCodec
             w.Defer(AprsRefusalCode.ValueHasNoForm, "a MIC telemetry report with an empty first channel has no form that reads back as it (APRS12c ch. 13)");
         }
 
-        w.Field(() => Text.RequireNoLineBreaks(r.Comment));
-        if (r.Sequence.Length == 0 || !r.Sequence.All(char.IsAsciiLetterOrDigit))
+        w.Field(() => Text.RequireNoControlCharacters(r.Comment));
+        if (r.Sequence.Length == 0)
+        {
+            w.Defer(AprsRefusalCode.MissingField, "a telemetry report needs a sequence");
+        }
+        else if (!r.Sequence.All(char.IsAsciiLetterOrDigit))
         {
             w.Defer(AprsRefusalCode.Malformed, "telemetry sequence is letters or digits");
         }

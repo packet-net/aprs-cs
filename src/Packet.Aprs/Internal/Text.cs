@@ -13,29 +13,56 @@ internal static class Text
     /// defect (UAP §5.16); when tolerated they are mapped one byte per character as Latin-1 so no
     /// information is lost.
     /// </summary>
-    public static bool TryDecode(ReadOnlySpan<byte> bytes, DecodeContext ctx, int offset, out string text)
+    public static bool TryDecode(ReadOnlySpan<byte> bytes, DecodeContext ctx, int offset, out string text, bool judgeControlCharacters = true)
     {
+        bool ok;
         if (IsAscii(bytes))
         {
             text = Encoding.ASCII.GetString(bytes);
-            return true;
+            ok = true;
+        }
+        else
+        {
+            try
+            {
+                text = StrictUtf8.GetString(bytes);
+                ok = true;
+            }
+            catch (DecoderFallbackException)
+            {
+                text = Encoding.Latin1.GetString(bytes);
+                ok = ctx.Tolerate(
+                    ctx.Options.AllowNonUtf8Text,
+                    AprsDiagnosticCode.NonUtf8Text,
+                    "text is not valid UTF-8; decoded byte-for-byte as Latin-1",
+                    offset);
+            }
         }
 
-        try
-        {
-            text = StrictUtf8.GetString(bytes);
-            return true;
-        }
-        catch (DecoderFallbackException)
-        {
-            text = Encoding.Latin1.GetString(bytes);
-            return ctx.Tolerate(
-                ctx.Options.AllowNonUtf8Text,
-                AprsDiagnosticCode.NonUtf8Text,
-                "text is not valid UTF-8; decoded byte-for-byte as Latin-1",
-                offset);
-        }
+        return ok && (!judgeControlCharacters || JudgeControlCharacters(bytes, ctx, offset));
     }
+
+    /// <summary>
+    /// The control-character rule (vectors README, "Control characters in text"): text that holds a
+    /// byte below 0x20 or 0x7F gets one warning, however many it holds, and is kept as sent. It is
+    /// judged last for its text, after the text's structure and its encoding.
+    /// </summary>
+    public static bool JudgeControlCharacters(ReadOnlySpan<byte> bytes, DecodeContext ctx, int offset) =>
+        !bytes.ContainsAnyInRange((byte)0, (byte)0x1F) && !bytes.Contains((byte)0x7F)
+        || ctx.Tolerate(
+            ctx.Options.AllowControlCharacterInText,
+            AprsDiagnosticCode.ControlCharacterInText,
+            "text holds a control character (a byte below 0x20, or 0x7F); APRS12c gives text as printable characters",
+            offset);
+
+    /// <summary>The same for text already read as a string.</summary>
+    public static bool JudgeControlCharacters(string text, DecodeContext ctx, int offset) =>
+        !text.AsSpan().ContainsAnyInRange('\0', '\u001F') && !text.Contains('\u007F', StringComparison.Ordinal)
+        || ctx.Tolerate(
+            ctx.Options.AllowControlCharacterInText,
+            AprsDiagnosticCode.ControlCharacterInText,
+            "text holds a control character (a byte below 0x20, or 0x7F); APRS12c gives text as printable characters",
+            offset);
 
     /// <summary>UTF-8 if valid, otherwise Latin-1; never fails. For display and diagnostics.</summary>
     public static string ForDisplay(ReadOnlySpan<byte> bytes)
@@ -104,8 +131,19 @@ internal static class Text
         return whole.Length + fraction.Length > 0 && !whole.ContainsAnyExceptInRange('0', '9') && !fraction.ContainsAnyExceptInRange('0', '9');
     }
 
+    /// <summary>For encoders: rejects text holding a control character, a byte below 0x20 or 0x7F (a
+    /// TAB, and a CR or LF inside the text, included). APRS12c gives text as printable characters, and
+    /// a CR or LF would end the packet on APRS-IS (vectors README, "Control characters in text").</summary>
+    public static void RequireNoControlCharacters(string text)
+    {
+        if (text.AsSpan().ContainsAnyInRange('\0', '\u001F') || text.Contains('\u007F', StringComparison.Ordinal))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "text must not contain a control character (a byte below 0x20, or 0x7F)");
+        }
+    }
+
     /// <summary>For encoders: rejects text containing CR or LF, which would end the packet on
-    /// APRS-IS (APRS12c §5 Comment Field).</summary>
+    /// APRS-IS (APRS12c §5 Comment Field). Used where the data is not judged as text (test data).</summary>
     public static void RequireNoLineBreaks(string text)
     {
         if (text.AsSpan().IndexOfAny('\r', '\n') >= 0)

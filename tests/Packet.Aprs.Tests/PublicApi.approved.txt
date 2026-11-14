@@ -296,6 +296,8 @@ namespace Packet.Aprs
         InvalidAddresseeCharacters = 159,
         LetterGroupBulletin = 160,
         FreeTextCapabilities = 161,
+        ControlCharacterInText = 162,
+        ImplementationLimit = 163,
     }
     public enum AprsDiagnosticSeverity
     {
@@ -528,6 +530,7 @@ namespace Packet.Aprs
         public AprsParseOptions() { }
         public bool AllowBraceInMessageText { get; init; }
         public bool AllowCompressionTypeReservedBits { get; init; }
+        public bool AllowControlCharacterInText { get; init; }
         public bool AllowDaoWithAmbiguity { get; init; }
         public bool AllowDataExtensionInComment { get; init; }
         public bool AllowEmptyDestination { get; init; }
@@ -1242,7 +1245,7 @@ namespace Packet.Aprs
         public string Comment { get; init; }
         public override char DataTypeIdentifier { get; }
         [System.Runtime.CompilerServices.RequiredMember]
-        public Packet.Aprs.AprsTimestamp Timestamp { get; init; }
+        public Packet.Aprs.AprsTimestamp? Timestamp { get; init; }
         [System.Runtime.CompilerServices.RequiredMember]
         public Packet.Aprs.AprsWeather Weather { get; init; }
     }

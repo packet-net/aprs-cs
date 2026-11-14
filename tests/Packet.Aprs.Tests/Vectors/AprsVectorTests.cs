@@ -11,13 +11,15 @@ namespace Packet.Aprs.Tests.Vectors;
 /// </summary>
 public class AprsVectorTests
 {
-    public static TheoryData<string> DecodeCases => [.. VectorCases.Ids(c => !VectorCases.IsEncodeCase(c))];
+    public static TheoryData<string> DecodeCases => [.. VectorCases.Ids(c => !VectorCases.IsEncodeCase(c) && !VectorCases.IsBuildCase(c))];
 
     public static TheoryData<string> FlagCases => [.. VectorCases.Ids(c => c["strict"] is JsonObject && FlagFor(c) is not null)];
 
     public static TheoryData<string> ReencodeCases => [.. VectorCases.Ids(c => c["reencode"] is not null)];
 
     public static TheoryData<string> EncodeCases => [.. VectorCases.Ids(VectorCases.IsEncodeCase)];
+
+    public static TheoryData<string> BuildCases => [.. VectorCases.Ids(VectorCases.IsBuildCase)];
 
     [Theory]
     [MemberData(nameof(DecodeCases))]
@@ -191,6 +193,45 @@ public class AprsVectorTests
         Pass(c, differences);
     }
 
+    /// <summary>
+    /// A builder recipe, built through the same code as the dump tool's build mode (RecipeBuilder):
+    /// the TNC2 line it writes, byte for byte, or its refusal code.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(BuildCases))]
+    public void Building_from_a_recipe(string id)
+    {
+        JsonObject c = VectorCases.Get(id);
+        JsonObject expect = c["expect"]!.AsObject();
+        RecipeBuilder.Outcome outcome = RecipeBuilder.Run(Input(c)["build"]!.AsObject());
+        var differences = new List<string>();
+        if (outcome.Unsupported is { } unsupported)
+        {
+            differences.Add($"build: the runner cannot say the recipe: {unsupported}");
+        }
+        else if ((bool?)expect["refused"] == true)
+        {
+            if (outcome.Packet is { } written)
+            {
+                differences.Add($"build: expected a refusal, built {Show(written.ToTnc2())}");
+            }
+            else if ((string?)expect["refusal"] is { } code && code != outcome.Refusal)
+            {
+                differences.Add($"build: expected the refusal '{code}', got '{outcome.Refusal}': {outcome.Reason}");
+            }
+        }
+        else if (outcome.Packet is not { } packet)
+        {
+            differences.Add($"build: expected {expect["tnc2"]?.ToJsonString()}, but the builder refused ({outcome.Refusal}): {outcome.Reason}");
+        }
+        else if (!System.Text.Encoding.UTF8.GetBytes((string)expect["tnc2"]!).AsSpan().SequenceEqual(packet.ToTnc2()))
+        {
+            differences.Add($"build: expected {expect["tnc2"]!.ToJsonString()}, built {Show(packet.ToTnc2())}");
+        }
+
+        Pass(c, differences);
+    }
+
     /// <summary>The reader is the writer's inverse: every decoded case's data reads back to the same neutral form.</summary>
     [Theory]
     [MemberData(nameof(DecodeCases))]
@@ -229,8 +270,8 @@ public class AprsVectorTests
     // ------------------------------------------------------------------ the case files
 
     private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info"];
-    private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "source", "destination", "path"];
-    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "refused", "refusal"];
+    private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "build", "source", "destination", "path"];
+    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "tnc2", "refused", "refusal"];
 
     /// <summary>
     /// The cases' own consistency (schema, ids, codes, interpretation links) is checked in
@@ -304,6 +345,7 @@ public class AprsVectorTests
         ["invalid-addressee-characters"] = nameof(AprsParseOptions.AllowInvalidAddresseeCharacters),
         ["letter-group-bulletin"] = nameof(AprsParseOptions.AllowLetterGroupBulletin),
         ["free-text-capabilities"] = nameof(AprsParseOptions.AllowFreeTextCapabilities),
+        ["control-character-in-text"] = nameof(AprsParseOptions.AllowControlCharacterInText),
     };
 
     // ------------------------------------------------------------------ checking

@@ -1,0 +1,604 @@
+using System.Globalization;
+using System.Text.Json.Nodes;
+using Packet.Aprs.Internal;
+
+namespace Packet.Aprs.Tests.Vectors;
+
+/// <summary>
+/// Builds a builder recipe (aprs-vectors README, "Build records") with the fluent builder, as a
+/// program would. Shared by the vectors test runner (the <c>build</c> case input) and the corpus
+/// tool's <c>diff build</c>, so both make exactly the same calls. Every key of a recipe is
+/// consumed or reported: one this runner does not know is unsupported, so nothing is skipped silently.
+/// </summary>
+internal static class RecipeBuilder
+{
+    /// <summary>The builder cannot say something the recipe asks for.</summary>
+    private sealed class UnsupportedException(string reason) : Exception(reason);
+
+    /// <summary>What a recipe came to: a packet, a refusal (with its code when it has one), or something the builder cannot say.</summary>
+    internal sealed record Outcome(AprsPacket? Packet, string? Refusal, string? Reason, string? Unsupported);
+
+    public static Outcome Run(JsonObject recipe)
+    {
+        if (GivenTwice(recipe["args"] as JsonObject) is { } twice)
+        {
+            return TwoUnits(recipe, twice);
+        }
+
+        try
+        {
+            return new Outcome(Build(recipe), null, null, null);
+        }
+        catch (UnsupportedException ex)
+        {
+            return new Outcome(null, null, null, ex.Message);
+        }
+        catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
+        {
+            return Refused(ex);
+        }
+    }
+
+    private static Outcome Refused(Exception ex) =>
+        new(null, ex is AprsEncodeException e ? NeutralJson.Kebab(e.Code.ToString()) : null, ex.Message, null);
+
+    private static readonly (string A, string B, string What)[] Units =
+    [
+        ("speed_knots", "speed_kmh", "the speed"),
+        ("altitude_feet", "altitude_m", "the altitude"),
+        ("temperature_f", "temperature_c", "the temperature"),
+        ("rain_1h_in", "rain_1h_mm", "the rain in the last hour"),
+        ("rain_24h_in", "rain_24h_mm", "the rain in the last 24 hours"),
+        ("rain_midnight_in", "rain_midnight_mm", "the rain since midnight"),
+    ];
+
+    /// <summary>
+    /// A recipe giving a quantity in two units is one input that carries it twice, so it is
+    /// refused. It is built once with each unit, every value so checked on its own, and the
+    /// refusal is the first code in the Refusal reasons order among those builds' refusals and
+    /// <c>value-given-twice</c> (vectors README, Builder rules). It is never built from one unit.
+    /// </summary>
+    private static Outcome TwoUnits(JsonObject recipe, string twice)
+    {
+        Exception? first = null;
+        foreach (bool keepFirstUnit in new[] { true, false })
+        {
+            var variant = (JsonObject)recipe.DeepClone();
+            var args = (JsonObject)variant["args"]!;
+            foreach ((string a, string b, _) in Units)
+            {
+                if (args.ContainsKey(a) && args.ContainsKey(b))
+                {
+                    args.Remove(keepFirstUnit ? b : a);
+                }
+            }
+
+            try
+            {
+                _ = Build(variant);
+            }
+            catch (UnsupportedException ex)
+            {
+                return new Outcome(null, null, null, ex.Message);
+            }
+            catch (Exception ex) when (ex is AprsEncodeException or InvalidOperationException)
+            {
+                if (first is null || Rank(ex) < Rank(first))
+                {
+                    first = ex;
+                }
+            }
+        }
+
+        return first is not null && Rank(first) < InfoWriter.Rank(AprsRefusalCode.ValueGivenTwice)
+            ? Refused(first)
+            : new Outcome(null, "value-given-twice", $"the recipe gives {twice} in two units", null);
+
+        // Something the packet needs and was never given has no code; it is the builder's own
+        // refusal and comes before the codes.
+        static int Rank(Exception ex) => ex is AprsEncodeException e ? InfoWriter.Rank(e.Code) : -1;
+    }
+
+    /// <summary>The first quantity the recipe gives in two units, or null.</summary>
+    private static string? GivenTwice(JsonObject? args) =>
+        args is null ? null : Units.Where(u => args.ContainsKey(u.A) && args.ContainsKey(u.B)).Select(u => u.What).FirstOrDefault();
+
+    private static AprsPacket Build(JsonObject recipe)
+    {
+        var station = recipe["station"]!.AsObject();
+        var s = new Args(station, "station");
+        AprsStation from = AprsStation.From(s.Str("source")!);
+        if (s.Str("destination") is { } destination)
+        {
+            from = from.To(destination);
+        }
+
+        if (s.Node("path") is JsonArray path)
+        {
+            from = from.Via([.. path.Select(p => (string)p!)]);
+        }
+
+        s.Done();
+        string report = (string)recipe["report"]!;
+        var a = new Args(recipe["args"]!.AsObject(), report);
+        AprsBuilder builder = report switch
+        {
+            "position" => Position(from, a),
+            "object" => Object(from, a),
+            "item" => Item(from, a),
+            "mic-e" => MicE(from, a),
+            "weather" => Weather(from, a),
+            "message" => Message(from, a),
+            "ack" => from.Ack(a.Str("addressee")!, a.Str("message_id")!),
+            "reject" => from.Reject(a.Str("addressee")!, a.Str("message_id")!),
+            "bulletin" => Bulletin(from, a),
+            "status" => Status(from, a),
+            "telemetry" => Telemetry(from, a),
+            "telemetry-names" => Metadata(a, from.TelemetryNames([.. (a.Node("names") as JsonArray ?? []).Select(v => (string)v!)])),
+            "telemetry-units" => Metadata(a, from.TelemetryUnits([.. (a.Node("units") as JsonArray ?? []).Select(v => (string)v!)])),
+            "telemetry-coefficients" => Coefficients(from, a),
+            "telemetry-bits" => Bits(from, a),
+            _ => throw new UnsupportedException($"report '{report}': no builder for it"),
+        };
+        a.Done();
+        return BuildWithRequired(builder, a);
+    }
+
+    /// <summary>
+    /// A telemetry sequence the recipe leaves out is <c>missing-field</c>, but the builder takes
+    /// the sequence as an argument and cannot be asked for a report without one. So it is built
+    /// with a placeholder, for the faults the recipe has that come first in the reason order, and
+    /// refused as <c>missing-field</c> unless one of those applies. Nothing is built from the placeholder.
+    /// </summary>
+    private static AprsPacket BuildWithRequired(AprsBuilder builder, Args a)
+    {
+        AprsPacket packet;
+        try
+        {
+            packet = builder.Build();
+        }
+        catch (AprsEncodeException ex) when (!a.SequenceMissing || (!ex.IsInformationFieldSize && InfoWriter.Rank(ex.Code) < InfoWriter.Rank(AprsRefusalCode.MissingField)))
+        {
+            throw;
+        }
+        catch (AprsEncodeException) when (a.SequenceMissing)
+        {
+            throw MissingSequence();
+        }
+
+        return a.SequenceMissing ? throw MissingSequence() : packet;
+    }
+
+    private static AprsEncodeException MissingSequence() => new(AprsRefusalCode.MissingField, "a telemetry report needs a sequence");
+
+    // ------------------------------------------------------------------ positioned reports
+
+    private static AprsPositionBuilder Position(AprsStation from, Args a)
+    {
+        AprsPositionBuilder b = from.Position(a.Double("latitude")!.Value, a.Double("longitude")!.Value);
+        if (a.Bool("messaging"))
+        {
+            b.Messaging();
+        }
+
+        if (Timestamp(a) is { } t)
+        {
+            b.Timestamp(t);
+        }
+
+        return Positioned(b, a);
+    }
+
+    private static AprsObjectBuilder Object(AprsStation from, Args a)
+    {
+        AprsObjectBuilder b = from.Object(a.Str("name")!).At(a.Double("latitude")!.Value, a.Double("longitude")!.Value);
+        if (Timestamp(a) is { } t)
+        {
+            b.Timestamp(t);
+        }
+
+        if (a.Bool("killed"))
+        {
+            b.Killed();
+        }
+
+        return Positioned(b, a);
+    }
+
+    private static AprsItemBuilder Item(AprsStation from, Args a)
+    {
+        AprsItemBuilder b = from.Item(a.Str("name")!).At(a.Double("latitude")!.Value, a.Double("longitude")!.Value);
+        if (a.Bool("killed"))
+        {
+            b.Killed();
+        }
+
+        return Positioned(b, a);
+    }
+
+    private static AprsMicEBuilder MicE(AprsStation from, Args a)
+    {
+        AprsMicEBuilder b = from.MicE(a.Double("latitude")!.Value, a.Double("longitude")!.Value);
+        if (a.Str("mic_e_message") is { } message)
+        {
+            b.MicEMessage(Enum.Parse<AprsMicEMessage>(message.Replace("-", "", StringComparison.Ordinal), ignoreCase: true));
+        }
+
+        if (a.Bool("messaging"))
+        {
+            b.Messaging();
+        }
+
+        return Positioned(b, a);
+    }
+
+    /// <summary>The positioned options (README, "Build records").</summary>
+    private static T Positioned<T>(T b, Args a)
+        where T : AprsPositionedBuilder<T>
+    {
+        if (a.Str("symbol") is { } symbol)
+        {
+            b.Symbol(Symbol(symbol));
+        }
+
+        if (a.Double("course_degrees") is { } course)
+        {
+            b.CourseDegrees(course);
+        }
+
+        if (a.Double("speed_knots") is { } knots)
+        {
+            b.SpeedKnots(knots);
+        }
+
+        if (a.Double("speed_kmh") is { } kmh)
+        {
+            b.SpeedKmh(kmh);
+        }
+
+        if (a.Double("altitude_feet") is { } feet)
+        {
+            b.AltitudeFeet(feet);
+        }
+
+        if (a.Double("altitude_m") is { } metres)
+        {
+            b.AltitudeMetres(metres);
+        }
+
+        if (a.Str("comment") is { } comment)
+        {
+            b.Comment(comment);
+        }
+
+        if (a.Node("phg") is JsonObject phg)
+        {
+            var p = new Args(phg, "phg");
+            b.Phg(new AprsPhg(p.Int("power")!.Value, p.Int("height")!.Value, p.Int("gain")!.Value, p.Int("directivity")!.Value, p.Int("beacons_per_hour")));
+            p.Done();
+        }
+
+        if (a.Double("range_miles") is { } range)
+        {
+            b.RangeMiles(range);
+        }
+
+        if (a.Node("frequency") is JsonObject frequency)
+        {
+            var f = new Args(frequency, "frequency");
+            b.Frequency(new AprsVoiceFrequency
+            {
+                FrequencyMHz = f.Double("mhz")!.Value,
+                ToneType = f.Str("tone") switch
+                {
+                    null => null,
+                    "tone" => AprsToneType.Tone,
+                    "ctcss" => AprsToneType.Ctcss,
+                    "dcs" => AprsToneType.Dcs,
+                    var other => throw new UnsupportedException($"frequency.tone '{other}'"),
+                },
+                ToneValue = f.Int("tone_value", "the builder takes a whole tone value"),
+                OffsetKHz = f.Int("offset_khz", "the builder takes an offset in whole kHz"),
+            });
+            f.Done();
+        }
+
+        if (a.Bool("compressed"))
+        {
+            b.Compressed();
+        }
+
+        if (a.Int("ambiguity") is { } ambiguity)
+        {
+            b.Ambiguity(ambiguity);
+        }
+
+        if (a.Bool("dao"))
+        {
+            b.Dao();
+        }
+
+        if (a.Node("telemetry") is JsonObject telemetry)
+        {
+            var t = new Args(telemetry, "telemetry");
+            int sequence = t.Int("sequence") ?? 0;
+            a.SequenceMissing |= t.Missing("sequence");
+            int[] analog = [.. (t.Node("analog") as JsonArray ?? []).Select(v => Whole(v, "telemetry.analog"))];
+            _ = t.Int("digital") is { } digital ? b.Telemetry(sequence, analog, (byte)digital) : b.Telemetry(sequence, analog);
+            t.Done();
+        }
+
+        return b;
+    }
+
+    // ------------------------------------------------------------------ weather
+
+    private static AprsWeatherBuilder Weather(AprsStation from, Args a)
+    {
+        AprsWeatherBuilder b = from.Weather();
+        double? latitude = a.Double("latitude");
+        double? longitude = a.Double("longitude");
+        if (latitude is not null || longitude is not null)
+        {
+            b.At(latitude ?? throw new UnsupportedException("longitude without latitude"), longitude ?? throw new UnsupportedException("latitude without longitude"));
+        }
+
+        if (a.Str("symbol") is { } symbol)
+        {
+            b.Symbol(Symbol(symbol));
+        }
+
+        if (Timestamp(a) is { } t)
+        {
+            b.Timestamp(t);
+        }
+
+        if (a.Double("wind_direction_degrees") is { } direction)
+        {
+            b.WindDirectionDegrees(direction);
+        }
+
+        if (a.Double("wind_speed_mph") is { } speed)
+        {
+            b.WindSpeedMph(speed);
+        }
+
+        if (a.Double("wind_gust_mph") is { } gust)
+        {
+            b.WindGustMph(gust);
+        }
+
+        if (a.Double("temperature_f") is { } fahrenheit)
+        {
+            b.TemperatureFahrenheit(fahrenheit);
+        }
+
+        if (a.Double("temperature_c") is { } celsius)
+        {
+            b.TemperatureCelsius(celsius);
+        }
+
+        if (a.Double("rain_1h_in") is { } r1)
+        {
+            b.RainLastHourInches(r1);
+        }
+
+        if (a.Double("rain_24h_in") is { } r24)
+        {
+            b.RainLast24HoursInches(r24);
+        }
+
+        if (a.Double("rain_midnight_in") is { } rm)
+        {
+            b.RainSinceMidnightInches(rm);
+        }
+
+        if (a.Double("rain_1h_mm") is { } m1)
+        {
+            b.RainLastHourMillimetres(m1);
+        }
+
+        if (a.Double("rain_24h_mm") is { } m24)
+        {
+            b.RainLast24HoursMillimetres(m24);
+        }
+
+        if (a.Double("rain_midnight_mm") is { } mm)
+        {
+            b.RainSinceMidnightMillimetres(mm);
+        }
+
+        if (a.Double("humidity_percent") is { } humidity)
+        {
+            b.HumidityPercent(humidity);
+        }
+
+        if (a.Double("pressure_mbar") is { } pressure)
+        {
+            b.PressureMillibars(pressure);
+        }
+
+        if (a.Double("luminosity_w_m2") is { } luminosity)
+        {
+            b.LuminosityWattsPerSquareMetre(luminosity);
+        }
+
+        if (a.Double("snow_24h_in") is { } snow)
+        {
+            b.SnowfallLast24HoursInches(snow);
+        }
+
+        return b;
+    }
+
+    // ------------------------------------------------------------------ messages and the rest
+
+    private static AprsMessageBuilder Message(AprsStation from, Args a)
+    {
+        AprsMessageBuilder b = from.Message(a.Str("addressee")!, a.Str("text") ?? "");
+        if (a.Str("message_id") is { } id)
+        {
+            b.MessageId(id);
+        }
+
+        if (a.Str("reply_ack") is { } replyAck)
+        {
+            b.ReplyAck(replyAck);
+        }
+
+        return b;
+    }
+
+    private static AprsDataBuilder Bulletin(AprsStation from, Args a)
+    {
+        string id = a.Str("id")!;
+        if (id.Length != 1)
+        {
+            throw new UnsupportedException("bulletin id: the builder takes one character");
+        }
+
+        string text = a.Str("text") ?? "";
+        return a.Str("group") is { } group ? from.GroupBulletin(id[0], group, text) : from.Bulletin(id[0], text);
+    }
+
+    private static AprsStatusBuilder Status(AprsStation from, Args a)
+    {
+        AprsStatusBuilder b = from.Status(a.Str("text") ?? "");
+        if (Timestamp(a) is { } t)
+        {
+            b.Timestamp(t);
+        }
+
+        if (a.Str("locator") is { } locator)
+        {
+            b.Locator(locator);
+        }
+
+        if (a.Str("symbol") is { } symbol)
+        {
+            b.Symbol(Symbol(symbol));
+        }
+
+        if (a.Node("beam") is JsonObject beam)
+        {
+            var be = new Args(beam, "beam");
+            b.Beam(new AprsBeamHeading(One(be.Str("heading_code")!, "beam.heading_code"), One(be.Str("power_code")!, "beam.power_code")));
+            be.Done();
+        }
+
+        return b;
+    }
+
+    private static AprsTelemetryBuilder Telemetry(AprsStation from, Args a)
+    {
+        AprsTelemetryBuilder b = from.Telemetry(a.Int("sequence", "the builder takes a whole sequence number") ?? 0);
+        a.SequenceMissing |= a.Missing("sequence");
+        if (a.Node("analog") is JsonArray analog)
+        {
+            b.Analog([.. analog.Select(v => v is null ? (double?)null : v.GetValue<double>())]);
+        }
+
+        if (a.Str("bits") is { } bits)
+        {
+            b.Bits(bits);
+        }
+
+        if (a.Str("comment") is { } comment)
+        {
+            b.Comment(comment);
+        }
+
+        return b;
+    }
+
+    /// <summary>A metadata message, addressed to another station when the recipe says so.</summary>
+    private static AprsTelemetryMetadataBuilder Metadata(Args a, AprsTelemetryMetadataBuilder b) =>
+        a.Str("addressee") is { } addressee ? b.Addressee(addressee) : b;
+
+    private static AprsTelemetryMetadataBuilder Coefficients(AprsStation from, Args a) =>
+        Metadata(a, from.TelemetryCoefficients([.. (a.Node("coefficients") as JsonArray ?? []).Select(v => (double)v!)]));
+
+    private static AprsTelemetryMetadataBuilder Bits(AprsStation from, Args a) =>
+        Metadata(a, from.TelemetryBits(a.Str("bits")!, a.Str("project") ?? ""));
+
+    // ------------------------------------------------------------------ values
+
+    /// <summary><c>{"utc": "...", "format": "dhm" | "hms" | "mdhm"}</c> as the builder's timestamp.</summary>
+    private static AprsTimestamp? Timestamp(Args a)
+    {
+        if (a.Node("timestamp") is not JsonObject ts)
+        {
+            return null;
+        }
+
+        var t = new Args(ts, "timestamp");
+        DateTime utc = DateTime.Parse(t.Str("utc")!, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+        AprsTimestampFormat format = t.Str("format") switch
+        {
+            "dhm" => AprsTimestampFormat.DayHoursMinutesUtc,
+            "hms" => AprsTimestampFormat.HoursMinutesSecondsUtc,
+            "mdhm" => AprsTimestampFormat.MonthDayHoursMinutesUtc,
+            var other => throw new UnsupportedException($"timestamp.format '{other}'"),
+        };
+        t.Done();
+        return AprsTimestamp.FromDateTime(utc, format);
+    }
+
+    private static AprsSymbol Symbol(string s) =>
+        s.Length == 2 ? new AprsSymbol(s[0], s[1]) : throw new UnsupportedException($"symbol '{s}': the builder takes a table and a code");
+
+    /// <summary>A whole number; a fraction is unsupported where the builder takes an int.</summary>
+    private static int Whole(JsonNode? v, string key, string? why = null)
+    {
+        double d = (double)v!;
+        return d == Math.Floor(d) && d is >= int.MinValue and <= int.MaxValue ? (int)d
+            : throw new UnsupportedException($"{key} {d.ToString(CultureInfo.InvariantCulture)}: {why ?? "the builder takes a whole number"}");
+    }
+
+    private static char One(string s, string key) =>
+        s.Length == 1 ? s[0] : throw new UnsupportedException($"{key}: the builder takes one character");
+
+    /// <summary>A recipe object whose keys are taken one by one; <see cref="Done"/> reports any left over.</summary>
+    private sealed class Args(JsonObject o, string where)
+    {
+        private readonly HashSet<string> taken = [];
+
+        public JsonNode? Node(string key)
+        {
+            taken.Add(key);
+            return o[key];
+        }
+
+        public string? Str(string key) => Node(key) is { } v ? (string?)v : null;
+
+        /// <summary>Set when a recipe leaves out the telemetry sequence, which the builder cannot say.</summary>
+        public bool SequenceMissing { get; set; }
+
+        public bool Missing(string key) => o[key] is null;
+
+        public bool Bool(string key) => Node(key) is { } v && (bool)v;
+
+        public double? Double(string key) => Node(key) is { } v ? (double)v : null;
+
+
+        /// <summary>A whole number; a fraction is unsupported, since the builder takes an int there.</summary>
+        public int? Int(string key, string? why = null)
+        {
+            if (Node(key) is not { } v)
+            {
+                return null;
+            }
+
+            return Whole(v, key, why);
+        }
+
+        public void Done()
+        {
+            string[] left = [.. o.Select(kv => kv.Key).Where(k => !taken.Contains(k))];
+            if (left.Length > 0)
+            {
+                throw new UnsupportedException($"{where}: no way to say {string.Join(", ", left)}");
+            }
+        }
+    }
+}

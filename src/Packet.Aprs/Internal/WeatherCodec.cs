@@ -142,6 +142,29 @@ internal static class WeatherCodec
                 _ => 0,
             };
 
+            // A fixed-width value whose digits run on by two or more, then the end of the information
+            // field or a defined field the run goes on to read: out of range, dropped, and the fields
+            // carry on after the run (vectors README, Weather). The dropped value was sent, so it counts
+            // as present.
+            if (width > 0 && !snow && !seen.Contains(key) && RunOnLength(info, pos, width, letter) is var runOn and > 0
+                && RunOnIsFollowedByAField(info, pos + 1 + runOn, seen, key, windAsFields, positionless, direction || letter == 'c', speed || letter == 's'))
+            {
+                if (!ctx.Tolerate(
+                        ctx.Options.AllowOutOfRangeValue,
+                        AprsDiagnosticCode.OutOfRangeValue,
+                        $"weather field '{letter}' has {runOn} characters instead of {width}, then more fields; the value is ignored (APRS12c ch. 12)",
+                        pos))
+                {
+                    return false;
+                }
+
+                seen.Add(key);
+                direction |= letter == 'c';
+                speed |= letter == 's';
+                pos += 1 + runOn;
+                continue;
+            }
+
             FieldResult result = width > 0 && !seen.Contains(key)
                 ? TryFieldValue(info, pos, width, letter, snow, ctx, out fieldValue, out fieldLength)
                 : FieldResult.NotAField;
@@ -192,6 +215,59 @@ internal static class WeatherCodec
         return true;
 
         static bool IsKnown(char c) => c is 'c' or 's' or 'g' or 't' or 'r' or 'p' or 'P' or 'h' or 'b' or 'L' or 'l' or '#';
+    }
+
+    /// <summary>
+    /// The characters after the letter that a fixed-width field's value runs on to (an optional
+    /// <c>-</c> for temperature, then digits) when they are <paramref name="width"/> + 2 or more, else 0.
+    /// </summary>
+    private static int RunOnLength(ReadOnlySpan<byte> info, int pos, int width, char letter)
+    {
+        int i = pos + 1;
+        if (letter == 't' && i < info.Length && info[i] == (byte)'-')
+        {
+            i++;
+        }
+
+        while (i < info.Length && Text.IsDigit(info[i]))
+        {
+            i++;
+        }
+
+        int length = i - (pos + 1);
+        return length >= width + 2 ? length : 0;
+    }
+
+    /// <summary>
+    /// Whether the run ends the information field, or goes on to a defined field not yet read, with
+    /// a value (the field the loop would read next), which tells a run-on value from a comment.
+    /// </summary>
+    private static bool RunOnIsFollowedByAField(ReadOnlySpan<byte> info, int after, HashSet<char> seen, char runKey, bool windAsFields, bool positionless, bool direction, bool speed)
+    {
+        if (after >= info.Length)
+        {
+            return true;
+        }
+
+        char next = (char)info[after];
+        bool snow = next == 's' && (!windAsFields || speed || !(positionless || direction));
+        char key = next switch
+        {
+            'l' => 'L',
+            's' when snow => 'S',
+            _ => next,
+        };
+        int width = next switch
+        {
+            'c' when windAsFields => 3,
+            's' or 'g' or 't' or 'r' or 'p' or 'P' or 'L' or 'l' or '#' => 3,
+            'h' => 2,
+            'b' => 5,
+            _ => 0,
+        };
+
+        return width > 0 && key != runKey && !seen.Contains(key)
+            && TryFieldValue(info, after, width, next, snow, new DecodeContext(AprsParseOptions.Lenient), out _, out _) == FieldResult.Field;
     }
 
     private enum FieldResult

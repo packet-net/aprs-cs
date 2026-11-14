@@ -157,7 +157,7 @@ An object puts something that isn't your station on the map. APRS 1.2 adds a voi
 AprsObjectBuilder repeater = AprsStation.From("M0LTE").Via("WIDE2-1")
     .Object("MYRPTR").At(51.4543, -0.9781)
     .Symbol(AprsSymbol.Repeater) // or AprsSymbol.Parse("/r")
-    .Timestamp(AprsTimestamp.DayHoursMinutes(25, 18, 30)) // leave out for the time now
+    .Timestamp(AprsTimestamp.DayHoursMinutes(25, 18, 30)) // an object always has one; for the time now, AprsTimestamp.FromDateTime(DateTime.UtcNow)
     .Frequency(145.725, AprsToneType.Tone, toneValue: 118, offsetKHz: -600)
     .Comment("Reading repeater");
 
@@ -168,7 +168,7 @@ Console.WriteLine(repeater.Build());
 AprsPacket kill = repeater.Killed().Build();
 ```
 
-Positions go out to the hundredth of a minute the format allows (about 18 m), so what decodes back is the rounded position; every value between the steps its field holds (a speed of 29.75 knots, 100.5 feet) is rounded to the nearest step, halves away from zero, and an ambiguous position is cut to the box that holds it. A Mic-E report's type code says whether the station can message: `` ` `` with `.Messaging()`, `'` without. Add `.Compressed()` for the shorter base-91 form, which is also more precise. `.Permanent()` marks an object only you may change.
+Positions go out to the hundredth of a minute the format allows (about 18 m), so what decodes back is the rounded position; every value between the steps its field holds (a speed of 29.75 knots, 100.5 feet) is rounded to the nearest step, halves away from zero, and an ambiguous position is cut to the box that holds it. A Mic-E report's type code says whether the station can message: `` ` `` with `.Messaging()`, `'` without, and its altitude goes in the Mic-E altitude bytes in whole metres whatever unit you give it (1000 feet is 305 m). A builder writes only what you ask for: with no `.Messaging()` the report says the station cannot message, a Mic-E report with no message is off duty, there is no path, the destination is `APZ001`, and a weather report's symbol is `/_`. It never reads the clock, so an object or a positionless weather report with no timestamp is refused (`MissingField`), and a position, object, item or Mic-E report with no symbol is refused (`InvalidSymbol`). Add `.Compressed()` for the shorter base-91 form, which is also more precise. `.Permanent()` marks an object only you may change.
 
 ### 6. Turn telemetry into real values
 
@@ -279,7 +279,8 @@ Each tolerance is a named flag, so you can turn off exactly the ones you don't w
 - **Units are in the names.** `SpeedKnots`, `AltitudeFeet`, `TemperatureFahrenheit`, `WindSpeedMph`, `PressureMillibars`: the units APRS uses on air, so nothing is converted behind your back. The builder takes the same units, with `SpeedKmh`, `AltitudeMetres`, `TemperatureCelsius` and `RainLastHourMillimetres` to convert.
 - **To pass a packet on unchanged, send `Information`.** It holds the bytes exactly as received. Re-encoding `Data` gives the canonical form, which can differ from what the sender wrote (filler bytes, field order, padding) while meaning the same thing.
 - **Timestamps are partial.** APRS timestamps have no year and some have no date; `AprsTimestamp.Resolve(reference)` picks the matching time nearest the moment you received the packet (a Local reference is converted to UTC first, an Unspecified one is taken as UTC, and there is a `DateTimeOffset` overload).
-- **Text is UTF-8.** Invalid UTF-8 falls back to Latin-1 byte by byte, with a `NonUtf8Text` warning.
+- **Text is UTF-8.** Invalid UTF-8 falls back to Latin-1 byte by byte, with a `NonUtf8Text` warning. Text with a control character (a byte below 0x20, or 0x7F; a TAB or a CR or LF inside the text too) is kept as sent with one `ControlCharacterInText` warning, which `Strict` rejects (`AllowControlCharacterInText`), and the encoder refuses it (`InvalidCharacter`).
+- **An information field is at most 256 bytes.** The encoder refuses more (`TooLong`), whatever it writes (TNC2, AX.25 or the information field alone), as its last check, on the bytes actually written (a record any other rule refuses gets that rule's code); the decoder sets no limit, so a longer field decodes and re-encoding it is refused. Packet.Aprs has no fixed capacity of its own, so it never gives `ImplementationLimit`; that code is in the shared catalogue for libraries that do.
 - **Mic-E needs the destination.** Decode the whole packet; the information field alone isn't enough. Writing is the same: `AprsPacket.Create` computes a Mic-E report's destination, and `ToInformationField()` refuses one.
 - **Numbers keep their text.** A decoded telemetry value, `EQNS.` coefficient or query coordinate is a `double`, and its text as sent (`073`, `.53`) is in `AnalogText`, `CoefficientsText` or `LatitudeText`, which the encoder writes back while it still means the same number. Whole-number fields hold fractions too, and a fraction is rounded once, when it is encoded.
 

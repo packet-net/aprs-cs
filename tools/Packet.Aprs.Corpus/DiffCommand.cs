@@ -50,13 +50,24 @@ internal static class DiffCommand
             case "dump" when args.Length == 3:
                 return Each(args[1], args[2], limit, "packets", (n, line) => DecodeRecord(n, Convert.FromHexString(line)));
             case "encode" when args.Length == 3:
-                return Each(args[1], args[2], limit, "data", (n, line) => Parsed(line) is { } o ? EncodeRecord(n, o) : TooDeep(n));
+                return Each(args[1], args[2], limit, "data", (n, line) => Parsed(line) is { } o ? EchoN(EncodeRecord(n, o), o) : TooDeep(n));
             case "build" when args.Length == 3:
-                return Each(args[1], args[2], limit, "recipes", (n, line) => Parsed(line) is { } o ? DiffBuild.Record(n, o) : TooDeep(n));
+                return Each(args[1], args[2], limit, "recipes", (n, line) => Parsed(line) is { } o ? EchoN(DiffBuild.Record(n, o), o) : TooDeep(n));
             default:
                 Console.Error.WriteLine(Usage);
                 return 2;
         }
+    }
+
+    /// <summary>A record carries the input's own <c>n</c> when it has one, so a rerun of a subset of a set still lines up with the set.</summary>
+    private static JsonObject EchoN(JsonObject record, JsonObject input)
+    {
+        if (input["n"] is JsonValue n)
+        {
+            record["n"] = n.DeepClone();
+        }
+
+        return record;
     }
 
     /// <summary>Every packet line from the completed hourly files (a .partial file is still being written).</summary>

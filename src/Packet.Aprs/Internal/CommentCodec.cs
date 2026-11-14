@@ -630,7 +630,7 @@ internal static class CommentCodec
     {
         ArgumentNullException.ThrowIfNull(d.Comment);
         string comment = d.Comment;
-        Text.RequireNoLineBreaks(comment);
+        Text.RequireNoControlCharacters(comment);
         var probe = new PositionedFields { Position = d.Position, Symbol = d.Symbol, AreaObject = d.AreaObject, IsCompressed = d.IsCompressed, Phg = d.Phg, RangeMiles = d.RangeMiles, DfSignalStrength = d.DfSignalStrength };
         var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
         var ctx = new DecodeContext(AprsParseOptions.Lenient);
@@ -680,7 +680,7 @@ internal static class CommentCodec
     internal static void CheckMicEComment(InfoWriter w, AprsMicEReport r)
     {
         string comment = r.Comment ?? throw new ArgumentNullException(nameof(r));
-        Text.RequireNoLineBreaks(comment);
+        Text.RequireNoControlCharacters(comment);
         var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
         var probe = new PositionedFields { Position = r.Position, Symbol = r.Symbol, Phg = r.Phg, RangeMiles = r.RangeMiles, DfSignalStrength = r.DfSignalStrength };
         TryExtract(bytes, 0, new DecodeContext(AprsParseOptions.Lenient), probe, frequencyAtStart: r.Frequency is null);

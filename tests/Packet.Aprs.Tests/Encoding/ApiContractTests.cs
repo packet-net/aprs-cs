@@ -41,7 +41,8 @@ public class ApiContractTests
     [Fact]
     public void Missing_builder_input_and_null_arguments_are_not_refusals()
     {
-        FluentActions.Invoking(() => Me.Position(51, 0).Build()).Should().Throw<InvalidOperationException>();
+        FluentActions.Invoking(() => Me.Object("MYRPTR").Symbol(AprsSymbol.Repeater).Build()).Should().Throw<InvalidOperationException>();
+        FluentActions.Invoking(() => Me.Position(51, 0).Build()).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidSymbol);
         FluentActions.Invoking(() => Me.Message(null!, "x")).Should().Throw<ArgumentNullException>();
         FluentActions.Invoking(() => AprsPacket.Create("M0LTE", null!)).Should().Throw<ArgumentNullException>();
     }
@@ -163,22 +164,29 @@ public class ApiContractTests
     [Fact]
     public void A_mic_e_altitude_from_a_slash_a_is_written_back_there()
     {
-        // 0 feet is a whole number of metres, which the Mic-E altitude bytes could hold; given in feet it goes in a /A=, and the decoder says so.
-        AprsPacket builtInFeet = Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeFeet(0).Build();
-        var fromComment = (AprsMicEReport)AprsPacket.Decode(builtInFeet.ToTnc2()).Data;
+        // 1000 feet is not a whole number of metres, so only a /A= holds it exactly: neutral data goes there, and the decoder says so.
+        var neutral = new AprsMicEReport { Position = new AprsPosition(42.179, -71.1985), Symbol = AprsSymbol.Car, TypeCode = '`', AltitudeFeet = 1000 };
+        AprsPacket inFeet = AprsPacket.Create(AprsAddress.Parse("M0LTE"), neutral);
+        var fromComment = (AprsMicEReport)AprsPacket.Decode(inFeet.ToTnc2()).Data;
         var fromBytes = (AprsMicEReport)AprsPacket.Decode("N1JCM-9>TRQP7T,WA1PLE-4*:`c'wl|+>/`\"4-}_%").Data;
+
+        // A builder's altitude goes in the Mic-E bytes whatever unit it is given in: 1000 feet is 305 m.
+        AprsPacket builtInFeet = Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeFeet(1000).Build();
         AprsPacket builtInMetres = Me.MicE(42.179, -71.1985).Symbol(AprsSymbol.Car).AltitudeMetres(100).Build();
 
-        ((AprsMicEReport)builtInFeet.Data).AltitudeInComment.Should().BeTrue();
         fromComment.AltitudeInComment.Should().BeTrue();
         fromBytes.AltitudeInComment.Should().BeFalse();
         fromBytes.AltitudeFeet.Should().NotBeNull();
-        System.Text.Encoding.UTF8.GetString(builtInFeet.Information.Span).Should().Contain("/A=");
+        System.Text.Encoding.UTF8.GetString(inFeet.Information.Span).Should().EndWith("/A=001000");
+        System.Text.Encoding.UTF8.GetString(builtInFeet.Information.Span).Should().NotContain("/A=");
         System.Text.Encoding.UTF8.GetString(builtInMetres.Information.Span).Should().NotContain("/A=");
+        ((AprsMicEReport)AprsPacket.Decode(builtInFeet.ToTnc2()).Data).AltitudeFeet.Should().BeApproximately(305 / 0.3048, 0.01);
 
-        AprsPacket.Create(AprsAddress.Parse("M0LTE"), fromComment).Information.ToArray().Should().Equal(builtInFeet.Information.ToArray());
+        AprsPacket.Create(AprsAddress.Parse("M0LTE"), fromComment).Information.ToArray().Should().Equal(inFeet.Information.ToArray());
         AprsPacket.Create(AprsAddress.Parse("M0LTE"), fromComment with { AltitudeInComment = false }).Information.ToArray()
-            .Should().NotEqual(builtInFeet.Information.ToArray());
+            .Should().Equal(inFeet.Information.ToArray(), "a value only a /A= holds exactly goes there whatever the data says");
+        AprsPacket.Create(AprsAddress.Parse("M0LTE"), fromComment with { AltitudeInComment = false, AltitudeFeet = 100.5 }).Information.ToArray()
+            .Should().NotEqual(inFeet.Information.ToArray());
     }
 
     [Fact]

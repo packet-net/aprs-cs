@@ -476,7 +476,7 @@ internal static class MessageCodec
     public static void ValidateText(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        Text.RequireNoLineBreaks(text);
+        Text.RequireNoControlCharacters(text);
         RequireNoBrace(text);
 
         // Characters are Unicode code points, not UTF-16 units (APRS12c ch. 14: "printable ASCII
@@ -511,7 +511,7 @@ internal static class MessageCodec
 
         foreach (string item in items)
         {
-            Text.RequireNoLineBreaks(item);
+            Text.RequireNoControlCharacters(item);
             if (item.Contains(',', StringComparison.Ordinal) || item.Contains('{', StringComparison.Ordinal))
             {
                 throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, $"{prefix} entries must not contain ',' or '{{'");
