@@ -100,9 +100,8 @@ internal sealed class InfoWriter
     {
         AprsRefusalCode.NotEncodable => 0,
         AprsRefusalCode.InvalidAddress => 1,
-        AprsRefusalCode.Ax25CannotCarry => 2,
-        AprsRefusalCode.Tnc2CannotCarry => 3,
-        AprsRefusalCode.InvalidThirdPartyHeader => 4,
+        AprsRefusalCode.InvalidPath => 2,
+        AprsRefusalCode.InvalidThirdPartyHeader => 3,
         AprsRefusalCode.InvalidAddressee => 5,
         AprsRefusalCode.InvalidName => 6,
         AprsRefusalCode.InvalidTimestamp => 7,
@@ -123,7 +122,10 @@ internal sealed class InfoWriter
         AprsRefusalCode.MissingField => 22,
         AprsRefusalCode.ValueGivenTwice => 23,
         AprsRefusalCode.TextReadsAsField => 24,
+        AprsRefusalCode.DoesNotReadBack => 25,
         AprsRefusalCode.InformationFieldTooLong => 26,
+        AprsRefusalCode.Ax25CannotCarry => 27,
+        AprsRefusalCode.Tnc2CannotCarry => 28,
         _ => 25,
     };
 

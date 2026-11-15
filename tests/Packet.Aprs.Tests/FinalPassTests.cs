@@ -151,15 +151,27 @@ public class FinalPassTests
     public void Decoding_a_long_run_of_one_element_is_linear()
     {
         // Four times the bytes must cost well under sixteen times the time (a quadratic decoder
-        // costs sixteen, a linear one four): a ratio at two sizes, never a time limit.
+        // costs sixteen, a linear one four): a ratio at two sizes, never a time limit. A run on a
+        // busy machine can be slowed by a pause in the larger size only, so the cost at each size is
+        // the least of every run so far, and more runs are made until the ratio is under the limit
+        // or four rounds have been made: a quadratic decoder is over it every round, and noise is not.
         foreach (string head in Heads)
         {
             AprsPacket.Decode(head + new string('x', 5000) + "{PHG1|!!|!W12!/A=000001");
             foreach (string element in Elements)
             {
-                long small = Best(head, element, 200_000);
-                long large = Best(head, element, 800_000);
-                ((double)large / Math.Max(small, Stopwatch.Frequency / 2000)).Should().BeLessThan(9, $"{head[15..]} + {element}");
+                long small = long.MaxValue;
+                long large = long.MaxValue;
+                double ratio = double.MaxValue;
+                for (int round = 0; round < 4 && ratio >= 9; round++)
+                {
+                    GC.Collect();
+                    small = Math.Min(small, Best(head, element, 200_000));
+                    large = Math.Min(large, Best(head, element, 800_000));
+                    ratio = (double)large / Math.Max(small, Stopwatch.Frequency / 2000);
+                }
+
+                ratio.Should().BeLessThan(9, $"{head[15..]} + {element}");
             }
         }
     }

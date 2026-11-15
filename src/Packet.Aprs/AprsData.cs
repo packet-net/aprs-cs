@@ -36,8 +36,13 @@ public abstract record AprsData
         ? throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "a Mic-E report carries part of its position in the destination address, so its information field alone is not a position; make a packet with AprsPacket.Create")
         : EncodeInformation();
 
-    /// <summary>The information field, whatever the data type (for a Mic-E report, without its destination). Ends in the read-back.</summary>
-    internal byte[] EncodeInformation() => InfoEncoder.Encode(this);
+    /// <summary>
+    /// The information field, whatever the data type (for a Mic-E report, without its destination).
+    /// Ends in the read-back. <paramref name="micEBytesFirst"/> is a builder telling the encoder to
+    /// write a Mic-E altitude in the Mic-E bytes first; it is an argument of the call, never held
+    /// on the data.
+    /// </summary>
+    internal byte[] EncodeInformation(bool micEBytesFirst = false) => InfoEncoder.Encode(this, micEBytesFirst);
 
     internal abstract void Encode(InfoWriter writer);
 }

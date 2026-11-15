@@ -283,7 +283,7 @@ internal static class FrequencyCodec
 
         if (f.OffsetKHz is { } offset)
         {
-            w.Char(' ').Char(offset < 0 ? '-' : '+').Digits(Math.Abs(offset) / 10, 3);
+            w.Char(' ').Char(offset < 0 ? '-' : '+').Digits((int)(Math.Abs((long)offset) / 10), 3);
         }
 
         if (f.Range is { } range)

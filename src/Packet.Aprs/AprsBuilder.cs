@@ -27,6 +27,8 @@ public abstract class AprsBuilder
 
     /// <summary>
     /// The packet: the station's header and this data, encoded. Throws <see cref="AprsEncodeException"/>
+    /// for a header that is not one (<see cref="AprsRefusalCode.InvalidAddress"/>,
+    /// <see cref="AprsRefusalCode.InvalidPath"/>) before anything in the data is looked at, and then
     /// for anything APRS12c does not allow, a symbol, an object's timestamp or a position never given
     /// included (<see cref="AprsRefusalCode.InvalidSymbol"/>, <see cref="AprsRefusalCode.MissingField"/>),
     /// and <see cref="InvalidOperationException"/> when a report that needs a position has none. A builder never
@@ -42,7 +44,7 @@ public abstract class AprsBuilder
         AprsPacket packet;
         try
         {
-            packet = AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
+            packet = AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path, micEBytesFirst: true);
         }
         catch (AprsEncodeException ex) when (own is not null && InfoWriter.Rank(ex.Code) >= InfoWriter.Rank(own.Code))
         {
@@ -92,7 +94,6 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     private double? course;
     private double? speedKnots;
     private double? altitudeFeet;
-    private double? altitudeMetres;
     private AprsPhg? phg;
     private double? rangeMiles;
     private AprsVoiceFrequency? frequency;
@@ -147,7 +148,6 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     public TSelf AltitudeFeet(double feet)
     {
         altitudeFeet = feet;
-        altitudeMetres = null;
         return Self;
     }
 
@@ -157,12 +157,8 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     public TSelf AltitudeMetres(double metres)
     {
         altitudeFeet = metres * Units.FeetPerMetre;
-        altitudeMetres = metres;
         return Self;
     }
-
-    /// <summary>The altitude given in metres, or null when none was or it was given in feet.</summary>
-    private protected double? AltitudeInMetres => altitudeMetres;
 
     /// <summary>Free text after the structured parts. May contain UTF-8.</summary>
     public TSelf Comment(string text)
@@ -467,15 +463,9 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
             report = report with { CourseDegrees = null };
         }
 
-        // An altitude goes in the Mic-E altitude bytes, whose unit is the metre, whatever unit it was
-        // given in, rounded once to the metre from the value given (1000 feet is 305 m). One the
-        // bytes cannot hold is value-out-of-range when the report is encoded.
-        return report.AltitudeFeet is null ? report
-            : report with
-            {
-                AltitudeFeet = AltitudeInMetres is { } metres ? Steps.Whole(metres) * Units.FeetPerMetre : report.AltitudeFeet,
-                AltitudeInBytes = true,
-                AltitudeAsGiven = report.AltitudeFeet,
-            };
+        // An altitude goes in the Mic-E altitude bytes first, whose unit is the metre whatever unit it
+        // was given in, rounded once to the metre from the value given (1000 feet is 305 m): the
+        // builder tells the encoder so when it builds (Build), and the data holds the value as given.
+        return report;
     }
 }

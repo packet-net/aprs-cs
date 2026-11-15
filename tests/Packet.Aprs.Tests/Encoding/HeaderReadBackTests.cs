@@ -26,12 +26,30 @@ public class HeaderReadBackTests
         hBits.Should().Equal(true, true, false);
     }
 
+    private static AprsPacket Held(params AprsPathEntry[] path) =>
+        AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), path, ">hi"u8);
+
     [Fact]
-    public void A_path_with_an_unused_entry_before_a_used_one_cannot_be_carried_in_either_form()
+    public void A_path_with_an_unused_entry_before_a_used_one_is_refused_when_the_header_is_given()
     {
-        AprsPacket packet = Built("WIDE1-1", "N0CALL-1*");
-        FluentActions.Invoking(packet.ToTnc2).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.Tnc2CannotCarry);
-        FluentActions.Invoking(packet.ToAx25Frame).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.Ax25CannotCarry);
+        // A fault of the header given, whatever form is written: invalid-path, ahead of any fault in the data.
+        FluentActions.Invoking(() => Built("WIDE1-1", "N0CALL-1*")).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidPath);
+        FluentActions.Invoking(() => AprsPacket.Create("N0CALL", new AprsStatusReport { Text = "hi" }, path: "WIDE1-1,N0CALL-1*"))
+            .Should().NotThrow("a text path marks the entries before a * used");
+        FluentActions.Invoking(() => AprsPacket.Create(AprsAddress.Parse("N0CALL"), new AprsStatusReport { Text = "hi" }, null, [new AprsPathEntry(AprsAddress.Parse("WIDE1-1")), new AprsPathEntry(AprsAddress.Parse("N0CALL-1"), true)]))
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidPath);
+        FluentActions.Invoking(() => AprsStation.From("N0CALL").Via("WIDE1-1", "N0CALL-1*").Status("a\u0001b").Build())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidPath, "the path is judged before the data");
+        FluentActions.Invoking(() => AprsStation.From("N0CALL").To("WIDE 1").Via("WIDE1-1", "N0CALL-1*").Status("hi").Build())
+            .Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidAddress, "an address that is not one comes before the path");
+    }
+
+    [Fact]
+    public void A_held_packet_with_an_unused_entry_before_a_used_one_cannot_be_written_in_either_form()
+    {
+        AprsPacket packet = Held(new AprsPathEntry(AprsAddress.Parse("WIDE1-1")), new AprsPathEntry(AprsAddress.Parse("N0CALL-1"), true));
+        FluentActions.Invoking(packet.ToTnc2).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidPath);
+        FluentActions.Invoking(packet.ToAx25Frame).Should().Throw<AprsEncodeException>().Which.Code.Should().Be(AprsRefusalCode.InvalidPath);
         packet.ToString().Should().Contain("WIDE1-1,N0CALL-1*", "showing a packet never throws");
     }
 

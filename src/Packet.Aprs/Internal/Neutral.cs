@@ -610,6 +610,13 @@ internal sealed class Neutral
 
     private static string NmeaTime(string field)
     {
+        if (field.Length < 6 || (field.Length > 6 && field[6] != '.'))
+        {
+            // Not a time, or too short to be one (an empty one is absent, as for any text): kept as
+            // given, so that it does not match the sentence's own and is refused as disagreeing with it.
+            return field;
+        }
+
         string fraction = field.Length > 7 ? field[7..].TrimEnd('0') : "";
         return $"{field[..2]}:{field[2..4]}:{field[4..6]}{(fraction.Length > 0 ? "." + fraction : "")}";
     }

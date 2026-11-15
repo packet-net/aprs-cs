@@ -76,9 +76,10 @@ public sealed class AprsStation
     /// This station with a digipeater path, e.g. <c>Via("WIDE1-1", "WIDE2-1")</c>, replacing any set before.
     /// An entry ending in <c>*</c> is a used one (<c>Via("WIDE1-1*", "N0CALL-1*", "WIDE2-1")</c>), as in the
     /// vectors' neutral header form: <c>*</c> is never part of an address. A path with an entry not
-    /// marked used before one that is cannot be written: <see cref="AprsPacket.ToTnc2"/> refuses it as
-    /// <see cref="AprsRefusalCode.Tnc2CannotCarry"/> and <see cref="AprsPacket.ToAx25Frame"/> as
-    /// <see cref="AprsRefusalCode.Ax25CannotCarry"/>, since it would read back with that entry used.
+    /// marked used before one that is cannot be written in any form (it would read back with that
+    /// entry used): it is refused as <see cref="AprsRefusalCode.InvalidPath"/> when the header is
+    /// given to <see cref="AprsBuilder.Build"/> or <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>,
+    /// before any fault in the data.
     /// </summary>
     public AprsStation Via(params string[] path)
     {

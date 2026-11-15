@@ -616,7 +616,7 @@ internal static class MicECodec
     }
 
     /// <summary>The altitude a <c>/A=</c> would hold, as the program gave it: before the metre rounding of the Mic-E bytes.</summary>
-    internal static double AltitudeTextFeet(AprsMicEReport r) => r.AltitudeAsGiven ?? r.AltitudeFeet!.Value;
+    internal static double AltitudeTextFeet(AprsMicEReport r) => r.AltitudeFeet!.Value;
 
     /// <summary>Whether a <c>/A=</c> holds the altitude exactly: a whole number of feet within its six digits (within 1e-6).</summary>
     internal static bool SlashAltitudeHolds(AprsMicEReport r)
@@ -635,20 +635,22 @@ internal static class MicECodec
     /// the one the data asks for, then, when that is the Mic-E bytes, a <c>/A=</c> if one holds the
     /// altitude exactly. A data record with no altitude has one form, and the report decides.
     /// </summary>
-    internal static bool?[] AltitudeForms(AprsData data) => data is AprsMicEReport { AltitudeFeet: not null } r
-        ? (AltitudeAsFeet(r) || !SlashAltitudeHolds(r) ? [AltitudeAsFeet(r)] : [false, true])
+    internal static bool?[] AltitudeForms(AprsData data, bool micEBytesFirst) => data is AprsMicEReport { AltitudeFeet: not null } r
+        ? (AltitudeAsFeet(r, micEBytesFirst) || !SlashAltitudeHolds(r) ? [AltitudeAsFeet(r, micEBytesFirst)] : [false, true])
         : [null];
 
     /// <summary>
     /// Whether the altitude is written as a <c>/A=</c> in the status text rather than in the Mic-E
     /// altitude bytes (vectors interpretations.md, "A Mic-E altitude goes in the Mic-E altitude
-    /// bytes"). Decoded data knows where its altitude came from. A builder's altitude is always in
-    /// the bytes. Neutral data does not say, so its value does: a <c>/A=</c> only when only a
+    /// bytes"). Decoded data knows where its altitude came from. A builder's altitude goes in the
+    /// bytes first (<paramref name="micEBytesFirst"/>, passed privately by the builder, never held
+    /// on the data). Neutral data does not say, so its value does: a <c>/A=</c> only when only a
     /// <c>/A=</c> holds it exactly, that is a whole number of feet within its six digits that the
-    /// bytes do not hold exactly (not a whole number of metres, or beyond their range), or one the
-    /// bytes hold but could only write as a type code.
+    /// bytes do not hold exactly (not a whole number of metres, or beyond their range). For either,
+    /// where the bytes have no clean form (a first byte that is a type code character, with no type
+    /// code before it) and a <c>/A=</c> holds the value exactly, it goes in the <c>/A=</c>.
     /// </summary>
-    internal static bool AltitudeAsFeet(AprsMicEReport r)
+    internal static bool AltitudeAsFeet(AprsMicEReport r, bool micEBytesFirst = false)
     {
         if (r.AltitudeFeet is not { } feet)
         {
@@ -660,27 +662,32 @@ internal static class MicECodec
             return true;
         }
 
-        if (r.AltitudeInBytes || !double.IsFinite(feet))
+        if (!double.IsFinite(feet))
         {
             return false;
         }
 
-        bool wholeFeet = Math.Abs(feet - Math.Round(feet)) <= 1e-6 && Math.Round(feet) is >= -99999 and <= 999999;
-        if (!wholeFeet)
+        if (!micEBytesFirst)
+        {
+            bool wholeFeet = Math.Abs(feet - Math.Round(feet)) <= 1e-6 && Math.Round(feet) is >= -99999 and <= 999999;
+            if (!wholeFeet)
+            {
+                return false;
+            }
+
+            bool bytesHold = IsWholeMetres(feet) && Math.Round(feet / Units.FeetPerMetre) is >= -10000 and <= 743570;
+            if (!bytesHold)
+            {
+                return true;
+            }
+        }
+        else if (!SlashAltitudeHolds(r))
         {
             return false;
         }
 
-        bool bytesHold = IsWholeMetres(feet) && Math.Round(feet / Units.FeetPerMetre) is >= -10000 and <= 743570;
-        if (!bytesHold)
-        {
-            return true;
-        }
-
-        // Where the bytes have no clean form (a first byte that is a type code character, with no
-        // type code before it) and a /A= holds the value exactly, it goes in the /A=.
         long value = (long)Math.Round(feet / Units.FeetPerMetre) + 10000;
-        return r.TypeCode is null && (char)((value / (91 * 91)) + 33) is '`' or '\'' or '>' or ']';
+        return value is >= 0 and <= (91 * 91 * 91) - 1 && r.TypeCode is null && (char)((value / (91 * 91)) + 33) is '`' or '\'' or '>' or ']';
     }
 
     private static (int Speed, int Course) CheckMotion(AprsMicEReport r)

@@ -21,7 +21,7 @@ public class AprsVectorTests
 
     public static TheoryData<string> BuildCases => [.. VectorCases.Ids(VectorCases.IsBuildCase)];
 
-    public static TheoryData<string> PassThroughCases => [.. VectorCases.Ids(c => c.ContainsKey("pass_through"))];
+    public static TheoryData<string> PassThroughCases => [.. VectorCases.Ids(c => c.ContainsKey("pass_through") || c.ContainsKey("pass_through_inner"))];
 
     [Theory]
     [MemberData(nameof(DecodeCases))]
@@ -266,13 +266,36 @@ public class AprsVectorTests
     public void Writing_a_held_packet_back(string id)
     {
         JsonObject c = VectorCases.Get(id);
-        JsonObject expect = c["pass_through"]!.AsObject();
         AprsPacket? packet = VectorCases.Decode(Input(c), AprsParseOptions.Lenient, out _);
         packet.Should().NotBeNull(id);
         var differences = new List<string>();
-        differences.AddRange(Written("tnc2", expect["tnc2"], expect["tnc2_refusal"], () => packet!.ToTnc2(), b => System.Text.Encoding.UTF8.GetString(b), s => s));
-        differences.AddRange(Written("ax25_hex", expect["ax25_hex"], expect["ax25_refusal"], () => packet!.ToAx25Frame(), b => Convert.ToHexStringLower(b), s => s.ToLowerInvariant()));
+        if (c["pass_through"] is JsonObject held)
+        {
+            differences.AddRange(Written(packet!, held, ""));
+        }
+
+        // The inner packet of a third-party packet written on its own: its header is read back by the
+        // outer rules, whatever its origin.
+        if (c["pass_through_inner"] is JsonObject inner)
+        {
+            packet!.Data.Should().BeOfType<AprsThirdPartyTraffic>(id);
+            differences.AddRange(Written(((AprsThirdPartyTraffic)packet.Data).Packet, inner, "inner "));
+        }
+
         Pass(c, differences);
+    }
+
+    private static IEnumerable<string> Written(AprsPacket packet, JsonObject expect, string which)
+    {
+        foreach (string difference in Written("tnc2", expect["tnc2"], expect["tnc2_refusal"], () => packet.ToTnc2(), b => System.Text.Encoding.UTF8.GetString(b), s => s))
+        {
+            yield return which + difference;
+        }
+
+        foreach (string difference in Written("ax25_hex", expect["ax25_hex"], expect["ax25_refusal"], () => packet.ToAx25Frame(), b => Convert.ToHexStringLower(b), s => s.ToLowerInvariant()))
+        {
+            yield return which + difference;
+        }
     }
 
     private static IEnumerable<string> Written(string form, JsonNode? bytes, JsonNode? refusal, Func<byte[]> write, Func<byte[], string> show, Func<string, string> normal)
@@ -351,7 +374,7 @@ public class AprsVectorTests
 
     // ------------------------------------------------------------------ the case files
 
-    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info", "pass_through"];
+    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info", "pass_through", "pass_through_inner"];
     private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "build", "write", "source", "destination", "path"];
     private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "tnc2", "ax25_hex", "refused", "refusal"];
 

@@ -28,14 +28,14 @@ internal static class InfoEncoder
     private static readonly CommentDelimiter[] Forms = [CommentDelimiter.Auto, CommentDelimiter.Slash, CommentDelimiter.Space];
     private static readonly CommentDelimiter[] OneForm = [CommentDelimiter.Auto];
 
-    public static byte[] Encode(AprsData data)
+    public static byte[] Encode(AprsData data, bool micEBytesFirst = false)
     {
         // The forms that differ only in what stands before a comment: straight on as the rules
         // choose, then after a '/', then after a space; and for a Mic-E altitude the Mic-E bytes
         // with each of those, then a /A= with each, where a /A= holds the value exactly.
         CommentDelimiter[] delimiters = data is AprsPositionedData { Comment.Length: > 0 } ? Forms : OneForm;
         AprsEncodeException? first = null;
-        foreach (bool? altitude in MicECodec.AltitudeForms(data))
+        foreach (bool? altitude in MicECodec.AltitudeForms(data, micEBytesFirst))
         {
             foreach (CommentDelimiter form in delimiters)
             {

@@ -10,10 +10,10 @@ public enum AprsRefusalCode
     /// <summary>A header address (source, destination, path entry, or a third-party one) is not 1-9 letters, digits or `-` in TNC2 text.</summary>
     InvalidAddress = 1,
 
-    /// <summary>An AX.25 frame cannot carry the header: a call over 6 characters or in lower case, an SSID over 15 or written with a leading zero, more than 8 path entries.</summary>
+    /// <summary>An AX.25 frame cannot carry the header: a call over 6 characters, in lower case or empty (an empty destination written from a held packet), an SSID over 15 or written with a leading zero, more than 8 path entries.</summary>
     Ax25CannotCarry = 2,
 
-    /// <summary>A TNC2 line cannot carry the packet: its information field is not UTF-8 text.</summary>
+    /// <summary>A TNC2 line cannot carry the packet: its information field holds a CR or LF before its last byte, which would end the line (one at the very end is carried), or it is not UTF-8 text.</summary>
     Tnc2CannotCarry = 3,
 
     /// <summary>A third-party packet's inner header cannot be written as received.</summary>
@@ -87,4 +87,7 @@ public enum AprsRefusalCode
 
     /// <summary>The whole information field, as written, is over 256 bytes (APRS12c ch. 3). The last check: only a record with no other fault is refused for its size. A field over its own limit is <see cref="TooLong"/>.</summary>
     InformationFieldTooLong = 27,
+
+    /// <summary>A path to be written has an entry not marked used before one that is: no TNC2 line or AX.25 frame reads back that way, so it is a fault of the header given, whatever form is written. Refused when the header is given, before any fault in the data.</summary>
+    InvalidPath = 28,
 }

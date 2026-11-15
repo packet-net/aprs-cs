@@ -173,7 +173,11 @@ public class RefusalCodeTests
         string[] listed = [.. JsonNode.Parse(File.ReadAllText(Path.Combine(VectorCases.Directory, "codes.json")))!["refusals"]!.AsArray().Select(n => (string)n!["id"]!)];
         string[] ours = [.. Enum.GetValues<AprsRefusalCode>().Select(c => NeutralJson.Kebab(c.ToString()))];
 
-        ours.Should().Equal(listed);
-        ((int)AprsRefusalCode.InformationFieldTooLong).Should().Be(listed.Length);
+        // Values are never renumbered, so a code added later (invalid-path) stands last in the enum
+        // wherever the vectors list it.
+        ours.Should().BeEquivalentTo(listed);
+        Enum.GetValues<AprsRefusalCode>().Select(c => (int)c).Should().OnlyHaveUniqueItems();
+        ((int)AprsRefusalCode.InformationFieldTooLong).Should().Be(27);
+        ((int)AprsRefusalCode.InvalidPath).Should().Be(28);
     }
 }

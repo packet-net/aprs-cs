@@ -12,14 +12,29 @@ internal static class ReadBack
     private static readonly AprsAddress Sender = AprsAddress.Parse("N0CALL");
     private static readonly AprsAddress DefaultDestination = AprsAddress.Parse(AprsStation.DefaultDestination);
 
-    /// <summary>The infos the rules attach to the form the data itself asks for; any other info is a change.</summary>
-    private static readonly AprsDiagnosticCode[] AllowedInfos =
-    [
-        AprsDiagnosticCode.ObsoleteFormat,
-        AprsDiagnosticCode.MicEMissingDeviceType,
-        AprsDiagnosticCode.InvalidQuery,
-        AprsDiagnosticCode.InvalidTelemetryMetadata,
-    ];
+    /// <summary>
+    /// Whether the rules attach the info <paramref name="code"/> to the form the data itself asks for
+    /// (README, Read-back, Diagnostics): <c>obsolete-format</c> on a positionless weather report, raw
+    /// weather, raw NMEA, a Maidenhead beacon and Mic-E Rev 0 telemetry; <c>mic-e-missing-device-type</c>
+    /// on Mic-E status text; <c>invalid-query</c> and <c>invalid-telemetry-metadata</c> on a message
+    /// the rules read as a plain message. An info on any other form is a change.
+    /// </summary>
+    private static bool InfoAllowed(AprsData given, AprsDiagnosticCode code) => code switch
+    {
+        AprsDiagnosticCode.ObsoleteFormat => given is AprsWeatherReport or AprsRawWeatherReport or AprsNmeaReport or AprsMaidenheadBeacon
+            || given is AprsMicEReport { LegacyTelemetry: not null },
+        AprsDiagnosticCode.MicEMissingDeviceType => given is AprsMicEReport,
+        AprsDiagnosticCode.InvalidQuery or AprsDiagnosticCode.InvalidTelemetryMetadata => given is AprsTextMessage,
+        _ => false,
+    };
+
+    /// <summary>
+    /// A seam for the tests, like <see cref="InfoEncoder.AfterWriting"/>: changes the diagnostics the
+    /// read-back decode gave, so a test can show that a warning, an error or an info no decode of
+    /// ours gives (an info outside the listed four) is refused. Null, and thread-local, outside such a test.
+    /// </summary>
+    [ThreadStatic]
+    internal static Func<IReadOnlyList<AprsDiagnostic>, IReadOnlyList<AprsDiagnostic>>? AfterDecoding;
 
     /// <summary>The NMEA fields a sentence determines: given or left out, they read back as the sentence has them.</summary>
     private static readonly string[] NmeaDetermined = ["latitude", "longitude", "fix", "course_degrees", "speed_knots", "altitude_m", "time", "waypoint"];
@@ -58,18 +73,20 @@ internal static class ReadBack
             return bad.Count == 0 ? null : new Mismatch(AprsRefusalCode.DoesNotReadBack, bad);
         }
 
-        // Diagnostics: none but the listed infos; an inner packet is held to the same, and its infos are not compared.
-        foreach (AprsDiagnostic d in back.Diagnostics)
+        // Diagnostics: no warning, no error, and of infos only those the rules attach to the form the data asks for.
+        foreach (AprsDiagnostic d in AfterDecoding?.Invoke(back.Diagnostics) ?? back.Diagnostics)
         {
-            if (d.Severity != AprsDiagnosticSeverity.Info || !AllowedInfos.Contains(d.Code))
+            if (d.Severity != AprsDiagnosticSeverity.Info || !InfoAllowed(given, d.Code))
             {
                 bad.Add($"{Neutral.Kebab(d.Severity.ToString())}:{Neutral.Kebab(d.Code.ToString())}");
             }
         }
 
-        // An inner packet is held to the same, against the diagnostics it carries as data: one
-        // decoded with a warning or an error is written as received and reads back with it, one
-        // built by an encoder has none. Its infos are not compared, given or decoded.
+        // An inner packet's warnings and errors are data: they must be exactly those the data gives
+        // (a multiset), at every depth, and its infos, given or decoded, are not compared. Data decoded
+        // from bytes is written as received and reads back with its own; one built by an encoder has
+        // none. A warning or error the data gives that its bytes do not read back with has no form.
+        bool lost = false;
         AprsData wanted = given;
         for (AprsData data = back.Data; data is AprsThirdPartyTraffic tp; data = tp.Packet.Data)
         {
@@ -80,7 +97,9 @@ internal static class ReadBack
             found.Sort(StringComparer.Ordinal);
             if (!carried.SequenceEqual(found))
             {
-                bad.Add("inner diagnostics: " + string.Join(", ", found.Except(carried)));
+                List<string> missing = Minus(carried, found);
+                lost |= missing.Count > 0;
+                bad.Add("inner diagnostics: " + string.Join(", ", missing.Count > 0 ? missing.Select(m => "missing " + m) : Minus(found, carried)));
             }
         }
 
@@ -88,7 +107,23 @@ internal static class ReadBack
         Dictionary<string, object> read = Neutral.Decoded(back.Data);
         Allowances(given, expected, read);
         Compare(expected, read, bad);
-        return bad.Count == 0 ? null : new Mismatch(Code(given, back.Data, bad), bad);
+        return bad.Count == 0 ? null : new Mismatch(lost ? AprsRefusalCode.ValueHasNoForm : Code(given, back.Data, bad), bad);
+    }
+
+    /// <summary>The multiset <paramref name="a"/> less <paramref name="b"/>.</summary>
+    private static List<string> Minus(List<string> a, List<string> b)
+    {
+        List<string> rest = [.. b];
+        var left = new List<string>();
+        foreach (string item in a)
+        {
+            if (!rest.Remove(item))
+            {
+                left.Add(item);
+            }
+        }
+
+        return left;
     }
 
     private static List<string> NonInfo(IEnumerable<AprsDiagnostic> diagnostics) =>
@@ -154,9 +189,10 @@ internal static class ReadBack
             return b is bool bb && ba == bb;
         }
 
-        if (a is long la && b is long lb)
+        if (a is long la)
         {
-            return la == lb;
+            // An integer or a code is compared exactly.
+            return b is long lb && la == lb;
         }
 
         if (a is Neutral.Null)
@@ -225,15 +261,92 @@ internal static class ReadBack
     // ------------------------------------------------------------------ the header
 
     /// <summary>
-    /// Reads back the header of a TNC2 line: the source, destination and path, entry by entry with
-    /// its used mark, as given. A path with an entry not marked used before one that is reads back
-    /// with that entry used, so it cannot be carried.
+    /// The faults of a header as given, whatever form is written and before any fault in the data
+    /// (vectors README, Refusal reasons): an address that is not one is <c>invalid-address</c>, then
+    /// a path with an entry not marked used before one that is is <c>invalid-path</c>. A header
+    /// written on its own is read back as a user's decode of that form reads it, the outer header
+    /// rules, whatever the packet's origin: an inner packet whose source is <c>a b</c> is not
+    /// carried. An empty destination is a fault of a header given to a builder, but a held packet
+    /// may carry one it was decoded with (<paramref name="allowEmptyDestination"/>).
     /// </summary>
-    public static void CheckTnc2Header(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path, byte[] line, bool inner = false)
+    public static void RequireHeader(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path, bool allowEmptyDestination)
+    {
+        RequireAddress(source);
+        if (!(allowEmptyDestination && string.IsNullOrEmpty(destination.Value)))
+        {
+            RequireAddress(destination);
+        }
+
+        foreach (AprsPathEntry entry in path)
+        {
+            RequireAddress(entry.Address);
+        }
+
+        RequirePathOrder(path);
+    }
+
+    private static void RequireAddress(AprsAddress address)
+    {
+        string a = address.Value ?? "";
+        if (!Tnc2Codec.IsAprsIsAddress(a))
+        {
+            throw new AprsEncodeException(AprsRefusalCode.InvalidAddress, $"'{a}' is not an address: 1-9 letters, digits or - (vectors README, Addresses)");
+        }
+    }
+
+    /// <summary>
+    /// A path entry before a used one is used too, so a path with one not marked used reads back
+    /// changed in a line and in a frame alike, and no decoder gives one: a fault of the header
+    /// given, <c>invalid-path</c>, not of a form.
+    /// </summary>
+    public static void RequirePathOrder(IReadOnlyList<AprsPathEntry> path)
+    {
+        int lastUsed = -1;
+        for (int i = 0; i < path.Count; i++)
+        {
+            if (path[i].Used)
+            {
+                lastUsed = i;
+            }
+        }
+
+        for (int i = 0; i < lastUsed; i++)
+        {
+            if (!path[i].Used)
+            {
+                throw new AprsEncodeException(AprsRefusalCode.InvalidPath, $"the path {AprsPathEntry.FormatList(path)} has an entry not marked used before one that is: it would read back used, in a line or a frame");
+            }
+        }
+    }
+
+    /// <summary>
+    /// A TNC2 line ends at a CR or LF, as APRS-IS reads it, so a line cannot carry an information
+    /// field with one inside it. A line break at the very end is taken off by a decoder as
+    /// <c>trailing-line-break</c>, ends the line where it ends anyway, and is carried.
+    /// </summary>
+    public static void CheckLineBreaks(ReadOnlySpan<byte> information)
+    {
+        int end = information.Length;
+        while (end > 0 && information[end - 1] is (byte)'\r' or (byte)'\n')
+        {
+            end--;
+        }
+
+        if (information[..end].IndexOfAny((byte)'\r', (byte)'\n') >= 0)
+        {
+            throw new AprsEncodeException(AprsRefusalCode.Tnc2CannotCarry, "a TNC2 line ends at a CR or LF, so it cannot carry an information field with one inside it");
+        }
+    }
+
+    /// <summary>
+    /// Reads back the header of a TNC2 line: the source, destination and path, entry by entry with
+    /// its used mark, as given, by the outer header rules.
+    /// </summary>
+    public static void CheckTnc2Header(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path, byte[] line)
     {
         int colon = Array.IndexOf(line, (byte)':');
         var ctx = new DecodeContext(AprsParseOptions.Lenient);
-        if (colon < 0 || !Tnc2Codec.TryParseHeader(line.AsSpan(0, colon), ctx, out Tnc2Codec.Header header, inner)
+        if (colon < 0 || !Tnc2Codec.TryParseHeader(line.AsSpan(0, colon), ctx, out Tnc2Codec.Header header)
             || !SameHeader(source, destination, path, header, ctx))
         {
             throw new AprsEncodeException(AprsRefusalCode.Tnc2CannotCarry, HeaderRefusal("a TNC2 line", path));
@@ -244,19 +357,15 @@ internal static class ReadBack
     public static void CheckAx25Header(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path, byte[] frame)
     {
         var ctx = new DecodeContext(AprsParseOptions.Lenient);
-        if (!Ax25Codec.TryDecode(frame, ctx, out Tnc2Codec.Header header, out _))
-        {
-            throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, HeaderRefusal("an AX.25 frame", path));
-        }
-
-        if (!SameHeader(source, destination, path, header, ctx))
+        if (!Ax25Codec.TryDecode(frame, ctx, out Tnc2Codec.Header header, out _)
+            || !SameHeader(source, destination, path, header, ctx))
         {
             throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, HeaderRefusal("an AX.25 frame", path));
         }
     }
 
     private static string HeaderRefusal(string form, IReadOnlyList<AprsPathEntry> path) =>
-        $"{form} cannot carry the path {AprsPathEntry.FormatList(path)}: an entry not marked used comes before one that is, and reads back used";
+        $"{form} cannot carry this header (path {AprsPathEntry.FormatList(path)}): it would read back as a different header";
 
     private static bool SameHeader(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path, Tnc2Codec.Header read, DecodeContext ctx)
     {

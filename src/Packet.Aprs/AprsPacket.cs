@@ -182,26 +182,31 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     /// normally your software's registered identifier (<c>APxxxx</c>, or <c>APZxxx</c> while
     /// experimenting; APRS12c §4); when null it is <see cref="AprsStation.DefaultDestination"/>. A
     /// Mic-E report puts part of its position in the destination, so its destination is computed
-    /// from it, and giving one is refused. Throws <see cref="AprsEncodeException"/> for anything the
-    /// library will not write.
+    /// from it, and giving one is refused. Throws <see cref="AprsEncodeException"/> for a header that
+    /// is not one, before anything in the data is looked at (<see cref="AprsRefusalCode.InvalidAddress"/>
+    /// for an address that is not 1-9 letters, digits or <c>-</c>, <see cref="AprsRefusalCode.InvalidPath"/>
+    /// for a path with an entry not marked used before one that is), then for data the library will
+    /// not write, with the code of the first rule it breaks, and for an information field over 256
+    /// bytes. What a TNC2 line or an AX.25 frame cannot carry is not judged here: <see cref="ToTnc2"/>
+    /// and <see cref="ToAx25Frame"/> refuse it when they write that form.
     /// </summary>
-    public static AprsPacket Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
+    public static AprsPacket Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null) =>
+        Create(source, data, destination, path, micEBytesFirst: false);
+
+    /// <summary>
+    /// <see cref="Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/> for a
+    /// builder, which has the encoder write a Mic-E altitude in the Mic-E bytes first
+    /// (<paramref name="micEBytesFirst"/>), as the builder rules say. The argument is private to the
+    /// library: nothing a caller can see or copy carries it.
+    /// </summary>
+    internal static AprsPacket Create(AprsAddress source, AprsData data, AprsAddress? destination, IEnumerable<AprsPathEntry>? path, bool micEBytesFirst)
     {
         // The header first (vectors README, Refusal reasons): each address is 1-9 letters,
-        // digits or '-', as the vectors' Addresses rule has it for a TNC2 header.
+        // digits or '-' as the Addresses rule has it for a TNC2 header, and a path has no entry
+        // before a used one that is not marked used.
         List<AprsPathEntry> entries = path?.ToList() ?? [];
-        RequireHeaderAddress(source);
-        if (destination is { } given)
-        {
-            RequireHeaderAddress(given);
-        }
-
-        foreach (AprsPathEntry entry in entries)
-        {
-            RequireHeaderAddress(entry.Address);
-        }
-
-        return CreateUnchecked(source, data, destination, entries);
+        ReadBack.RequireHeader(source, destination ?? AprsAddress.CreateUnchecked(AprsStation.DefaultDestination), entries, allowEmptyDestination: false);
+        return CreateUnchecked(source, data, destination, entries, micEBytesFirst: micEBytesFirst);
     }
 
     /// <summary>
@@ -209,7 +214,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     /// without the header address check, for an inner third-party packet, whose header has its
     /// own rules (checked by <see cref="AprsThirdPartyTraffic.Create"/>).
     /// </summary>
-    internal static AprsPacket CreateUnchecked(AprsAddress source, AprsData data, AprsAddress? destination, IEnumerable<AprsPathEntry>? path, bool inner = false)
+    internal static AprsPacket CreateUnchecked(AprsAddress source, AprsData data, AprsAddress? destination, IEnumerable<AprsPathEntry>? path, bool inner = false, bool micEBytesFirst = false)
     {
         ArgumentNullException.ThrowIfNull(data);
         RequireAddress(source);
@@ -221,13 +226,13 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
             }
 
             // The information first, so a fault in the data is reported before one in the destination.
-            byte[] micEInformation = micE.EncodeInformation();
+            byte[] micEInformation = micE.EncodeInformation(micEBytesFirst);
             return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micEInformation, micE, [], inner);
         }
 
         AprsAddress to = destination ?? AprsAddress.Parse(AprsStation.DefaultDestination);
         RequireAddress(to);
-        return new AprsPacket(source, to, path?.ToList() ?? [], data.EncodeInformation(), data, [], inner);
+        return new AprsPacket(source, to, path?.ToList() ?? [], data.EncodeInformation(micEBytesFirst), data, [], inner);
     }
 
     /// <summary>
@@ -245,15 +250,6 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
             AprsStation.ParsePath(path));
     }
 
-    private static void RequireHeaderAddress(AprsAddress address)
-    {
-        string a = address.Value ?? "";
-        if (a.Length is < 1 or > 9 || !a.All(c => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-'))
-        {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidAddress, $"'{a}' is not an address: 1-9 letters, digits or - (vectors README, Addresses)");
-        }
-    }
-
     private static void RequireAddress(AprsAddress address)
     {
         if (string.IsNullOrEmpty(address.Value))
@@ -264,33 +260,56 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
 
     // ------------------------------------------------------------------ writing
 
-    /// <summary>The packet in TNC2 form as bytes (the information field may hold non-ASCII bytes). This writes out a packet the program already holds, so it is not an encoder: the information field passes through as it stands, with no size check (a decoded field over 256 bytes is written as received). The header it writes is read back, though: a line writes <c>*</c> on the last used entry only, and a path with an entry not marked used before one that is cannot be carried, since it reads back with that entry used: <see cref="AprsRefusalCode.Tnc2CannotCarry"/>.</summary>
+    /// <summary>
+    /// The packet as a TNC2 line, in bytes (the information field may hold non-ASCII bytes). This
+    /// writes out a packet the program already holds, so it is not an encoder: the information
+    /// field passes through as it stands, with no size check (a decoded field over 256 bytes is
+    /// written as received). The header it writes is read back, though, by the outer header rules
+    /// whatever the packet's origin (so the inner packet of a third-party packet, written on its own,
+    /// is held to the address rule of an outer header): a line writes <c>*</c> on the last used
+    /// entry only. An address that is not 1-9 letters, digits or <c>-</c> is
+    /// <see cref="AprsRefusalCode.InvalidAddress"/>, a path with an entry not marked used before one
+    /// that is <see cref="AprsRefusalCode.InvalidPath"/>, and an information field with a CR or LF
+    /// inside it (one at the very end is carried) <see cref="AprsRefusalCode.Tnc2CannotCarry"/>,
+    /// since a line ends there.
+    /// </summary>
     public byte[] ToTnc2()
     {
+        ReadBack.RequireHeader(Source, Destination, Path, allowEmptyDestination: true);
         byte[] line = ToTnc2Unchecked();
-        ReadBack.CheckTnc2Header(Source, Destination, Path, line, IsInner);
+        ReadBack.CheckTnc2Header(Source, Destination, Path, line);
+        ReadBack.CheckLineBreaks(information);
         return line;
     }
 
-    /// <summary>The line without the header read-back, for display and for the header inside a third-party packet, which has its own check.</summary>
+    /// <summary>The line without the checks of <see cref="ToTnc2"/>, for display and for the header inside a third-party packet, which has its own check. Never a way to send a packet.</summary>
     internal byte[] ToTnc2Unchecked() => Tnc2Codec.Format(Source, Destination, Path, information);
 
     /// <summary>
-    /// The packet as an AX.25 UI frame without flags or FCS, ready for a KISS TNC. Every address
-    /// must be a valid AX.25 address (<see cref="AprsAddress.IsAx25"/>) and the path at most 8 entries.
-    /// Like <see cref="ToTnc2"/> this writes out a packet already held, so the information field
-    /// passes through as it stands, with no size check, and the header is read back: the H bit is set
-    /// on every used entry, and a path with an entry not marked used before one that is cannot be
-    /// carried (<see cref="AprsRefusalCode.Ax25CannotCarry"/>).
+    /// The packet as an AX.25 UI frame without flags or FCS, ready for a KISS TNC. Like
+    /// <see cref="ToTnc2"/> this writes out a packet already held, so the information field
+    /// passes through as it stands (a CR or LF in it is carried), with no size check, and the header is
+    /// read back: the H bit is set on every used entry. An address that is not 1-9 letters, digits
+    /// or <c>-</c> is <see cref="AprsRefusalCode.InvalidAddress"/> and a path with an entry not
+    /// marked used before one that is <see cref="AprsRefusalCode.InvalidPath"/>; a frame
+    /// never carries what AX.25 forbids, so a call that is empty (an empty destination), over six
+    /// characters or in lower case, an SSID a frame cannot hold or more than 8 path entries is
+    /// <see cref="AprsRefusalCode.Ax25CannotCarry"/>.
     /// </summary>
     public byte[] ToAx25Frame()
     {
+        ReadBack.RequireHeader(Source, Destination, Path, allowEmptyDestination: true);
         byte[] frame = Ax25Codec.Encode(Source, Destination, Path, information);
         ReadBack.CheckAx25Header(Source, Destination, Path, frame);
         return frame;
     }
 
-    /// <summary>The packet in TNC2 form. The information field is shown as UTF-8 (Latin-1 where invalid).</summary>
+    /// <summary>
+    /// The packet in TNC2 form for display, with the information field as UTF-8 (Latin-1 where
+    /// invalid). It is for display, not for sending: it is not a writer, so it never refuses or
+    /// throws, shows the packet as held, and is not read back. Send with <see cref="ToTnc2"/> or
+    /// <see cref="ToAx25Frame"/>.
+    /// </summary>
     public override string ToString() => Text.ForDisplay(ToTnc2Unchecked());
 
     /// <summary>

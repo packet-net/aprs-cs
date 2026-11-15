@@ -177,11 +177,11 @@ internal static class Ax25Codec
         }
 
         byte[] frame = new byte[(7 * (2 + path.Count)) + 2 + information.Length];
-        WriteAddress(frame.AsSpan(0, 7), destination, commandBit: true, last: false, nameof(destination));
-        WriteAddress(frame.AsSpan(7, 7), source, commandBit: false, last: path.Count == 0, nameof(source));
+        WriteAddress(frame.AsSpan(0, 7), destination, commandBit: true, last: false);
+        WriteAddress(frame.AsSpan(7, 7), source, commandBit: false, last: path.Count == 0);
         for (int i = 0; i < path.Count; i++)
         {
-            WriteAddress(frame.AsSpan(14 + (7 * i), 7), path[i].Address, path[i].Used, i == path.Count - 1, nameof(path));
+            WriteAddress(frame.AsSpan(14 + (7 * i), 7), path[i].Address, path[i].Used, i == path.Count - 1);
         }
 
         int pos = 7 * (2 + path.Count);
@@ -193,17 +193,8 @@ internal static class Ax25Codec
 
     /// <summary>The C bit is set on the destination and clear on the source for a UI command (APRS12c §3);
     /// on digipeaters the same bit is the has-been-repeated flag.</summary>
-    private static void WriteAddress(Span<byte> a, AprsAddress address, bool commandBit, bool last, string paramName)
+    private static void WriteAddress(Span<byte> a, AprsAddress address, bool commandBit, bool last)
     {
-        if (address.Value.Length == 0 && paramName == "destination")
-        {
-            // A destination of spaces only, which a decoder tolerates (UAP 5.2) and reads back as the
-            // empty destination the held packet itself carries.
-            a[..6].Fill((byte)(' ' << 1));
-            a[6] = (byte)((commandBit ? 0x80 : 0) | 0x60 | (last ? 1 : 0));
-            return;
-        }
-
         if (!address.IsAx25)
         {
             throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, $"'{address}' is not a valid AX.25 address (1-6 upper-case letters and digits, SSID 1-15)");

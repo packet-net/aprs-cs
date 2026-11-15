@@ -127,14 +127,6 @@ public sealed record AprsMicEReport : AprsPositionedData
     /// </summary>
     public bool AltitudeInComment { get; init; }
 
-    /// <summary>Set by a builder: the altitude goes in the Mic-E altitude bytes whatever its value,
-    /// refused if they cannot hold it; a <c>/A=</c> is tried only when those bytes do not read back and a <c>/A=</c> holds the value exactly (vectors README, Read-back).</summary>
-    internal bool AltitudeInBytes { get; init; }
-
-    /// <summary>Set by a builder with <see cref="AltitudeInBytes"/>: the altitude as the program gave it, in feet, before the
-    /// metre rounding the Mic-E bytes carry, which a <c>/A=</c> written in the bytes' place holds exactly.</summary>
-    internal double? AltitudeAsGiven { get; init; }
-
     /// <inheritdoc/>
     public override char DataTypeIdentifier => IsOldData ? '\'' : '`';
 

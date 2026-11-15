@@ -221,7 +221,7 @@ public class ReadBackTests
 
         files.Where(f => f.Value.Contains("TakeBytes(", StringComparison.Ordinal)).Select(f => f.Key)
             .Should().BeEquivalentTo(["Internal/InfoWriter.cs", "Internal/InfoEncoder.cs"], "only the encoder takes the bytes a writer made");
-        files.Where(f => f.Value.Contains("EncodeInformation()", StringComparison.Ordinal)).Select(f => f.Key)
+        files.Where(f => f.Value.Contains("EncodeInformation(", StringComparison.Ordinal)).Select(f => f.Key)
             .Should().BeEquivalentTo(["AprsData.cs", "AprsPacket.cs"], "an information field is written by ToInformationField and AprsPacket.Create only");
         files.Where(f => f.Value.Contains("ReadBack.Check(", StringComparison.Ordinal)).Select(f => f.Key)
             .Should().BeEquivalentTo(["Internal/InfoEncoder.cs"], "the one read-back of an information field is called in one place, with no condition on it beyond the data being decoded rather than given");
