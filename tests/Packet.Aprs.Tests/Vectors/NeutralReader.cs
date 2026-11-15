@@ -215,10 +215,13 @@ internal static class NeutralReader
     {
         CheckNesting(p["data"]);
 
-        IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
+        // The inner header is held as given, whatever it holds: a destination or path entry that is no
+        // address is for the encoder to refuse (invalid-third-party-header), not for this reader.
+        IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.CreateUnchecked(e[..^1]), true) : new AprsPathEntry(AprsAddress.CreateUnchecked(e)));
+
         // An inner source is 1-9 printable ASCII characters, which need not be an address (a space is allowed), so it is held as given.
         AprsAddress source = AprsAddress.CreateUnchecked(Str(p, "source"));
-        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
+        AprsAddress destination = AprsAddress.CreateUnchecked(OptStr(p, "destination") ?? throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
         JsonObject data = p["data"]!.AsObject();
 
         // An empty inner information field is data too: it is written back as it came, empty

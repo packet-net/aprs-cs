@@ -343,7 +343,7 @@ public sealed record AprsThirdPartyTraffic : AprsData
         }
 
         byte[] inner = Packet.ToTnc2Unchecked();
-        if (!ThirdPartyCodec.CanWrite(Packet, inner))
+        if (!ThirdPartyCodec.CanWrite(Packet))
         {
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
         }

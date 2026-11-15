@@ -182,6 +182,26 @@ public class WriterRuleTests
     // ------------------------------------------------------------------ regressions from the review
 
     [Theory]
+    [InlineData("A,B")]
+    [InlineData("PARM.A,B")]
+    [InlineData("N0CALL   ")]
+    [InlineData("A:B")]
+    public void A_third_party_inner_destination_that_would_not_read_back_as_given_is_an_invalid_header(string destination)
+    {
+        // "A,B" would read back as a destination A and a path entry B.
+        Refused(() => AprsThirdPartyTraffic.Create(AprsAddress.Parse("G4ABC"), new AprsStatusReport { Text = "x" }, AprsAddress.CreateUnchecked(destination)))
+            .Should().Be(AprsRefusalCode.InvalidThirdPartyHeader);
+    }
+
+    [Fact]
+    public void A_voice_frequency_offset_of_the_smallest_integer_is_refused_not_a_crash()
+    {
+        var data = new AprsPositionReport { Position = new AprsPosition(51.5, -0.5), Symbol = AprsSymbol.Car, Frequency = new AprsVoiceFrequency { FrequencyMHz = 145.5, OffsetKHz = int.MinValue } };
+        Refused(() => AprsPacket.Create(Me, data)).Should().Be(AprsRefusalCode.ValueOutOfRange);
+        Refused(() => AprsPacket.Create(Me, data with { Frequency = data.Frequency with { OffsetKHz = int.MaxValue } })).Should().Be(AprsRefusalCode.ValueOutOfRange);
+    }
+
+    [Theory]
     [InlineData("")]
     public void An_nmea_time_text_that_is_empty_is_absent(string time)
     {
