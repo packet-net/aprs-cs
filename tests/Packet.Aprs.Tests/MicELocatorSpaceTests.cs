@@ -12,16 +12,16 @@ public class MicELocatorSpaceTests
     private static bool MissingSpace(AprsPacket p) => p.Diagnostics.Any(d => d.Code == AprsDiagnosticCode.MissingSpaceAfterLocator);
 
     [Theory]
-    [InlineData("|!:&0hl!Y[/>\"4e}='p| DG2MM", "DG2MM")]
-    [InlineData("|!:&0hl!Y[/>\"4e}='p| Hello world", "Hello world")]
-    [InlineData("|!:&0hl!Y[/>\"4e}='p| 73", "73")]
-    public void A_space_after_telemetry_left_by_a_lifted_altitude_is_the_locators_space(string text, string comment)
+    [InlineData("|!:&0hl!Y[/>\"4e}='p| DG2MM", "|!:&0hl!Y[/>='p| DG2MM")]
+    [InlineData("|!:&0hl!Y[/>\"4e}='p| Hello world", "|!:&0hl!Y[/>='p| Hello world")]
+    [InlineData("|!:&0hl!Y[/>\"4e}='p| 73", "|!:&0hl!Y[/>='p| 73")]
+    public void Telemetry_split_by_a_lifted_altitude_is_text_so_the_locators_space_is_missing(string text, string comment)
     {
         AprsPacket p = AprsPacket.Decode(Head + text);
-        MissingSpace(p).Should().BeFalse();
+        MissingSpace(p).Should().BeTrue();
         var report = p.Data.Should().BeOfType<AprsMicEReport>().Subject;
         report.Locator.Should().Be("IO91");
-        report.Telemetry.Should().NotBeNull();
+        report.Telemetry.Should().BeNull();
         report.AltitudeFeet.Should().NotBeNull();
         report.Comment.Should().Be(comment);
     }
@@ -57,7 +57,7 @@ public class MicELocatorSpaceTests
 
     [Theory]
     [InlineData("\"4e}  x", "x")]
-    [InlineData("|!:&0hl!Y[/>\"4e}='p|  x", "x")]
+    [InlineData("|!:&0hl!Y[/>\"4e}='p|  x", "|!:&0hl!Y[/>='p|  x")]
     [InlineData("  x", "x")]
     public void Two_spaces_after_the_locator_leave_the_comment_without_either(string text, string comment)
     {

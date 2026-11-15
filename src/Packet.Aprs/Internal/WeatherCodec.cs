@@ -90,7 +90,7 @@ internal static class WeatherCodec
         List<(int Start, int Length)> trailer = [];
         if (!positionless)
         {
-            foreach ((int s, int l) in CommentCodec.TrailerSpans([.. info[pos..].ToArray()]))
+            foreach ((int s, int l) in CommentCodec.TrailerSpans(new CommentText(info[pos..].ToArray())))
             {
                 trailer.Add((s + pos, l));
             }

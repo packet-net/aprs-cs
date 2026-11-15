@@ -12,7 +12,7 @@ internal static class CommentCodec
     /// <summary>Decodes a position, object or item comment starting at <paramref name="pos"/>.</summary>
     public static bool TryRead(ReadOnlySpan<byte> info, int pos, DecodeContext ctx, PositionedFields f)
     {
-        var comment = new List<byte>(info[pos..].ToArray());
+        var comment = new CommentText(info[pos..].ToArray());
         return TryExtract(comment, pos, ctx, f, frequencyAtStart: true) && TryFinish(comment, pos, ctx, f);
     }
 
@@ -27,7 +27,7 @@ internal static class CommentCodec
 
         // Base-91 telemetry and a !DAO! are lifted out first; what is left may be the software
         // type and unit (vectors README, Weather).
-        var comment = new List<byte>(tail.ToArray());
+        var comment = new CommentText(tail.ToArray());
         if (!TryExtractTrailer(comment, pos, ctx, f))
         {
             return false;
@@ -38,8 +38,9 @@ internal static class CommentCodec
             return true;
         }
 
-        byte[] rest = [.. comment];
-        if (IsSoftwareAndUnit(rest))
+        // A software type and unit stand whole as sent: one split by a lifted element is text.
+        byte[] rest = comment.ToArray();
+        if (comment.Whole(0, comment.Count) && IsSoftwareAndUnit(rest))
         {
             f.Weather = f.Weather! with { SoftwareType = (char)rest[0], UnitType = Text.Latin1(rest.AsSpan(1)) };
             return true;
@@ -84,13 +85,13 @@ internal static class CommentCodec
     /// mistaken for another: DAO and telemetry from the end, then altitude, braces, a late data
     /// extension, and finally a voice frequency at the start.
     /// </summary>
-    internal static bool TryExtract(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
+    internal static bool TryExtract(CommentText c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
     {
         return TryExtractTrailer(c, offset, ctx, f) && ExtractRest(c, offset, ctx, f, frequencyAtStart);
     }
 
     /// <summary>What <see cref="TryExtract"/> lifts once the trailer is out: altitude, braces, a late data extension and a voice frequency.</summary>
-    internal static bool ExtractRest(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
+    internal static bool ExtractRest(CommentText c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
     {
         ExtractAltitude(c, f);
         ExtractBraces(c, f);
@@ -108,7 +109,7 @@ internal static class CommentCodec
     }
 
     /// <summary>DAO then base-91 telemetry, both expected at the end of the comment (APRS12c §13).</summary>
-    internal static bool TryExtractTrailer(List<byte> c, int offset, DecodeContext ctx, PositionedFields f)
+    internal static bool TryExtractTrailer(CommentText c, int offset, DecodeContext ctx, PositionedFields f)
     {
         // Telemetry is located first so that a DAO-shaped run of base-91 characters inside it
         // (e.g. "|!m2n!Q[P|") is not mistaken for a !DAO!; the spec puts the DAO after it.
@@ -133,14 +134,14 @@ internal static class CommentCodec
         return true;
     }
 
-    internal static bool TryFinish(List<byte> c, int offset, DecodeContext ctx, PositionedFields f)
+    internal static bool TryFinish(CommentText c, int offset, DecodeContext ctx, PositionedFields f)
     {
         // "Any free text field that begins with [a space or a slash] ... they can be ignored and the
         // beginning of the text field begins after them" (APRS12c §18): once the structured elements
         // are lifted out, one leading delimiter is not part of the comment.
         if (c.Count > 0 && c[0] is (byte)' ' or (byte)'/')
         {
-            c.RemoveAt(0);
+            c.Remove(0, 1);
         }
 
         if (!Text.TryDecode(c.ToArray(), ctx, offset, out string text))
@@ -153,11 +154,11 @@ internal static class CommentCodec
     }
 
     /// <summary>The byte ranges a decoder lifts from <paramref name="c"/> as base-91 telemetry and the <c>!DAO!</c>, in its own positions.</summary>
-    internal static List<(int Start, int Length)> TrailerSpans(List<byte> c)
+    internal static List<(int Start, int Length)> TrailerSpans(CommentText c)
     {
         (int tStart, int tEnd) = FindTelemetry(c);
         var spans = new List<(int, int)>();
-        int dao = ExtractDao([.. c], 0, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields(), tStart, tEnd, out _);
+        int dao = ExtractDao(new CommentText(c), 0, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields(), tStart, tEnd, out _);
         if (dao >= 0)
         {
             spans.Add((dao, 5));
@@ -171,21 +172,13 @@ internal static class CommentCodec
         return spans;
     }
 
-    /// <summary>Where the <c>!DAO!</c> a decoder would lift from <paramref name="c"/> starts, or -1.</summary>
-    internal static int DaoIndex(List<byte> c)
-    {
-        (int tStart, int tEnd) = FindTelemetry(c);
-        return ExtractDao([.. c], 0, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields(), tStart, tEnd, out _);
-    }
-
-    private static int ExtractDao(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, int skipFrom, int skipTo, out bool ok)
+    private static int ExtractDao(CommentText c, int offset, DecodeContext ctx, PositionedFields f, int skipFrom, int skipTo, out bool ok)
     {
         ok = true;
         Span<byte> window = stackalloc byte[5];
         for (int i = c.Count - 5; i >= 0; i--)
         {
-            if (c[i] != (byte)'!' || c[i + 4] != (byte)'!' || (skipFrom >= 0 && i + 4 >= skipFrom && i <= skipTo)
-                || (f.DaoBarrier > 0 && i < f.DaoBarrier && i + 4 >= f.DaoBarrier))
+            if (c[i] != (byte)'!' || c[i + 4] != (byte)'!' || (skipFrom >= 0 && i + 4 >= skipFrom && i <= skipTo) || !c.Whole(i, 5))
             {
                 continue;
             }
@@ -213,7 +206,7 @@ internal static class CommentCodec
                 {
                     // Lifted all the same, so a caller judging what is left sees the real text.
                     ok = false;
-                    c.RemoveRange(i, 5);
+                    c.Lift(i, 5, Lifted.Other);
                     return i;
                 }
             }
@@ -222,7 +215,7 @@ internal static class CommentCodec
                 f.Position = DaoCodec.Apply(f.Position, lat, lon);
             }
 
-            c.RemoveRange(i, 5);
+            c.Lift(i, 5, Lifted.Other);
             return i;
         }
 
@@ -230,17 +223,17 @@ internal static class CommentCodec
     }
 
     /// <summary>Where the last <c>|ss11..|</c> block is: 2 to 7 base-91 pairs between bars (APRS12c §13), or (-1, -1).</summary>
-    private static (int Start, int End) FindTelemetry(List<byte> c)
+    private static (int Start, int End) FindTelemetry(CommentText c)
     {
-        int end = c.LastIndexOf((byte)'|');
+        int end = LastIndexOf(c, (byte)'|', c.Count - 1);
         if (end < 5)
         {
             return (-1, -1);
         }
 
-        int start = c.LastIndexOf((byte)'|', end - 1);
+        int start = LastIndexOf(c, (byte)'|', end - 1);
         int length = end - start - 1;
-        if (start < 0 || length is < 4 or > 14 || length % 2 != 0)
+        if (start < 0 || length is < 4 or > 14 || length % 2 != 0 || !c.Whole(start, length + 2))
         {
             return (-1, -1);
         }
@@ -256,7 +249,20 @@ internal static class CommentCodec
         return (start, end);
     }
 
-    private static void ExtractTelemetry(List<byte> c, PositionedFields f, int start, int end)
+    private static int LastIndexOf(CommentText c, byte value, int from)
+    {
+        for (int i = from; i >= 0; i--)
+        {
+            if (c[i] == value)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static void ExtractTelemetry(CommentText c, PositionedFields f, int start, int end)
     {
         var values = new List<int>();
         for (int i = start + 1; i < end; i += 2)
@@ -270,15 +276,15 @@ internal static class CommentCodec
             Analog = values.Skip(1).Take(5).ToArray(),
             Digital = values.Count == 7 ? (byte)(values[6] & 0xFF) : null,
         };
-        c.RemoveRange(start, end - start + 1);
+        c.Lift(start, end - start + 1, Lifted.Other);
     }
 
     /// <summary><c>/A=nnnnnn</c> anywhere in the comment (APRS12c §6), or the de facto <c>/A=-nnnnn</c>.</summary>
-    private static void ExtractAltitude(List<byte> c, PositionedFields f)
+    private static void ExtractAltitude(CommentText c, PositionedFields f)
     {
         for (int i = 0; i + 9 <= c.Count; i++)
         {
-            if (c[i] != (byte)'/' || c[i + 1] != (byte)'A' || c[i + 2] != (byte)'=')
+            if (c[i] != (byte)'/' || c[i + 1] != (byte)'A' || c[i + 2] != (byte)'=' || !c.Whole(i, 9))
             {
                 continue;
             }
@@ -305,13 +311,13 @@ internal static class CommentCodec
 
             f.AltitudeFeet = negative ? -value : value;
             f.AltitudeFromComment = true;
-            c.RemoveRange(i, 9);
+            c.Lift(i, 9, Lifted.Altitude);
             return;
         }
     }
 
     /// <summary>Signpost text on <c>\m</c>, or a line corridor width on <c>\l</c> lines (APRS12c §11).</summary>
-    private static void ExtractBraces(List<byte> c, PositionedFields f)
+    private static void ExtractBraces(CommentText c, PositionedFields f)
     {
         bool signpost = f.Symbol is { Table: '\\', Code: 'm' };
         bool corridor = f.AreaObject is { Shape: AprsAreaShape.LineDownRight or AprsAreaShape.LineDownLeft };
@@ -325,15 +331,25 @@ internal static class CommentCodec
         // a }, holding printable ASCII for a signpost or digits for a corridor. Braces that do not
         // qualify are comment text and do not stop the search, as a malformed data extension does
         // not (vectors README, Comments).
-        for (int open = c.IndexOf((byte)'{'); open >= 0; open = c.IndexOf((byte)'{', open + 1))
+        for (int open = 0; open < c.Count; open++)
         {
-            int close = c.FindIndex(open + 1, b => b is (byte)'{' or (byte)'}');
-            if (close < 0 || c[close] != (byte)'}' || close - open - 1 is < 1 or > 3)
+            if (c[open] != (byte)'{')
             {
                 continue;
             }
 
-            byte[] inner = c.GetRange(open + 1, close - open - 1).ToArray();
+            int close = open + 1;
+            while (close < c.Count && c[close] is not ((byte)'{' or (byte)'}'))
+            {
+                close++;
+            }
+
+            if (close >= c.Count || c[close] != (byte)'}' || close - open - 1 is < 1 or > 3 || !c.Whole(open, close - open + 1))
+            {
+                continue;
+            }
+
+            byte[] inner = c.GetRange(open + 1, close - open - 1);
             if (signpost && inner.All(Text.IsPrintableAscii))
             {
                 f.SignpostText = Text.Latin1(inner);
@@ -347,7 +363,7 @@ internal static class CommentCodec
                 continue;
             }
 
-            c.RemoveRange(open, close - open + 1);
+            c.Lift(open, close - open + 1, Lifted.Other);
             return;
         }
     }
@@ -356,14 +372,14 @@ internal static class CommentCodec
     /// PHG / RNG / DFS that appear after other comment text instead of straight after the symbol.
     /// Strictly that is free text (UAP §5.15); recognising it is a named tolerance.
     /// </summary>
-    private static void ExtractLateExtension(List<byte> c, int offset, DecodeContext ctx, PositionedFields f)
+    private static void ExtractLateExtension(CommentText c, int offset, DecodeContext ctx, PositionedFields f)
     {
         if (!ctx.Options.AllowDataExtensionInComment)
         {
             return;
         }
 
-        byte[] bytes = [.. c];
+        byte[] bytes = c.ToArray();
         ReadOnlySpan<byte> s = bytes;
         foreach (string tagText in (string[])["PHG", "RNG", "DFS"])
         {
@@ -383,7 +399,7 @@ internal static class CommentCodec
                 bool wellFormed = tag[0] == (byte)'R'
                     ? Text.AllDigits(candidate[3..])
                     : Text.IsDigit(candidate[3]) && Text.IsDigit(candidate[5]) && Text.IsDigit(candidate[6]) && candidate[4] is >= (byte)'0' and <= (byte)'~';
-                at = wellFormed ? from + found : -1;
+                at = wellFormed && c.Whole(from + found, 7) ? from + found : -1;
                 from += found + 1;
             }
 
@@ -406,7 +422,7 @@ internal static class CommentCodec
             if (tag[0] == (byte)'P')
             {
                 // PHGR: a beacon-rate character and '/' after the digits, as at the start of a comment.
-                int? rate = s.Length >= at + 9 && s[at + 8] == (byte)'/' ? PositionCodec.BeaconRate(s[at + 7]) : null;
+                int? rate = s.Length >= at + 9 && s[at + 8] == (byte)'/' && c.Whole(at, 9) ? PositionCodec.BeaconRate(s[at + 7]) : null;
                 f.Phg = new AprsPhg(ext[3] - '0', ext[4] - '0', ext[5] - '0', ext[6] - '0', rate);
                 length = rate is null ? 7 : 9;
             }
@@ -415,7 +431,7 @@ internal static class CommentCodec
                 AprsDiagnosticCode.DataExtensionInComment,
                 $"{Text.Latin1(tag)} found later in the comment; the spec puts data extensions straight after the symbol (UAP 5.15)",
                 offset + at);
-            c.RemoveRange(at, length);
+            c.Lift(at, length, Lifted.Other);
             return;
         }
     }
@@ -425,12 +441,12 @@ internal static class CommentCodec
     /// <c>FFF.FF MHz</c>, then optional space-separated tone, offset and range fields.
     /// A single leading space or slash delimiter is allowed before it.
     /// </summary>
-    private static void ExtractFrequency(List<byte> c, PositionedFields f)
+    private static void ExtractFrequency(CommentText c, PositionedFields f)
     {
-        byte[] bytes = [.. c];
+        byte[] bytes = c.ToArray();
         ReadOnlySpan<byte> s = bytes;
         int start = s.Length > 0 && s[0] is (byte)' ' or (byte)'/' ? 1 : 0;
-        if (!FrequencyCodec.TryRead(s[start..], out AprsVoiceFrequency? frequency, out int consumed))
+        if (!FrequencyCodec.TryRead(s[start..], c.CutsFrom(start), out AprsVoiceFrequency? frequency, out int consumed))
         {
             return;
         }
@@ -442,7 +458,7 @@ internal static class CommentCodec
             remove++;
         }
 
-        c.RemoveRange(0, remove);
+        c.Remove(0, remove);
     }
 
     // ---------------------------------------------------------------- encoding
@@ -635,7 +651,7 @@ internal static class CommentCodec
         string comment = d.Comment;
         Text.RequireNoControlCharacters(comment);
         var probe = new PositionedFields { Position = d.Position, Symbol = d.Symbol, AreaObject = d.AreaObject, IsCompressed = d.IsCompressed, Phg = d.Phg, RangeMiles = d.RangeMiles, DfSignalStrength = d.DfSignalStrength };
-        var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
+        var bytes = new CommentText(System.Text.Encoding.UTF8.GetBytes(comment));
         var ctx = new DecodeContext(AprsParseOptions.Lenient);
         TryExtract(bytes, 0, ctx, probe, frequencyAtStart: d.Frequency is null);
         if (probe.Dao is not null || probe.Telemetry is not null || probe.AltitudeFeet is not null || probe.SignpostText is not null
@@ -684,7 +700,7 @@ internal static class CommentCodec
     {
         string comment = r.Comment ?? throw new ArgumentNullException(nameof(r));
         Text.RequireNoControlCharacters(comment);
-        var bytes = new List<byte>(System.Text.Encoding.UTF8.GetBytes(comment));
+        var bytes = new CommentText(System.Text.Encoding.UTF8.GetBytes(comment));
         var probe = new PositionedFields { Position = r.Position, Symbol = r.Symbol, Phg = r.Phg, RangeMiles = r.RangeMiles, DfSignalStrength = r.DfSignalStrength };
         TryExtract(bytes, 0, new DecodeContext(AprsParseOptions.Lenient), probe, frequencyAtStart: r.Frequency is null);
         byte[] c = System.Text.Encoding.UTF8.GetBytes(comment);

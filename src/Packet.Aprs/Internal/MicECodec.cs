@@ -155,7 +155,7 @@ internal static class MicECodec
 
     private static bool TryReadStatus(ReadOnlySpan<byte> info, DecodeContext ctx, PositionedFields fields, ref AprsMicEReport report)
     {
-        var text = new List<byte>(info[9..].ToArray());
+        var text = new CommentText(info[9..].ToArray());
         const int offset = 9;
         if (text.Count == 0)
         {
@@ -169,7 +169,7 @@ internal static class MicECodec
                 return false;
             }
 
-            text.RemoveAll(b => b == 0xFF);
+            text.RemoveAll(0xFF);
         }
 
         // Rev 0 binary telemetry, looked for once the 0xFF padding is gone (vectors interpretations.md).
@@ -177,14 +177,14 @@ internal static class MicECodec
         {
             ctx.Info(AprsDiagnosticCode.ObsoleteFormat, "obsolete Mic-E binary telemetry (APRS12c ch. 10)", offset);
             report = report with { LegacyTelemetry = text.GetRange(1, 5).Select(b => (int)b).ToArray() };
-            text.RemoveRange(0, 6);
+            text.Remove(0, 6);
         }
 
         char? typeCode = null;
         if (text.Count > 0 && text[0] is (byte)'`' or (byte)'\'' or (byte)'>' or (byte)']' or (byte)' ')
         {
             typeCode = (char)text[0];
-            text.RemoveAt(0);
+            text.Remove(0, 1);
         }
         else if (text.Count > 0)
         {
@@ -194,7 +194,7 @@ internal static class MicECodec
         string suffix = MatchSuffix(typeCode, text);
         if (suffix.Length > 0)
         {
-            text.RemoveRange(text.Count - suffix.Length, suffix.Length);
+            text.Remove(text.Count - suffix.Length, suffix.Length);
         }
 
         report = report with { TypeCode = typeCode, DeviceSuffix = suffix };
@@ -212,8 +212,8 @@ internal static class MicECodec
         bool spacePending = false;
         if (locatorLength > 0)
         {
-            report = report with { Locator = Text.Latin1(text.GetRange(0, locatorLength).ToArray()).ToUpperInvariant() };
-            text.RemoveRange(0, locatorLength + 2);
+            report = report with { Locator = Text.Latin1(text.GetRange(0, locatorLength)).ToUpperInvariant() };
+            text.Remove(0, locatorLength + 2);
             // The locator's space is judged on what is left of the status text once the later
             // altitude, base-91 telemetry and !DAO! are lifted, as they are lifted for the data
             // (README Mic-E, "Where a Mic-E locator is read"): the verdict comes below. A space
@@ -222,7 +222,7 @@ internal static class MicECodec
             {
                 if (text[0] == (byte)' ')
                 {
-                    text.RemoveAt(0);
+                    text.Remove(0, 1);
                 }
                 else
                 {
@@ -234,7 +234,7 @@ internal static class MicECodec
         // "The Mic-E text field can contain any normal position comment field too, such as PHG" (APRS 1.2).
         if (text.Count >= 7)
         {
-            byte[] head = text.GetRange(0, Math.Min(text.Count, 9)).ToArray();
+            byte[] head = text.GetRange(0, Math.Min(text.Count, 9));
             int pos = 0;
             int mark = ctx.Diagnostics.Count;
             var probe = new PositionedFields { Position = fields.Position, Symbol = fields.Symbol };
@@ -244,7 +244,7 @@ internal static class MicECodec
                 fields.RangeMiles = probe.RangeMiles;
                 fields.DfSignalStrength = probe.DfSignalStrength;
                 fields.AreaObject = probe.AreaObject;
-                text.RemoveRange(0, pos);
+                text.Remove(0, pos);
                 if (spacePending)
                 {
                     // What follows the locator was read as a PHG: the space is judged as it stood.
@@ -260,41 +260,16 @@ internal static class MicECodec
         // An altitude later in the text (tolerated) is looked for only once what comes first has
         // been lifted: bytes belong to the element that reaches them first, so 0PH} inside
         // PHG3330PH} is not an altitude (vectors interpretations.md, "A packet is read in order").
-        // It is looked for before telemetry and a !DAO! are lifted, so bytes either side of a !DAO!
-        // never join into one, and a !DAO! sharing a byte with it is not one (vectors README,
-        // Mic-E). Strictly it is text and telemetry and the !DAO! are lifted as usual, unless the
-        // text left would join bytes either side of them into an altitude: that is rejected.
-        if (!altitudeFirst)
+        // It is looked for before telemetry and a !DAO! are lifted, and it stands whole as sent, as
+        // they do: nothing is read across a lifted place. Strictly it is text.
+        if (!altitudeFirst && ctx.Options.AllowMicEAltitudeNotFirst)
         {
             for (int i = 0; i + 4 <= text.Count; i++)
             {
                 if (IsAltitudeAt(text, i))
                 {
-                    if (ctx.Options.AllowMicEAltitudeNotFirst)
-                    {
-                        ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
-                        ReadAltitude(text, i, fields);
-                        fields.DaoBarrier = i;
-                    }
-                    else if (TrailerLiftJoinsAltitude(text))
-                    {
-                        if (spacePending)
-                        {
-                            // The packet is rejected for the join, but the locator comes first in
-                            // the packet: lift as for the data, judge its space, keep only that.
-                            int mark = ctx.Diagnostics.Count;
-                            CommentCodec.TryExtractTrailer(text, offset, ctx, fields);
-                            ctx.Diagnostics.RemoveRange(mark, ctx.Diagnostics.Count - mark);
-                            if (!JudgeLocatorSpace(text, ctx, offset, mark))
-                            {
-                                return false;
-                            }
-                        }
-
-                        ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "lifting telemetry and the !DAO! would join the bytes either side into a Mic-E altitude xxx} (APRS12c ch. 10)", offset + i);
-                        return false;
-                    }
-
+                    ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
+                    ReadAltitude(text, i, fields);
                     break;
                 }
             }
@@ -318,7 +293,7 @@ internal static class MicECodec
     /// space is missing (tolerated). A diagnostic raised for it goes at <paramref name="mark"/>, in
     /// the order the packet is read.
     /// </summary>
-    private static bool JudgeLocatorSpace(List<byte> text, DecodeContext ctx, int offset, int mark)
+    private static bool JudgeLocatorSpace(CommentText text, DecodeContext ctx, int offset, int mark)
     {
         if (text.Count == 0)
         {
@@ -327,7 +302,7 @@ internal static class MicECodec
 
         if (text[0] == (byte)' ')
         {
-            text.RemoveAt(0);
+            text.Remove(0, 1);
             return true;
         }
 
@@ -351,50 +326,12 @@ internal static class MicECodec
             "text after a Mic-E grid locator must start with a space (APRS12c ch. 10)",
             offset);
 
-    /// <summary>
-    /// True when the text left once base-91 telemetry and the <c>!DAO!</c> are both lifted has an
-    /// altitude <c>xxx}</c> made of bytes from either side of a lifted one (vectors README, Mic-E).
-    /// </summary>
-    private static bool TrailerLiftJoinsAltitude(List<byte> text)
-    {
-        List<(int Start, int Length)> spans = CommentCodec.TrailerSpans(text);
-        var lifted = new List<byte>();
-        var joins = new List<int>();
-        bool removed = false;
-        for (int k = 0; k < text.Count; k++)
-        {
-            if (spans.Any(sp => k >= sp.Start && k < sp.Start + sp.Length))
-            {
-                removed = true;
-                continue;
-            }
-
-            if (removed && lifted.Count > 0)
-            {
-                joins.Add(lifted.Count);
-            }
-
-            removed = false;
-            lifted.Add(text[k]);
-        }
-
-        for (int j = 0; j + 4 <= lifted.Count; j++)
-        {
-            if (IsAltitudeAt(lifted, j) && joins.Any(p => p > j && p <= j + 3))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static void ReadAltitude(List<byte> text, int at, PositionedFields fields)
+    private static void ReadAltitude(CommentText text, int at, PositionedFields fields)
     {
         int metres = ((text[at] - 33) * 91 * 91) + ((text[at + 1] - 33) * 91) + (text[at + 2] - 33) - 10000;
         fields.AltitudeFeet = metres * Units.FeetPerMetre;
         fields.AltitudeInBytes = true;
-        text.RemoveRange(at, 4);
+        text.Lift(at, 4, Lifted.Other);
     }
 
     /// <summary>
@@ -435,10 +372,10 @@ internal static class MicECodec
         return 0;
     }
 
-    private static bool IsAltitudeAt(List<byte> text, int i) =>
-        text.Count >= i + 4 && Base91.IsDigit(text[i]) && Base91.IsDigit(text[i + 1]) && Base91.IsDigit(text[i + 2]) && text[i + 3] == (byte)'}';
+    private static bool IsAltitudeAt(CommentText text, int i) =>
+        text.Count >= i + 4 && text.Whole(i, 4) && Base91.IsDigit(text[i]) && Base91.IsDigit(text[i + 1]) && Base91.IsDigit(text[i + 2]) && text[i + 3] == (byte)'}';
 
-    private static string MatchSuffix(char? typeCode, List<byte> text)
+    private static string MatchSuffix(char? typeCode, CommentText text)
     {
         IEnumerable<string> candidates = typeCode switch
         {
@@ -1030,7 +967,7 @@ internal static class MicECodec
     {
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(comment);
         return r.DeviceSuffix.Length == 0 && r.Telemetry is null && r.Dao is null && bytes.Length > 0
-            && MatchSuffix(r.TypeCode, [(byte)' ', .. bytes]).Length > bytes.Length;
+            && MatchSuffix(r.TypeCode, new CommentText([(byte)' ', .. bytes])).Length > bytes.Length;
     }
 
     private static void WriteComment(InfoWriter w, AprsMicEReport r, bool altitudeAsFeet)
@@ -1075,8 +1012,7 @@ internal static class MicECodec
         {
             // A '/' delimiter can itself start a Mic-E altitude run (//x}, or 0/x} after /A=
             // digits); a space delimiter, which a decoder drops as well, cannot (vectors ruling E12).
-            var after = new List<byte> { (byte)'0', (byte)'/' };
-            after.AddRange(commentBytes.Take(3));
+            var after = new CommentText([(byte)'0', (byte)'/', .. commentBytes.Take(3)]);
             // Only where a later altitude is looked for: after one in the altitude bytes, none is.
             bool laterAltitudeRead = r.AltitudeFeet is null || altitudeAsFeet;
             bool slashJoins = laterAltitudeRead && ((altitudeAsFeet && IsAltitudeAt(after, 0)) || IsAltitudeAt(after, 1));
