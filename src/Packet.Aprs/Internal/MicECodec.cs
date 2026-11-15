@@ -209,6 +209,7 @@ internal static class MicECodec
         // A Maidenhead locator with the /G grid symbol, then a space before any text (APRS12c §10).
         // It is read only here, at the start or straight after an altitude (vectors ruling F17).
         int locatorLength = LocatorLengthAt(text);
+        bool spacePending = false;
         if (locatorLength > 0)
         {
             report = report with { Locator = Text.Latin1(text.GetRange(0, locatorLength).ToArray()).ToUpperInvariant() };
@@ -223,11 +224,13 @@ internal static class MicECodec
                 {
                     text.RemoveAt(spaceAt);
                 }
-                else if (!ctx.Tolerate(
-                             ctx.Options.AllowMissingSpaceAfterLocator,
-                             AprsDiagnosticCode.MissingSpaceAfterLocator,
-                             "text after a Mic-E grid locator must start with a space (APRS12c ch. 10)",
-                             offset))
+                else if (!altitudeFirst && ctx.Options.AllowMicEAltitudeNotFirst)
+                {
+                    // A later altitude may still be lifted, and telemetry with it; judge the
+                    // space once that is out (README, Where a Mic-E locator is read).
+                    spacePending = true;
+                }
+                else if (!ReportMissingSpace(ctx, offset))
                 {
                     return false;
                 }
@@ -247,6 +250,15 @@ internal static class MicECodec
                 fields.DfSignalStrength = probe.DfSignalStrength;
                 fields.AreaObject = probe.AreaObject;
                 text.RemoveRange(0, pos);
+                if (spacePending)
+                {
+                    // What follows the locator was read as a PHG: the space is judged as it stood.
+                    spacePending = false;
+                    if (!ReportMissingSpace(ctx, offset))
+                    {
+                        return false;
+                    }
+                }
             }
         }
 
@@ -268,6 +280,19 @@ internal static class MicECodec
                         ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
                         ReadAltitude(text, i, fields);
                         fields.DaoBarrier = i;
+                        if (spacePending)
+                        {
+                            spacePending = false;
+                            int at = text.Count > 0 ? FirstOutsideTrailer(text) : -1;
+                            if (at >= 0 && text[at] == (byte)' ')
+                            {
+                                text.RemoveAt(at);
+                            }
+                            else if (at >= 0 && !ReportMissingSpace(ctx, offset))
+                            {
+                                return false;
+                            }
+                        }
                     }
                     else if (TrailerLiftJoinsAltitude(text))
                     {
@@ -280,8 +305,20 @@ internal static class MicECodec
             }
         }
 
+        if (spacePending && !ReportMissingSpace(ctx, offset))
+        {
+            return false;
+        }
+
         return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
     }
+
+    private static bool ReportMissingSpace(DecodeContext ctx, int offset) =>
+        ctx.Tolerate(
+            ctx.Options.AllowMissingSpaceAfterLocator,
+            AprsDiagnosticCode.MissingSpaceAfterLocator,
+            "text after a Mic-E grid locator must start with a space (APRS12c ch. 10)",
+            offset);
 
     /// <summary>
     /// True when the text left once base-91 telemetry and the <c>!DAO!</c> are both lifted has an

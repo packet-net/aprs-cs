@@ -13,7 +13,7 @@ public class AprsVectorTests
 {
     public static TheoryData<string> DecodeCases => [.. VectorCases.Ids(c => !VectorCases.IsEncodeCase(c) && !VectorCases.IsBuildCase(c))];
 
-    public static TheoryData<string> FlagCases => [.. VectorCases.Ids(c => c["strict"] is JsonObject && FlagFor(c) is not null)];
+    public static TheoryData<string> FlagCases => [.. VectorCases.Ids(c => c["strict"] is JsonObject && FlagFor(c) is not null && !ToleranceCheckSkipped(c))];
 
     public static TheoryData<string> ReencodeCases => [.. VectorCases.Ids(c => c["reencode"] is not null)];
 
@@ -302,11 +302,25 @@ public class AprsVectorTests
         Flags.Values.Should().BeEquivalentTo(typeof(AprsParseOptions).GetProperties().Where(p => p.PropertyType == typeof(bool)).Select(p => p.Name), "every flag is mapped to the code it tolerates");
     }
 
+    /// <summary>
+    /// The tolerance check is skipped only where strict is rejected by a code other than the one
+    /// tolerable code (README, Checking a case); the vectors' RULED.md says one case leaves it.
+    /// </summary>
+    [Fact]
+    public void The_tolerance_check_runs_on_all_but_one_case()
+    {
+        string[] skipped = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject && FlagFor(c) is not null && ToleranceCheckSkipped(c)).Select(c => (string)c["id"]!)];
+        int ran = VectorCases.ById.Values.Count(c => c["strict"] is JsonObject && FlagFor(c) is not null && !ToleranceCheckSkipped(c));
+        Console.WriteLine($"tolerance check ran on {ran} cases, skipped {skipped.Length}: {string.Join(", ", skipped)}");
+        skipped.Should().Equal("mic-e/telemetry-left-once-an-altitude-is-lifted-then-a-spaced-comment");
+        ran.Should().BeGreaterThan(300, "a mistake that skips too many cases would show here");
+    }
+
     /// <summary>Each tolerance needs a case showing both sides of it: strict rejecting (or reading differently) and lenient accepting.</summary>
     [Fact]
     public void Every_tolerance_flag_has_a_case()
     {
-        HashSet<string> covered = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject).Select(FlagFor).OfType<string>()];
+        HashSet<string> covered = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject && !ToleranceCheckSkipped(c)).Select(FlagFor).OfType<string>()];
         Flags.Values.Except(covered).Should().BeEmpty("each flag needs a case in spec/aprs/cases whose strict result differs");
     }
 
@@ -419,6 +433,13 @@ public class AprsVectorTests
             .Select(d => (string)d!).Where(d => d.StartsWith("warning:", StringComparison.Ordinal))
             .Select(d => Flags.GetValueOrDefault(d["warning:".Length..])).OfType<string>().Distinct()];
         return flags.Length == 1 ? flags[0] : null;
+    }
+
+    private static bool ToleranceCheckSkipped(JsonObject c)
+    {
+        string? flag = FlagFor(c);
+        string? code = flag is null ? null : Flags.First(kv => kv.Value == flag).Key;
+        return c["strict"] is JsonObject s && s["rejected_by"] is { } by && (string)by! != code;
     }
 
     private static void Pass(JsonObject c, IReadOnlyList<string> differences, string? how = null)

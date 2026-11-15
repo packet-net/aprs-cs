@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-A `/` or `@` position report whose timestamp is not valid, with seven bytes after the data type identifier that end in `z`, `/` or `h` and an uncompressed position after them, is now read after the seven bytes with `MalformedTimestamp`, even when the bytes straight after the identifier would also read as a compressed position (`@R30549z2831.07N/08142.92W_015/001g006` was a compressed position at 54.06, -81.17 and is now the weather station at 28.52, -81.72). Vectors pinned at `b118424` (aprs-vectors round-5, packet-net/aprs-vectors#30).
+A `/` or `@` position report whose timestamp is not valid, with seven bytes after the data type identifier that end in `z`, `/` or `h` and an uncompressed position after them, is now read after the seven bytes with `MalformedTimestamp`, even when the bytes straight after the identifier would also read as a compressed position (`@R30549z2831.07N/08142.92W_015/001g006` was a compressed position at 54.06, -81.17 and is now the weather station at 28.52, -81.72). A Mic-E locator's space is now judged on the text once a later altitude and the base-91 telemetry it leaves between two `|` are lifted, so a comment that follows that telemetry with a space no longer gets `MissingSpaceAfterLocator`. The vectors test runner skips the tolerance check for a case whose strict result is rejected by a different code, and asserts how many cases it ran on. Vectors pinned at `201f7b2` (aprs-vectors round-5, packet-net/aprs-vectors#30).
 
 ## 1.2.0 (2026-11-14)
 
