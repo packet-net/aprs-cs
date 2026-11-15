@@ -27,13 +27,6 @@ internal sealed class InfoWriter
 
     public int Length => buffer.WrittenCount;
 
-    /// <summary>
-    /// Set by a comment check that cannot tell from the text alone whether the comment will read
-    /// back unchanged, because that depends on what is written around it. <see cref="AprsData.ToInformationField"/>
-    /// then decodes the finished field to find out, and refuses with this message if it does not.
-    /// </summary>
-    public string? CommentCheck { get; set; }
-
     private AprsEncodeException? deferred;
 
     /// <summary>
@@ -195,5 +188,6 @@ internal sealed class InfoWriter
         return Bytes(tmp);
     }
 
-    public byte[] ToArray() => buffer.WrittenSpan.ToArray();
+    /// <summary>The bytes written. Only <see cref="InfoEncoder"/> takes them, after the read-back: a test holds the source to that.</summary>
+    internal byte[] TakeBytes() => buffer.WrittenSpan.ToArray();
 }

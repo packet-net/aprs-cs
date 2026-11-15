@@ -91,12 +91,15 @@ public sealed record AprsWeather
             throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "a humidity that rounds to 0 has no form: 1-100, and 100 is written 00");
         }
 
-        if ((SoftwareType is null) != (UnitType is null) && UnitType is not null)
+        // A software type and its unit are one thing (a letter, then 2-4 characters): one without
+        // the other is a field needed only because the other is there. A unit that is too short
+        // reads back as text, which the read-back refuses as free text that reads back changed.
+        if ((SoftwareType is null) != string.IsNullOrEmpty(UnitType))
         {
-            throw new AprsEncodeException(AprsRefusalCode.MissingField, "a weather unit type needs a software type before it");
+            throw new AprsEncodeException(AprsRefusalCode.MissingField, SoftwareType is null ? "a weather unit type needs a software type before it" : "a weather software type needs a unit type after it");
         }
 
-        if (UnitType is { Length: < 2 or > 4 })
+        if (UnitType is { Length: > 4 })
         {
             throw new AprsEncodeException(AprsRefusalCode.TooLong, "weather unit type must be 2-4 characters");
         }

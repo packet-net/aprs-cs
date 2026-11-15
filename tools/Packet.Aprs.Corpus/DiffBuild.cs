@@ -30,6 +30,10 @@ internal static class DiffBuild
             if (outcome.Refusal is { } refusal)
             {
                 o["refusal"] = refusal;
+
+                // No packet, so no frame either: the refusal is the frame's too.
+                o["ax25"] = "refused";
+                o["ax25_refusal"] = refusal;
             }
 
             if (outcome.ViaTool)
@@ -40,9 +44,35 @@ internal static class DiffBuild
             return o;
         }
 
-        byte[] tnc2 = packet.ToTnc2();
+        // The same packet written both ways: each form reads back its own header (Read-back).
+        (string ax25, string? ax25Refusal) = Frame(packet);
+        byte[] tnc2;
+        try
+        {
+            tnc2 = packet.ToTnc2();
+        }
+        catch (AprsEncodeException ex)
+        {
+            o["result"] = "refused";
+            o["reason"] = ex.Message;
+            o["refusal"] = NeutralJson.Kebab(ex.Code.ToString());
+            o["ax25"] = ax25;
+            if (ax25Refusal is not null)
+            {
+                o["ax25_refusal"] = ax25Refusal;
+            }
+
+            return o;
+        }
+
         o["result"] = "built";
         o["tnc2"] = Convert.ToHexStringLower(tnc2);
+        o["ax25"] = ax25;
+        if (ax25Refusal is not null)
+        {
+            o["ax25_refusal"] = ax25Refusal;
+        }
+
         try
         {
             o["again"] = DiffCommand.Decoded(AprsPacket.Decode(tnc2, AprsParseOptions.Lenient), withHeader: true);
@@ -53,5 +83,17 @@ internal static class DiffBuild
         }
 
         return o;
+    }
+
+    private static (string Frame, string? Refusal) Frame(AprsPacket packet)
+    {
+        try
+        {
+            return (Convert.ToHexStringLower(packet.ToAx25Frame()), null);
+        }
+        catch (AprsEncodeException ex)
+        {
+            return ("refused", NeutralJson.Kebab(ex.Code.ToString()));
+        }
     }
 }

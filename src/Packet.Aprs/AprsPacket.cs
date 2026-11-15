@@ -260,19 +260,34 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
 
     // ------------------------------------------------------------------ writing
 
-    /// <summary>The packet in TNC2 form as bytes (the information field may hold non-ASCII bytes). This writes out a packet the program already holds, so it is not an encoder: the information field passes through as it stands, with no size check (a decoded field over 256 bytes is written as received).</summary>
-    public byte[] ToTnc2() => Tnc2Codec.Format(Source, Destination, Path, information);
+    /// <summary>The packet in TNC2 form as bytes (the information field may hold non-ASCII bytes). This writes out a packet the program already holds, so it is not an encoder: the information field passes through as it stands, with no size check (a decoded field over 256 bytes is written as received). The header it writes is read back, though: a line writes <c>*</c> on the last used entry only, and a path with an entry not marked used before one that is cannot be carried, since it reads back with that entry used: <see cref="AprsRefusalCode.Tnc2CannotCarry"/>.</summary>
+    public byte[] ToTnc2()
+    {
+        byte[] line = ToTnc2Unchecked();
+        ReadBack.CheckTnc2Header(Source, Destination, Path, line);
+        return line;
+    }
+
+    /// <summary>The line without the header read-back, for display and for the header inside a third-party packet, which has its own check.</summary>
+    internal byte[] ToTnc2Unchecked() => Tnc2Codec.Format(Source, Destination, Path, information);
 
     /// <summary>
     /// The packet as an AX.25 UI frame without flags or FCS, ready for a KISS TNC. Every address
     /// must be a valid AX.25 address (<see cref="AprsAddress.IsAx25"/>) and the path at most 8 entries.
     /// Like <see cref="ToTnc2"/> this writes out a packet already held, so the information field
-    /// passes through as it stands, with no size check.
+    /// passes through as it stands, with no size check, and the header is read back: the H bit is set
+    /// on every used entry, and a path with an entry not marked used before one that is cannot be
+    /// carried (<see cref="AprsRefusalCode.Ax25CannotCarry"/>).
     /// </summary>
-    public byte[] ToAx25Frame() => Ax25Codec.Encode(Source, Destination, Path, information);
+    public byte[] ToAx25Frame()
+    {
+        byte[] frame = Ax25Codec.Encode(Source, Destination, Path, information);
+        ReadBack.CheckAx25Header(Source, Destination, Path, frame);
+        return frame;
+    }
 
     /// <summary>The packet in TNC2 form. The information field is shown as UTF-8 (Latin-1 where invalid).</summary>
-    public override string ToString() => Text.ForDisplay(ToTnc2());
+    public override string ToString() => Text.ForDisplay(ToTnc2Unchecked());
 
     /// <summary>
     /// Two packets are equal when they have the same source, destination, path (including used

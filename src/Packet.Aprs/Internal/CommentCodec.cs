@@ -490,7 +490,7 @@ internal static class CommentCodec
             w.Field(() => CheckAltitude(d.AltitudeFeet!.Value));
         }
 
-        w.Field(() => CheckComment(w, d));
+        w.Field(() => CheckComment(d.Comment));
         w.Field(() => WriteFreeText(w, d, altitude));
         WriteTrailer(w, d, includeWeatherSoftware: false);
     }
@@ -513,7 +513,7 @@ internal static class CommentCodec
                 w.Char('/');
             }
 
-            FrequencyCodec.WriteWithComment(w, freq, d.Comment, w => WriteBracesAndAltitude(w, d, altitude));
+            FrequencyCodec.WriteWithComment(w, freq, d.Comment, w => WriteBracesAndAltitude(w, d, altitude), slashDelimiter: w.Delimiter == CommentDelimiter.Slash);
         }
         else
         {
@@ -526,7 +526,13 @@ internal static class CommentCodec
                 && (d.CourseDegrees is not null || d.SpeedKnots is not null || d.RangeMiles is not null || d.DfSignalStrength is not null
                     || d.AreaObject is not null || d.DfBearing is not null || d.Storm is not null || d.Phg is not null);
             bool nothingBefore = !braces && !altitude && !extensionJustWritten;
-            if (NeedsDelimiter(d.Comment, extensionJustWritten ? d.Phg : null) || (nothingBefore && !d.IsCompressed && LooksLikeExtension(d.Comment, d)))
+            bool needsSlash = NeedsDelimiter(d.Comment, extensionJustWritten ? d.Phg : null) || (nothingBefore && !d.IsCompressed && LooksLikeExtension(d.Comment, d));
+            if (w.Delimiter != CommentDelimiter.Auto && d.Comment.Length > 0)
+            {
+                // The rules' choice did not read back: the next form the Encoding rule names, a '/' then a space.
+                w.Char(w.Delimiter == CommentDelimiter.Slash ? '/' : ' ');
+            }
+            else if (needsSlash)
             {
                 w.Char('/');
             }
@@ -648,92 +654,14 @@ internal static class CommentCodec
     }
 
     /// <summary>
-    /// The encoder refuses comment text that the decoder would read back as a structured element,
-    /// so every encoded report decodes to the same data (set the matching property instead). This
-    /// looks at the comment on its own; when it finds something, whether it is really read back
-    /// depends on what is written in front of it, so the finished field is decoded to check
-    /// (<see cref="InfoWriter.CommentCheck"/>, <see cref="VerifyReadsBack"/>).
+    /// A comment holds no control character. Whether its text would read back as something else (a
+    /// structured element, a frequency field, a data extension) is not judged here: the read-back
+    /// of the finished field decides (<see cref="ReadBack"/>), and tries the next delimiter form.
     /// </summary>
-    internal static void CheckComment(InfoWriter w, AprsPositionedData d)
+    internal static void CheckComment(string? comment)
     {
-        ArgumentNullException.ThrowIfNull(d.Comment);
-        string comment = d.Comment;
+        ArgumentNullException.ThrowIfNull(comment);
         Text.RequireNoControlCharacters(comment);
-        var probe = new PositionedFields { Position = d.Position, Symbol = d.Symbol, AreaObject = d.AreaObject, IsCompressed = d.IsCompressed, Phg = d.Phg, RangeMiles = d.RangeMiles, DfSignalStrength = d.DfSignalStrength };
-        var bytes = new CommentText(System.Text.Encoding.UTF8.GetBytes(comment));
-        var ctx = new DecodeContext(AprsParseOptions.Lenient);
-        TryExtract(bytes, 0, ctx, probe, frequencyAtStart: d.Frequency is null);
-        if (probe.Dao is not null || probe.Telemetry is not null || probe.AltitudeFeet is not null || probe.SignpostText is not null
-            || probe.Frequency is not null || probe.Phg != d.Phg || probe.RangeMiles != d.RangeMiles
-            || probe.DfSignalStrength != d.DfSignalStrength || probe.AreaObject != d.AreaObject)
-        {
-            w.CommentCheck = "comment text contains something that decodes as a structured element (altitude, !DAO!, |telemetry|, frequency, PHG/RNG/DFS or braces); set the property instead";
-        }
-    }
-
-    /// <summary>
-    /// Decodes an encoded field and throws <paramref name="problem"/> unless the comment, and
-    /// everything text in the comment could turn into, reads back as it was sent.
-    /// </summary>
-    internal static void VerifyReadsBack(AprsPositionedData sent, byte[] info, string? problem)
-    {
-        AprsAddress destination = sent is AprsMicEReport mic ? MicECodec.EncodeDestination(mic) : AprsAddress.Parse("APZ001");
-        AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), destination, [], info);
-        if (back.HasWarnings || back.HasErrors || back.Data is not AprsPositionedData b || !ReadsBackTheSame(sent, b))
-        {
-            throw problem is null
-                ? new AprsEncodeException(AprsRefusalCode.DoesNotReadBack, "the Mic-E bytes written do not decode to the data given")
-                : new AprsEncodeException(AprsRefusalCode.TextReadsAsField, problem);
-        }
-    }
-
-    private static bool ReadsBackTheSame(AprsPositionedData sent, AprsPositionedData back) =>
-        back.GetType() == sent.GetType()
-        && back.Comment == sent.Comment
-        && back.Frequency == sent.Frequency?.Rounded()
-        && back.Phg == sent.Phg
-        && back.SignpostText == sent.SignpostText
-        && (back.AltitudeFeet is null) == (sent.AltitudeFeet is null)
-        && (back.Dao is null) == (sent.Dao is null)
-        && (back.Telemetry is null) == (sent.Telemetry is null)
-        && (back.RangeMiles is null) == (sent.RangeMiles is null)
-        && (back.DfSignalStrength is null) == (sent.DfSignalStrength is null)
-        && back.AreaObject == sent.AreaObject
-        && (sent is not AprsMicEReport m
-            || (back is AprsMicEReport bm && bm.TypeCode == m.TypeCode && bm.DeviceSuffix == m.DeviceSuffix && bm.Locator == m.Locator));
-
-    /// <summary>
-    /// Mic-E status text must not start with something read back as altitude or a data extension,
-    /// or end with a device suffix, unless the matching property is set. As for
-    /// <see cref="CheckComment"/>, a finding is confirmed by decoding the finished field.
-    /// </summary>
-    internal static void CheckMicEComment(InfoWriter w, AprsMicEReport r)
-    {
-        string comment = r.Comment ?? throw new ArgumentNullException(nameof(r));
-        Text.RequireNoControlCharacters(comment);
-        var bytes = new CommentText(System.Text.Encoding.UTF8.GetBytes(comment));
-        var probe = new PositionedFields { Position = r.Position, Symbol = r.Symbol, Phg = r.Phg, RangeMiles = r.RangeMiles, DfSignalStrength = r.DfSignalStrength };
-        TryExtract(bytes, 0, new DecodeContext(AprsParseOptions.Lenient), probe, frequencyAtStart: r.Frequency is null);
-        byte[] c = System.Text.Encoding.UTF8.GetBytes(comment);
-        bool startsWithAltitude = r.AltitudeFeet is null && r.Phg is null && r.RangeMiles is null && r.DfSignalStrength is null && r.Frequency is null
-            && c.Length >= 4 && Base91.IsDigit(c[0]) && Base91.IsDigit(c[1]) && Base91.IsDigit(c[2]) && c[3] == (byte)'}';
-        int pos = 0;
-        bool startsWithExtension = r.Phg is null && r.RangeMiles is null && r.DfSignalStrength is null && r.Frequency is null
-            && !PositionCodec.IsCourseSpeed(c) && PositionCodec.TryReadDataExtension(c, ref pos, new DecodeContext(AprsParseOptions.Lenient), new PositionedFields { Position = r.Position, Symbol = r.Symbol }) && pos > 0;
-        // The space written in front of the comment (after a locator or a frequency) can join it into a
-        // suffix, so the comment is tried with a space in front as well; the finished field settles it.
-        bool endsWithSuffix = r.DeviceSuffix.Length == 0 && r.Telemetry is null && r.Dao is null && r.TypeCode is { } t
-            && (t is '`' or '\'' ? AprsDeviceIdentification.MicESuffixes : t is '>' or ']' ? AprsDeviceIdentification.MicELegacySuffixes(t) : [])
-                .Any(s => comment.EndsWith(s, StringComparison.Ordinal) || (" " + comment).EndsWith(s, StringComparison.Ordinal));
-        // A '}' can end a Mic-E altitude (xxx}) with bytes written before it, which a decoder finds
-        // anywhere in the status text when none comes first.
-        bool mayFormAltitude = comment.Contains('}', StringComparison.Ordinal);
-        if (probe.Dao is not null || probe.Telemetry is not null || probe.AltitudeFeet is not null || probe.Frequency is not null
-            || probe.Phg != r.Phg || probe.RangeMiles != r.RangeMiles || probe.DfSignalStrength != r.DfSignalStrength
-            || startsWithAltitude || startsWithExtension || endsWithSuffix || mayFormAltitude || comment.Contains('\xFF', StringComparison.Ordinal))
-        {
-            w.CommentCheck = "Mic-E status text contains something that decodes as a structured element (altitude, extension, !DAO!, |telemetry|, frequency or device suffix); set the property instead";
-        }
     }
 
     /// <summary>True if text written straight after the symbol (or after course/speed) would be read back as an extension.</summary>

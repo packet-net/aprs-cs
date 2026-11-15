@@ -195,7 +195,9 @@ public class AprsVectorTests
 
     /// <summary>
     /// A builder recipe, built through the same code as the dump tool's build mode (RecipeBuilder):
-    /// the TNC2 line it writes, byte for byte, or its refusal code.
+    /// the TNC2 line it writes, byte for byte, or with <c>"write": "ax25"</c> the AX.25 frame (KISS
+    /// form, no flags, no FCS), or its refusal code. The header is read back as it is written, so a
+    /// path no line (or no frame) can carry is refused there.
     /// </summary>
     [Theory]
     [MemberData(nameof(BuildCases))]
@@ -203,30 +205,50 @@ public class AprsVectorTests
     {
         JsonObject c = VectorCases.Get(id);
         JsonObject expect = c["expect"]!.AsObject();
+        bool frame = (string?)Input(c)["write"] == "ax25";
         RecipeBuilder.Outcome outcome = RecipeBuilder.Run(Input(c)["build"]!.AsObject());
+        byte[]? written = null;
+        string? refusal = outcome.Refusal;
+        string? reason = outcome.Reason;
+        if (outcome.Packet is { } packet)
+        {
+            try
+            {
+                written = frame ? packet.ToAx25Frame() : packet.ToTnc2();
+            }
+            catch (AprsEncodeException ex)
+            {
+                refusal = NeutralJson.Kebab(ex.Code.ToString());
+                reason = ex.Message;
+            }
+        }
+
         var differences = new List<string>();
+        string form = frame ? "ax25_hex" : "tnc2";
         if (outcome.Unsupported is { } unsupported)
         {
             differences.Add($"build: the runner cannot say the recipe: {unsupported}");
         }
         else if ((bool?)expect["refused"] == true)
         {
-            if (outcome.Packet is { } written)
+            if (written is not null)
             {
-                differences.Add($"build: expected a refusal, built {Show(written.ToTnc2())}");
+                differences.Add($"build: expected a refusal, built {Show(written)}");
             }
-            else if ((string?)expect["refusal"] is { } code && code != outcome.Refusal)
+            else if ((string?)expect["refusal"] is { } code && code != refusal)
             {
-                differences.Add($"build: expected the refusal '{code}', got '{outcome.Refusal}': {outcome.Reason}");
+                differences.Add($"build: expected the refusal '{code}', got '{refusal}': {reason}");
             }
         }
-        else if (outcome.Packet is not { } packet)
+        else if (written is null)
         {
-            differences.Add($"build: expected {expect["tnc2"]?.ToJsonString()}, but the builder refused ({outcome.Refusal}): {outcome.Reason}");
+            differences.Add($"build: expected {expect[form]?.ToJsonString()}, but the builder refused ({refusal}): {reason}");
         }
-        else if (!System.Text.Encoding.UTF8.GetBytes((string)expect["tnc2"]!).AsSpan().SequenceEqual(packet.ToTnc2()))
+        else if (frame
+            ? !Convert.ToHexStringLower(written).Equals(((string)expect["ax25_hex"]!).ToLowerInvariant(), StringComparison.Ordinal)
+            : !System.Text.Encoding.UTF8.GetBytes((string)expect["tnc2"]!).AsSpan().SequenceEqual(written))
         {
-            differences.Add($"build: expected {expect["tnc2"]!.ToJsonString()}, built {Show(packet.ToTnc2())}");
+            differences.Add($"build: expected {expect[form]!.ToJsonString()}, built {(frame ? Convert.ToHexStringLower(written) : Show(written))}");
         }
 
         Pass(c, differences);
@@ -270,8 +292,8 @@ public class AprsVectorTests
     // ------------------------------------------------------------------ the case files
 
     private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info"];
-    private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "build", "source", "destination", "path"];
-    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "tnc2", "refused", "refusal"];
+    private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "build", "write", "source", "destination", "path"];
+    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "tnc2", "ax25_hex", "refused", "refusal"];
 
     /// <summary>
     /// The cases' own consistency (schema, ids, codes, interpretation links) is checked in

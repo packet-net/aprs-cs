@@ -237,7 +237,6 @@ internal static class FrequencyCodec
         w.Bytes(alone.Written);
         between?.Invoke(w);
         w.Bytes([.. " /"u8, .. text]);
-        w.CommentCheck ??= "the comment starts with text that would be read as part of the frequency specification";
     }
 
     public static void Write(InfoWriter w, AprsVoiceFrequency f)

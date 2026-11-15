@@ -624,7 +624,7 @@ internal static class MicECodec
     /// bytes do not hold exactly (not a whole number of metres, or beyond their range), or one the
     /// bytes hold but could only write as a type code.
     /// </summary>
-    private static bool AltitudeAsFeet(AprsMicEReport r)
+    internal static bool AltitudeAsFeet(AprsMicEReport r)
     {
         if (r.AltitudeFeet is not { } feet)
         {
@@ -829,7 +829,6 @@ internal static class MicECodec
                 w.Defer(AprsRefusalCode.InvalidCode, $"'{r.DeviceSuffix}' is not a Mic-E device suffix for the type code '{r.TypeCode}' (aprs-deviceid), so it would read back as comment text");
             }
 
-            w.CommentCheck ??= "the Mic-E status text would read back with a different device suffix";
         }
 
         // Mic-E carries altitude in whole metres (xxx}); a /A= only where the data came from one
@@ -923,7 +922,7 @@ internal static class MicECodec
         }
 
         w.Field(() => WriteExtension(w, r));
-        w.Field(() => CommentCodec.CheckMicEComment(w, r));
+        w.Field(() => CommentCodec.CheckComment(r.Comment));
         if (altitudeAsFeet)
         {
             w.Field(() => CommentCodec.WriteAltitude(w, r.AltitudeFeet!.Value));

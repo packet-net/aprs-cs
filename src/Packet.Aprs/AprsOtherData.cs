@@ -149,36 +149,6 @@ public sealed record AprsNmeaReport : AprsData
         }
 
         writer.Char('$').Ascii(Sentence).Utf8(Comment);
-        VerifyReadsBack();
-    }
-
-    /// <summary>
-    /// The sentence is what is sent; the values read from it (position, fix, course, speed,
-    /// altitude, time, waypoint) are not written. Any of them given must be what the sentence
-    /// reads back as, or the report would read back as different data (vectors README, Encoding).
-    /// The time is compared as a time: <see cref="TimeText"/> is its text, which the sentence holds.
-    /// </summary>
-    private void VerifyReadsBack()
-    {
-        byte[] info = [(byte)'$', .. System.Text.Encoding.Latin1.GetBytes(Sentence)];
-        var back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], info).Data as AprsNmeaReport;
-        string? differs =
-            back is null ? "the sentence"
-            : Position is { } p && (back.Position is not { } q || p.Ambiguity != q.Ambiguity || !Near(p.Latitude, q.Latitude) || !Near(p.Longitude, q.Longitude)) ? nameof(Position)
-            : FixValid is not null && FixValid != back.FixValid ? nameof(FixValid)
-            : CourseDegrees is { } c && (back.CourseDegrees is not { } c2 || !Near(c, c2)) ? nameof(CourseDegrees)
-            : SpeedKnots is { } s && (back.SpeedKnots is not { } s2 || !Near(s, s2)) ? nameof(SpeedKnots)
-            : AltitudeMetres is { } a && (back.AltitudeMetres is not { } a2 || !Near(a, a2)) ? nameof(AltitudeMetres)
-            : Time is not null && Time != back.Time ? nameof(Time)
-            : WaypointName is not null && WaypointName != back.WaypointName ? nameof(WaypointName)
-            : null;
-        if (differs is not null)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, $"{differs} is not what the sentence reads back as; the sentence is what is sent");
-        }
-
-        // The same value, but for the last bits a different computation of it may differ in.
-        static bool Near(double x, double y) => Math.Abs(x - y) <= 1e-9 * Math.Max(1, Math.Abs(x));
     }
 }
 
@@ -372,7 +342,7 @@ public sealed record AprsThirdPartyTraffic : AprsData
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, NestingRefusal);
         }
 
-        byte[] inner = Packet.ToTnc2();
+        byte[] inner = Packet.ToTnc2Unchecked();
         if (!ThirdPartyCodec.CanWrite(Packet, inner))
         {
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);

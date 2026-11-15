@@ -72,11 +72,25 @@ public sealed class AprsStation
         return new(Source, ParseAddress(destination), Path);
     }
 
-    /// <summary>This station with a digipeater path, e.g. <c>Via("WIDE1-1", "WIDE2-1")</c>, replacing any set before.</summary>
+    /// <summary>
+    /// This station with a digipeater path, e.g. <c>Via("WIDE1-1", "WIDE2-1")</c>, replacing any set before.
+    /// An entry ending in <c>*</c> is a used one (<c>Via("WIDE1-1*", "N0CALL-1*", "WIDE2-1")</c>), as in the
+    /// vectors' neutral header form: <c>*</c> is never part of an address. A path with an entry not
+    /// marked used before one that is cannot be written: <see cref="AprsPacket.ToTnc2"/> refuses it as
+    /// <see cref="AprsRefusalCode.Tnc2CannotCarry"/> and <see cref="AprsPacket.ToAx25Frame"/> as
+    /// <see cref="AprsRefusalCode.Ax25CannotCarry"/>, since it would read back with that entry used.
+    /// </summary>
     public AprsStation Via(params string[] path)
     {
         ArgumentNullException.ThrowIfNull(path);
-        return new(Source, Destination, path.Select(p => new AprsPathEntry(ParseAddress(p))).ToList());
+        return new(Source, Destination, path.Select(Entry).ToList());
+
+        static AprsPathEntry Entry(string text)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            bool used = text.EndsWith('*');
+            return new AprsPathEntry(ParseAddress(used ? text[..^1] : text), used);
+        }
     }
 
     internal static AprsAddress ParseAddress(string text)

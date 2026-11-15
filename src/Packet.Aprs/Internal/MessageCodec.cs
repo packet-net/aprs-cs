@@ -438,7 +438,7 @@ internal static class MessageCodec
     }
 
     /// <summary>BLN then 0-9 or A-Z and an optional group of up to 5 characters, or NWS- or NWS_.</summary>
-    private static bool IsBulletinForm(string a) =>
+    internal static bool IsBulletinForm(string a) =>
         (a.Length is >= 4 and <= 9 && a.StartsWith("BLN", StringComparison.Ordinal) && a[3] is (>= '0' and <= '9') or (>= 'A' and <= 'Z'))
         || a.StartsWith("NWS-", StringComparison.Ordinal) || a.StartsWith("NWS_", StringComparison.Ordinal);
 
@@ -448,28 +448,6 @@ internal static class MessageCodec
         if (!IsId(System.Text.Encoding.ASCII.GetBytes(id)) || id.Any(c => c > 0x7F))
         {
             throw new AprsEncodeException(AprsRefusalCode.InvalidMessageId, "a message ID is 1-5 letters or digits (APRS12c ch. 14)");
-        }
-    }
-
-    /// <summary>
-    /// A message-format report must read back as the same kind of report, cleanly: a text message
-    /// addressed <c>BLN1</c> would be a bulletin, and one whose text is <c>?WX</c> a directed query
-    /// (vectors README, Messages and queries). Decodes the finished field to find out.
-    /// </summary>
-    internal static void VerifyReadsBack(AprsMessage sent, byte[] info)
-    {
-        AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], info);
-        if (back.Data.GetType() != sent.GetType() || back.HasWarnings || back.HasErrors)
-        {
-            string problem = back.Data.GetType() != sent.GetType()
-                ? $"would read back as {back.Data.GetType().Name}"
-                : $"would read back with {string.Join(", ", back.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => d.Code))}";
-            // An addressee that makes a text message a bulletin is not the form a message needs.
-            AprsRefusalCode code = sent is AprsTextMessage && back.Data.GetType() != sent.GetType()
-                && IsBulletinForm(sent.Addressee)
-                ? AprsRefusalCode.InvalidAddressee
-                : AprsRefusalCode.TextReadsAsField;
-            throw new AprsEncodeException(code, $"this {sent.GetType().Name} (addressee '{sent.Addressee}') {problem}");
         }
     }
 

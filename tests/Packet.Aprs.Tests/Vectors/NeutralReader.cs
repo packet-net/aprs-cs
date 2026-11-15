@@ -91,7 +91,7 @@ internal static class NeutralReader
             "nmea" => Only(d, new AprsNmeaReport
             {
                 Sentence = Str(d, "sentence"),
-                Position = d["latitude"] is { } lat ? new AprsPosition((double)lat, (double)d["longitude"]!) : null,
+                Position = NmeaPosition(d),
                 FixValid = OptStr(d, "fix") is { } fix ? fix == "valid" : null,
                 CourseDegrees = (double?)d["course_degrees"],
                 SpeedKnots = (double?)d["speed_knots"],
@@ -130,6 +130,29 @@ internal static class NeutralReader
     /// <c>not-a-number</c> whatever else is wrong, which the library's whole numbers cannot hold, so
     /// it is noted for <see cref="StandIns"/> and read as 0.
     /// </summary>
+    /// <summary>
+    /// The position an NMEA record gives. The data holds a position whole, so a record that gives
+    /// only one of latitude and longitude (beside a sentence, which says the other) takes the other
+    /// from the sentence, or from 0 where the sentence has none: whatever it takes, a field given
+    /// that the sentence does not read back as is refused as <c>invalid-nmea</c>, as the rule says.
+    /// </summary>
+    private static AprsPosition? NmeaPosition(JsonObject d)
+    {
+        if (d["latitude"] is null && d["longitude"] is null)
+        {
+            return null;
+        }
+
+        AprsPosition? sentence = null;
+        if (d["sentence"] is { } text)
+        {
+            byte[] info = [(byte)'$', .. System.Text.Encoding.Latin1.GetBytes((string)text!)];
+            sentence = (AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], info).Data as AprsNmeaReport)?.Position;
+        }
+
+        return new AprsPosition((double?)d["latitude"] ?? sentence?.Latitude ?? 0, (double?)d["longitude"] ?? sentence?.Longitude ?? 0);
+    }
+
     private static AprsAgreloDfReport Agrelo(JsonObject d)
     {
         double bearing = (double)d["bearing_degrees"]!;

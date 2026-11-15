@@ -46,7 +46,7 @@ public abstract record AprsMessage : AprsData
 
     internal void WriteMessageId(InfoWriter writer, string? replyAck = null)
     {
-        if (MessageId is null)
+        if (string.IsNullOrEmpty(MessageId))
         {
             if (replyAck is not null)
             {
@@ -92,7 +92,7 @@ public sealed record AprsTextMessage : AprsMessage
     public string? ReplyAck { get; init; }
 
     /// <summary>True when the sender wants an acknowledgement (the message has an ID).</summary>
-    public bool RequestsAck => MessageId is not null;
+    public bool RequestsAck => !string.IsNullOrEmpty(MessageId);
 
     private protected override void EncodeText(InfoWriter writer)
     {
@@ -114,7 +114,7 @@ public sealed record AprsMessageAck : AprsMessage
 
     private protected override void EncodeText(InfoWriter writer)
     {
-        if (MessageId is not null)
+        if (!string.IsNullOrEmpty(MessageId))
         {
             writer.Defer(AprsRefusalCode.FieldNotAllowed, "an ack must not carry its own message ID (UAP 5.32)");
         }
@@ -139,7 +139,7 @@ public sealed record AprsMessageReject : AprsMessage
 
     private protected override void EncodeText(InfoWriter writer)
     {
-        if (MessageId is not null)
+        if (!string.IsNullOrEmpty(MessageId))
         {
             writer.Defer(AprsRefusalCode.FieldNotAllowed, "a reject must not carry its own message ID");
         }
@@ -259,7 +259,7 @@ public sealed record AprsDirectedQuery : AprsMessage
 
     private protected override void EncodeText(InfoWriter writer)
     {
-        if (MessageId is not null)
+        if (!string.IsNullOrEmpty(MessageId))
         {
             writer.Defer(AprsRefusalCode.FieldNotAllowed, "a directed query never has a message ID (APRS12c ch. 15)");
         }
@@ -272,7 +272,7 @@ public sealed record AprsDirectedQuery : AprsMessage
         }
 
         writer.Char('?').Field(() => writer.Ascii(QueryType));
-        if (Target is not null)
+        if (!string.IsNullOrEmpty(Target))
         {
             if (!MessageCodec.IsCallsign(Target))
             {
