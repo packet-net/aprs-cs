@@ -334,7 +334,7 @@ internal static class NeutralReader
         RainLastHourInches = (double?)w["rain_1h_in"],
         RainLast24HoursInches = (double?)w["rain_24h_in"],
         RainSinceMidnightInches = (double?)w["rain_midnight_in"],
-        RainRawCounter = Code(w["rain_raw"]),
+        RainRawCounter = Rounded(w["rain_raw"]),
         HumidityPercent = (double?)w["humidity_percent"],
         PressureMillibars = (double?)w["pressure_mbar"],
         LuminosityWattsPerSquareMetre = (double?)w["luminosity_w_m2"],
@@ -367,12 +367,23 @@ internal static class NeutralReader
 
     /// <summary>
     /// A number for a field Packet.Aprs holds in whole units or as a code (a PHG or DFS digit, an
-    /// area offset, a DF bearing field, a storm field, a comment telemetry value, a raw rain counter,
+    /// area offset, a DF bearing field, a storm field, a comment telemetry value,
     /// an ambiguity): never rounded, since rounding is for the step fields the Encoding rule lists.
     /// The data cannot hold a non-integer there, so it is noted for <see cref="StandIns"/> as
     /// <c>value-out-of-range</c> and read as the whole number below it; a value past 32 bits is
     /// clamped, for the encoder to refuse.
     /// </summary>
+    private static int? Rounded(JsonNode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        double rounded = Packet.Aprs.Internal.Steps.Nearest((double)node);
+        return (int)Math.Clamp(rounded, int.MinValue, int.MaxValue);
+    }
+
     private static int? Code(JsonNode? node)
     {
         if (node is null)
