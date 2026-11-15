@@ -195,6 +195,15 @@ internal static class Ax25Codec
     /// on digipeaters the same bit is the has-been-repeated flag.</summary>
     private static void WriteAddress(Span<byte> a, AprsAddress address, bool commandBit, bool last, string paramName)
     {
+        if (address.Value.Length == 0 && paramName == "destination")
+        {
+            // A destination of spaces only, which a decoder tolerates (UAP 5.2) and reads back as the
+            // empty destination the held packet itself carries.
+            a[..6].Fill((byte)(' ' << 1));
+            a[6] = (byte)((commandBit ? 0x80 : 0) | 0x60 | (last ? 1 : 0));
+            return;
+        }
+
         if (!address.IsAx25)
         {
             throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, $"'{address}' is not a valid AX.25 address (1-6 upper-case letters and digits, SSID 1-15)");

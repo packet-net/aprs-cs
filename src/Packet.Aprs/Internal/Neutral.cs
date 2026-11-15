@@ -21,24 +21,26 @@ internal sealed class Neutral
     }
 
     private readonly bool given;
+    private readonly bool? altitudeAsFeet;
     private readonly Dictionary<string, object> map;
     private int depth;
 
-    private Neutral(bool given, Dictionary<string, object>? map = null)
+    private Neutral(bool given, bool? altitudeAsFeet = null, Dictionary<string, object>? map = null)
     {
         this.given = given;
+        this.altitudeAsFeet = altitudeAsFeet;
         this.map = map ?? new Dictionary<string, object>(StringComparer.Ordinal);
     }
 
     /// <summary>The fields of data as given, with the rounding its form writes.</summary>
-    public static Dictionary<string, object> Given(AprsData data) => Build(data, given: true);
+    public static Dictionary<string, object> Given(AprsData data, bool? altitudeAsFeet = null) => Build(data, given: true, altitudeAsFeet);
 
     /// <summary>The fields of data as decoded.</summary>
     public static Dictionary<string, object> Decoded(AprsData data) => Build(data, given: false);
 
-    private static Dictionary<string, object> Build(AprsData data, bool given)
+    private static Dictionary<string, object> Build(AprsData data, bool given, bool? altitudeAsFeet = null)
     {
-        var n = new Neutral(given);
+        var n = new Neutral(given, altitudeAsFeet);
         n.Data("", data);
         return n.map;
     }
@@ -262,7 +264,7 @@ internal sealed class Neutral
             // Read at the depth a decoder reads it at, so a level it would not read is not read here.
             var ctx = new DecodeContext(AprsParseOptions.Lenient) { Depth = depth + 1 };
             AprsPacket read = AprsPacket.Build(new Tnc2Codec.Header(inner.Source, inner.Destination, []), inner.Information.Span, ctx);
-            new Neutral(given: false, map) { depth = depth + 1 }.Data(p + "packet.data.", read.Data);
+            new Neutral(given: false, map: map) { depth = depth + 1 }.Data(p + "packet.data.", read.Data);
         }
         else
         {
@@ -535,12 +537,14 @@ internal sealed class Neutral
         }
     }
 
-    private static double WrittenAltitude(AprsPositionedData d, bool micE, double feet)
+    private double WrittenAltitude(AprsPositionedData d, bool micE, double feet)
     {
         if (micE)
         {
-            return MicECodec.AltitudeAsFeet((AprsMicEReport)d)
-                ? Steps.Whole(feet)
+            // The form actually written (a /A= holds the value as the program gave it), else the form the data asks for.
+            var report = (AprsMicEReport)d;
+            return altitudeAsFeet ?? MicECodec.AltitudeAsFeet(report)
+                ? Steps.Whole(MicECodec.AltitudeTextFeet(report))
                 : Steps.Count(feet / Units.FeetPerMetre) * Units.FeetPerMetre;
         }
 

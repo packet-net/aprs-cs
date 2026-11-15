@@ -615,6 +615,30 @@ internal static class MicECodec
         return Math.Abs(metres - Math.Round(metres)) <= 1e-6;
     }
 
+    /// <summary>The altitude a <c>/A=</c> would hold, as the program gave it: before the metre rounding of the Mic-E bytes.</summary>
+    internal static double AltitudeTextFeet(AprsMicEReport r) => r.AltitudeAsGiven ?? r.AltitudeFeet!.Value;
+
+    /// <summary>Whether a <c>/A=</c> holds the altitude exactly: a whole number of feet within its six digits (within 1e-6).</summary>
+    internal static bool SlashAltitudeHolds(AprsMicEReport r)
+    {
+        if (r.AltitudeFeet is null)
+        {
+            return false;
+        }
+
+        double feet = AltitudeTextFeet(r);
+        return double.IsFinite(feet) && Math.Abs(feet - Math.Round(feet)) <= 1e-6 && Math.Round(feet) is >= -99999 and <= 999999;
+    }
+
+    /// <summary>
+    /// The forms an altitude is written in, in the order they are tried (vectors README, Read-back):
+    /// the one the data asks for, then, when that is the Mic-E bytes, a <c>/A=</c> if one holds the
+    /// altitude exactly. A data record with no altitude has one form, and the report decides.
+    /// </summary>
+    internal static bool?[] AltitudeForms(AprsData data) => data is AprsMicEReport { AltitudeFeet: not null } r
+        ? (AltitudeAsFeet(r) || !SlashAltitudeHolds(r) ? [AltitudeAsFeet(r)] : [false, true])
+        : [null];
+
     /// <summary>
     /// Whether the altitude is written as a <c>/A=</c> in the status text rather than in the Mic-E
     /// altitude bytes (vectors interpretations.md, "A Mic-E altitude goes in the Mic-E altitude
@@ -697,10 +721,11 @@ internal static class MicECodec
 
         (int speed, int course) = (0, 0);
         w.Field(() => (speed, course) = CheckMotion(r));
-        if (r.AltitudeFeet is { } altitudeFeet && AltitudeAsFeet(r))
+        bool altitudeAsFeet = w.AltitudeAsFeet ?? AltitudeAsFeet(r);
+        if (r.AltitudeFeet is not null && altitudeAsFeet)
         {
             // Written as /A=, so it must fit that, before the later value checks.
-            w.Field(() => CommentCodec.CheckAltitude(altitudeFeet));
+            w.Field(() => CommentCodec.CheckAltitude(AltitudeTextFeet(r)));
         }
 
         if (r.IsCompressed || r.Weather is not null || r.Storm is not null || r.DfBearing is not null || r.AreaObject is not null || r.SignpostText is not null)
@@ -832,8 +857,8 @@ internal static class MicECodec
         }
 
         // Mic-E carries altitude in whole metres (xxx}); a /A= only where the data came from one
-        // or only a /A= holds the value exactly (AltitudeAsFeet).
-        bool altitudeAsFeet = AltitudeAsFeet(r);
+        // or only a /A= holds the value exactly (AltitudeAsFeet), or the next form is being tried.
+        bool altitudeAsFeet = w.AltitudeAsFeet ?? AltitudeAsFeet(r);
         if (r.AltitudeFeet is { } feet)
         {
             w.Field(() => WriteAltitudeBytes(w, r, feet, altitudeAsFeet));
@@ -925,7 +950,7 @@ internal static class MicECodec
         w.Field(() => CommentCodec.CheckComment(r.Comment));
         if (altitudeAsFeet)
         {
-            w.Field(() => CommentCodec.WriteAltitude(w, r.AltitudeFeet!.Value));
+            w.Field(() => CommentCodec.WriteAltitude(w, AltitudeTextFeet(r)));
         }
 
         WriteComment(w, r, altitudeAsFeet);
@@ -1011,7 +1036,7 @@ internal static class MicECodec
             // there; the comment then goes after a '/'. Telemetry or a !DAO! after it ends the text
             // instead, and the suffix is not read (vectors "Delimiters at the start of free text").
             bool slash = w.Delimiter == CommentDelimiter.Slash || SpaceJoinsSuffix(r, r.Comment)
-                || (altitudeAsFeet && r.Comment.Length > 0 && TextAltitudeNeedsSlash(r.AltitudeFeet!.Value, System.Text.Encoding.UTF8.GetBytes(r.Comment), " "u8.ToArray()));
+                || (altitudeAsFeet && r.Comment.Length > 0 && TextAltitudeNeedsSlash(AltitudeTextFeet(r), System.Text.Encoding.UTF8.GetBytes(r.Comment), " "u8.ToArray()));
             w.Field(() => FrequencyCodec.WriteWithComment(w, freq, r.Comment, slashDelimiter: slash));
         }
 
@@ -1047,7 +1072,7 @@ internal static class MicECodec
             bool slashJoins = laterAltitudeRead && IsAltitudeAt(after, 0);
             w.Char(slashJoins ? ' ' : '/');
         }
-        else if (r.Frequency is null && altitudeAsFeet && commentBytes.Length > 0 && TextAltitudeNeedsSlash(r.AltitudeFeet!.Value, commentBytes, []))
+        else if (r.Frequency is null && altitudeAsFeet && commentBytes.Length > 0 && TextAltitudeNeedsSlash(AltitudeTextFeet(r), commentBytes, []))
         {
             // Straight after a whole /A=, a comment holding a second /A= would read as a later Mic-E
             // altitude in its digits (016}); after a '/' the second /A= stands whole, so those

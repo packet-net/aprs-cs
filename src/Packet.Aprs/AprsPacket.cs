@@ -31,7 +31,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
         byte[] information,
         AprsData data,
         IReadOnlyList<AprsDiagnostic> diagnostics,
-        bool readQConstruct = true)
+        bool inner = false)
     {
         Source = source;
         Destination = destination;
@@ -39,8 +39,12 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
         this.information = information;
         Data = data;
         Diagnostics = diagnostics;
-        QConstruct = readQConstruct ? AprsQConstruct.Find(path) : null;
+        IsInner = inner;
+        QConstruct = inner ? null : AprsQConstruct.Find(path);
     }
+
+    /// <summary>A packet carried inside a third-party packet: its header has the third-party form (a source of 1-9 printable characters).</summary>
+    internal bool IsInner { get; }
 
     /// <summary>The station that originated the packet.</summary>
     public AprsAddress Source { get; }
@@ -168,7 +172,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     internal static AprsPacket Build(Tnc2Codec.Header header, ReadOnlySpan<byte> information, DecodeContext ctx)
     {
         AprsData data = InfoDecoder.Decode(information, header.Destination, ctx);
-        return new AprsPacket(header.Source, header.Destination, header.Path, information.ToArray(), data, ctx.Diagnostics, readQConstruct: ctx.Depth == 0);
+        return new AprsPacket(header.Source, header.Destination, header.Path, information.ToArray(), data, ctx.Diagnostics, inner: ctx.Depth > 0);
     }
 
     // ------------------------------------------------------------------ building
@@ -205,7 +209,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     /// without the header address check, for an inner third-party packet, whose header has its
     /// own rules (checked by <see cref="AprsThirdPartyTraffic.Create"/>).
     /// </summary>
-    internal static AprsPacket CreateUnchecked(AprsAddress source, AprsData data, AprsAddress? destination, IEnumerable<AprsPathEntry>? path)
+    internal static AprsPacket CreateUnchecked(AprsAddress source, AprsData data, AprsAddress? destination, IEnumerable<AprsPathEntry>? path, bool inner = false)
     {
         ArgumentNullException.ThrowIfNull(data);
         RequireAddress(source);
@@ -218,12 +222,12 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
 
             // The information first, so a fault in the data is reported before one in the destination.
             byte[] micEInformation = micE.EncodeInformation();
-            return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micEInformation, micE, []);
+            return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micEInformation, micE, [], inner);
         }
 
         AprsAddress to = destination ?? AprsAddress.Parse(AprsStation.DefaultDestination);
         RequireAddress(to);
-        return new AprsPacket(source, to, path?.ToList() ?? [], data.EncodeInformation(), data, []);
+        return new AprsPacket(source, to, path?.ToList() ?? [], data.EncodeInformation(), data, [], inner);
     }
 
     /// <summary>
@@ -264,7 +268,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     public byte[] ToTnc2()
     {
         byte[] line = ToTnc2Unchecked();
-        ReadBack.CheckTnc2Header(Source, Destination, Path, line);
+        ReadBack.CheckTnc2Header(Source, Destination, Path, line, IsInner);
         return line;
     }
 

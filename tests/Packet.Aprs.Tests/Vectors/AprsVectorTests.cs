@@ -21,6 +21,8 @@ public class AprsVectorTests
 
     public static TheoryData<string> BuildCases => [.. VectorCases.Ids(VectorCases.IsBuildCase)];
 
+    public static TheoryData<string> PassThroughCases => [.. VectorCases.Ids(c => c.ContainsKey("pass_through"))];
+
     [Theory]
     [MemberData(nameof(DecodeCases))]
     public void Lenient_decoding(string id)
@@ -254,6 +256,64 @@ public class AprsVectorTests
         Pass(c, differences);
     }
 
+    /// <summary>
+    /// A decoded packet written back as a program holds it (README, Read-back, Header): the line
+    /// and the frame, byte for byte, or the code each writer refuses with. The header it writes
+    /// is read back, and the information field passes through as received.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PassThroughCases))]
+    public void Writing_a_held_packet_back(string id)
+    {
+        JsonObject c = VectorCases.Get(id);
+        JsonObject expect = c["pass_through"]!.AsObject();
+        AprsPacket? packet = VectorCases.Decode(Input(c), AprsParseOptions.Lenient, out _);
+        packet.Should().NotBeNull(id);
+        var differences = new List<string>();
+        differences.AddRange(Written("tnc2", expect["tnc2"], expect["tnc2_refusal"], () => packet!.ToTnc2(), b => System.Text.Encoding.UTF8.GetString(b), s => s));
+        differences.AddRange(Written("ax25_hex", expect["ax25_hex"], expect["ax25_refusal"], () => packet!.ToAx25Frame(), b => Convert.ToHexStringLower(b), s => s.ToLowerInvariant()));
+        Pass(c, differences);
+    }
+
+    private static IEnumerable<string> Written(string form, JsonNode? bytes, JsonNode? refusal, Func<byte[]> write, Func<byte[], string> show, Func<string, string> normal)
+    {
+        if (bytes is null && refusal is null)
+        {
+            yield break;
+        }
+
+        byte[]? written = null;
+        AprsEncodeException? refused = null;
+        try
+        {
+            written = write();
+        }
+        catch (AprsEncodeException ex)
+        {
+            refused = ex;
+        }
+
+        if (refusal is not null)
+        {
+            if (written is not null)
+            {
+                yield return $"pass_through {form}: expected the refusal '{(string)refusal!}', wrote {show(written)}";
+            }
+            else if (NeutralJson.Kebab(refused!.Code.ToString()) != (string)refusal!)
+            {
+                yield return $"pass_through {form}: expected the refusal '{(string)refusal!}', got '{NeutralJson.Kebab(refused.Code.ToString())}': {refused.Message}";
+            }
+        }
+        else if (written is null)
+        {
+            yield return $"pass_through {form}: expected {bytes!.ToJsonString()}, but it refused ({NeutralJson.Kebab(refused!.Code.ToString())}): {refused.Message}";
+        }
+        else if (show(written) != normal((string)bytes!))
+        {
+            yield return $"pass_through {form}: expected {bytes!.ToJsonString()}, wrote {show(written)}";
+        }
+    }
+
     /// <summary>The reader is the writer's inverse: every decoded case's data reads back to the same neutral form.</summary>
     [Theory]
     [MemberData(nameof(DecodeCases))]
@@ -291,7 +351,7 @@ public class AprsVectorTests
 
     // ------------------------------------------------------------------ the case files
 
-    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info"];
+    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info", "pass_through"];
     private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "build", "write", "source", "destination", "path"];
     private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "tnc2", "ax25_hex", "refused", "refusal"];
 

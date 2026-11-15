@@ -475,6 +475,7 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
             {
                 AltitudeFeet = AltitudeInMetres is { } metres ? Steps.Whole(metres) * Units.FeetPerMetre : report.AltitudeFeet,
                 AltitudeInBytes = true,
+                AltitudeAsGiven = report.AltitudeFeet,
             };
     }
 }

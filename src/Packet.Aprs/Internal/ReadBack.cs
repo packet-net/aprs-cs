@@ -38,13 +38,25 @@ internal static class ReadBack
     /// <summary>
     /// Decodes <paramref name="info"/> leniently under <c>N0CALL&gt;APZ001</c> (for Mic-E, the
     /// destination the encoder computes) and compares it with <paramref name="given"/>. Null when it
-    /// matches.
+    /// matches. <paramref name="altitudeAsFeet"/> says which form a Mic-E altitude was written in.
     /// </summary>
-    public static Mismatch? Check(AprsData given, byte[] info)
+    public static Mismatch? Check(AprsData given, byte[] info, bool? altitudeAsFeet = null)
     {
         AprsAddress destination = given is AprsMicEReport mic ? MicECodec.EncodeDestination(mic) : DefaultDestination;
         AprsPacket back = AprsPacket.Decode(Sender, destination, [], info);
         var bad = new List<string>();
+
+        if (given is AprsUnrecognizedData unrecognized)
+        {
+            // A field kept as received reads back as the same unrecognized bytes, for the same reason.
+            // Its own diagnostics (not-aprs, an error) are the reading of those bytes, not a change.
+            if (back.Data is not AprsUnrecognizedData again || again.Reason != unrecognized.Reason || !again.Raw.SequenceEqual(unrecognized.Raw))
+            {
+                bad.Add("raw");
+            }
+
+            return bad.Count == 0 ? null : new Mismatch(AprsRefusalCode.DoesNotReadBack, bad);
+        }
 
         // Diagnostics: none but the listed infos; an inner packet is held to the same, and its infos are not compared.
         foreach (AprsDiagnostic d in back.Diagnostics)
@@ -72,7 +84,7 @@ internal static class ReadBack
             }
         }
 
-        Dictionary<string, object> expected = Neutral.Given(given);
+        Dictionary<string, object> expected = Neutral.Given(given, altitudeAsFeet);
         Dictionary<string, object> read = Neutral.Decoded(back.Data);
         Allowances(given, expected, read);
         Compare(expected, read, bad);
@@ -217,11 +229,11 @@ internal static class ReadBack
     /// its used mark, as given. A path with an entry not marked used before one that is reads back
     /// with that entry used, so it cannot be carried.
     /// </summary>
-    public static void CheckTnc2Header(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path, byte[] line)
+    public static void CheckTnc2Header(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path, byte[] line, bool inner = false)
     {
         int colon = Array.IndexOf(line, (byte)':');
         var ctx = new DecodeContext(AprsParseOptions.Lenient);
-        if (colon < 0 || !Tnc2Codec.TryParseHeader(line.AsSpan(0, colon), ctx, out Tnc2Codec.Header header)
+        if (colon < 0 || !Tnc2Codec.TryParseHeader(line.AsSpan(0, colon), ctx, out Tnc2Codec.Header header, inner)
             || !SameHeader(source, destination, path, header, ctx))
         {
             throw new AprsEncodeException(AprsRefusalCode.Tnc2CannotCarry, HeaderRefusal("a TNC2 line", path));

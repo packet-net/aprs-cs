@@ -330,7 +330,7 @@ public sealed record AprsThirdPartyTraffic : AprsData
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
         }
 
-        return new AprsThirdPartyTraffic { Packet = AprsPacket.CreateUnchecked(source, data, destination, entries) };
+        return new AprsThirdPartyTraffic { Packet = AprsPacket.CreateUnchecked(source, data, destination, entries, inner: true) };
     }
 
     private const string NestingRefusal = "third-party packets nest at most four deep: a decoder does not read a fifth header (vectors interpretations.md, \"Third-party packets nest at most four deep\")";

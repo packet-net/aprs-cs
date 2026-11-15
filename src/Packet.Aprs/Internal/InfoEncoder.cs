@@ -31,51 +31,54 @@ internal static class InfoEncoder
     public static byte[] Encode(AprsData data)
     {
         // The forms that differ only in what stands before a comment: straight on as the rules
-        // choose, then after a '/', then after a space.
-        CommentDelimiter[] forms = data is AprsPositionedData { Comment.Length: > 0 } ? Forms : OneForm;
+        // choose, then after a '/', then after a space; and for a Mic-E altitude the Mic-E bytes
+        // with each of those, then a /A= with each, where a /A= holds the value exactly.
+        CommentDelimiter[] delimiters = data is AprsPositionedData { Comment.Length: > 0 } ? Forms : OneForm;
         AprsEncodeException? first = null;
-        foreach (CommentDelimiter form in forms)
+        foreach (bool? altitude in MicECodec.AltitudeForms(data))
         {
-            byte[] info;
-            try
+            foreach (CommentDelimiter form in delimiters)
             {
-                info = Write(data, form);
-                if (AfterWriting is { } tamper)
+                byte[] info;
+                try
                 {
-                    info = tamper(info);
+                    info = Write(data, form, altitude);
+                    if (AfterWriting is { } tamper)
+                    {
+                        info = tamper(info);
+                    }
                 }
-            }
-            catch (AprsEncodeException ex) when (first is not null || ex.Code is AprsRefusalCode.TextReadsAsField or AprsRefusalCode.DoesNotReadBack)
-            {
-                // The first form's refusal is the answer if no form reads back.
-                first ??= ex;
-                continue;
-            }
+                catch (AprsEncodeException ex) when (first is not null || ex.Code is AprsRefusalCode.TextReadsAsField or AprsRefusalCode.DoesNotReadBack)
+                {
+                    // The first form's refusal is the answer if no form reads back.
+                    first ??= ex;
+                    continue;
+                }
 
-            // Undecoded data is a decoded field kept as received (nothing was given to compare with).
-            if (data is not AprsUnrecognizedData && ReadBack.Check(data, info) is { } mismatch)
-            {
-                first ??= mismatch.ToException();
-                continue;
-            }
+                if (ReadBack.Check(data, info, altitude) is { } mismatch)
+                {
+                    first ??= mismatch.ToException();
+                    continue;
+                }
 
-            if (info.Length > MaxInformationField)
-            {
-                // The last check, on the bytes actually written: a record any other rule refuses gets
-                // that rule's code, and nothing is measured that was not written (vectors README,
-                // Encoding and Refusal reasons).
-                throw new AprsEncodeException(AprsRefusalCode.InformationFieldTooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)");
-            }
+                if (info.Length > MaxInformationField)
+                {
+                    // The last check, on the bytes actually written: a record any other rule refuses gets
+                    // that rule's code, and nothing is measured that was not written (vectors README,
+                    // Encoding and Refusal reasons).
+                    throw new AprsEncodeException(AprsRefusalCode.InformationFieldTooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)");
+                }
 
-            return info;
+                return info;
+            }
         }
 
         throw first!;
     }
 
-    private static byte[] Write(AprsData data, CommentDelimiter form)
+    private static byte[] Write(AprsData data, CommentDelimiter form, bool? altitude)
     {
-        var writer = new InfoWriter { Delimiter = form };
+        var writer = new InfoWriter { Delimiter = form, AltitudeAsFeet = altitude };
         try
         {
             data.Encode(writer);

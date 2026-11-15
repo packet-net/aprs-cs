@@ -23,6 +23,12 @@ internal sealed class InfoWriter
     /// <summary>The delimiter form being tried for Mic-E status text.</summary>
     public CommentDelimiter Delimiter { get; init; }
 
+    /// <summary>
+    /// For a Mic-E report with an altitude: the form being tried, a <c>/A=</c> (true) or the Mic-E
+    /// altitude bytes (false); null for the form the data itself asks for first.
+    /// </summary>
+    public bool? AltitudeAsFeet { get; init; }
+
     private readonly ArrayBufferWriter<byte> buffer = new(64);
 
     public int Length => buffer.WrittenCount;
