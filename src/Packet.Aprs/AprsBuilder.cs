@@ -38,8 +38,26 @@ public abstract class AprsBuilder
     public AprsPacket Build()
     {
         AprsData data = Assemble();
-        return AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
+        AprsEncodeException? own = InputFault;
+        AprsPacket packet;
+        try
+        {
+            packet = AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
+        }
+        catch (AprsEncodeException ex) when (own is not null && InfoWriter.Rank(ex.Code) >= InfoWriter.Rank(own.Code))
+        {
+            throw own;
+        }
+
+        return own is null ? packet : throw own;
     }
+
+    /// <summary>
+    /// A fault in what the program gave the builder that the data record cannot hold (an empty message
+    /// ID is no ID in data, but a builder is given one on purpose, so it is out of range), refused in
+    /// its place in the reason order: after the codes before it and before the codes after it.
+    /// </summary>
+    private protected virtual AprsEncodeException? InputFault => null;
 }
 
 /// <summary>Sends a data record built by hand, from <see cref="AprsStation.Data(AprsData)"/>.</summary>

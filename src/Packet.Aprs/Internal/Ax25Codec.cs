@@ -86,8 +86,12 @@ internal static class Ax25Codec
             return false;
         }
 
-        var path = addresses.Skip(2).Where(a => a.Address.Value.Length > 0).Select(a => new AprsPathEntry(a.Address, a.H)).ToList();
-        header = new Tnc2Codec.Header(addresses[1].Address, addresses[0].Address, path);
+        // A digipeater is used when its H bit is set or one after it is (README, Addresses and path),
+        // as a line's entries before a * are.
+        var path = addresses.Skip(2).Where(a => a.Address.Value.Length > 0).ToList();
+        int lastUsed = path.FindLastIndex(a => a.H);
+        var entries = path.Select((a, i) => new AprsPathEntry(a.Address, i <= lastUsed)).ToList();
+        header = new Tnc2Codec.Header(addresses[1].Address, addresses[0].Address, entries);
         infoStart = pos + 2;
         return true;
     }

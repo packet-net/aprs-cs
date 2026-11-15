@@ -9,13 +9,21 @@ namespace Packet.Aprs.Internal;
 /// of the information field is judged last, on the bytes that passed. Every public call that writes
 /// an information field ends here (<see cref="AprsData.ToInformationField"/>,
 /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>,
-/// the builders, and a third-party packet's inner packet), and nothing else constructs an
-/// <see cref="InfoWriter"/>: a test holds the source to that.
+/// the builders, and a third-party packet's inner packet), and nothing else takes the bytes a
+/// writer made (<see cref="InfoWriter.TakeBytes"/>): a test holds the source to that.
 /// </summary>
 internal static class InfoEncoder
 {
     /// <summary>The most bytes an information field holds (APRS12c ch. 3).</summary>
     internal const int MaxInformationField = 256;
+
+    /// <summary>
+    /// A seam for the tests: changes the bytes between writing and the read-back, so a test can show
+    /// that no report type can return bytes that were not read back (a writer that wrote a wrong
+    /// byte is refused, whatever the type). Null, and thread-local, outside such a test.
+    /// </summary>
+    [ThreadStatic]
+    internal static Func<byte[], byte[]>? AfterWriting;
 
     private static readonly CommentDelimiter[] Forms = [CommentDelimiter.Auto, CommentDelimiter.Slash, CommentDelimiter.Space];
     private static readonly CommentDelimiter[] OneForm = [CommentDelimiter.Auto];
@@ -32,6 +40,10 @@ internal static class InfoEncoder
             try
             {
                 info = Write(data, form);
+                if (AfterWriting is { } tamper)
+                {
+                    info = tamper(info);
+                }
             }
             catch (AprsEncodeException ex) when (first is not null || ex.Code is AprsRefusalCode.TextReadsAsField or AprsRefusalCode.DoesNotReadBack)
             {

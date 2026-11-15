@@ -237,22 +237,7 @@ internal static class ReadBack
             throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, HeaderRefusal("an AX.25 frame", path));
         }
 
-        int last = -1;
-        for (int i = 0; i < header.Path.Count; i++)
-        {
-            if (header.Path[i].Used)
-            {
-                last = i;
-            }
-        }
-
-        var read = new List<AprsPathEntry>(header.Path.Count);
-        for (int i = 0; i < header.Path.Count; i++)
-        {
-            read.Add(header.Path[i] with { Used = i <= last });
-        }
-
-        if (!SameHeader(source, destination, path, header with { Path = read }, ctx))
+        if (!SameHeader(source, destination, path, header, ctx))
         {
             throw new AprsEncodeException(AprsRefusalCode.Ax25CannotCarry, HeaderRefusal("an AX.25 frame", path));
         }

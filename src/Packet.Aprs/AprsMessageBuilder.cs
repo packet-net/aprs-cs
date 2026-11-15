@@ -38,17 +38,11 @@ public sealed class AprsMessageBuilder : AprsBuilder
     }
 
     /// <inheritdoc/>
-    public override AprsTextMessage ToData()
-    {
-        // Neutral data with an empty message ID has none (an empty value is an absent one), but a
-        // builder is given the ID on purpose, so an empty one is out of range (vectors README, Builder rules).
-        if (id is { Length: 0 })
-        {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidMessageId, "a message ID is 1-5 letters or digits (APRS12c ch. 14)");
-        }
+    public override AprsTextMessage ToData() => new() { Addressee = addressee, Text = text, MessageId = id, ReplyAck = replyAck };
 
-        return new() { Addressee = addressee, Text = text, MessageId = id, ReplyAck = replyAck };
-    }
+    /// <inheritdoc/>
+    private protected override AprsEncodeException? InputFault =>
+        id is { Length: 0 } ? new AprsEncodeException(AprsRefusalCode.InvalidMessageId, "a message ID is 1-5 letters or digits (APRS12c ch. 14)") : null;
 }
 
 /// <summary>An acknowledgement or rejection, from <see cref="AprsStation.Ack(string, string)"/> or
