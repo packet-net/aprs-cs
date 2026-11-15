@@ -122,7 +122,14 @@ internal static class PositionReportCodec
     /// </summary>
     private static AprsPositionReport? DecodeWithBadTimestamp(ReadOnlySpan<byte> info, DecodeContext ctx, char dti)
     {
-        foreach (int pos in (int[])[1, 8])
+        // Seven bytes ending in a time indicator and an uncompressed position after them: a garbled
+        // timestamp, read there even when the bytes after the DTI would also read as a (compressed)
+        // position (vectors README, Timestamps that are not there).
+        bool garbled = info.Length > 8
+            && info[7] is (byte)'z' or (byte)'/' or (byte)'h'
+            && Text.IsDigit(info[8])
+            && PositionCodec.PositionDecodesAt(info, 8, ctx);
+        foreach (int pos in garbled ? (int[])[8] : (int[])[1, 8])
         {
             // Judged on the position itself, not on anything after it (vectors README, Timestamps that are not there).
             if (!PositionCodec.PositionDecodesAt(info, pos, ctx))

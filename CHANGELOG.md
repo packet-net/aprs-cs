@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+A `/` or `@` position report whose timestamp is not valid, with seven bytes after the data type identifier that end in `z`, `/` or `h` and an uncompressed position after them, is now read after the seven bytes with `MalformedTimestamp`, even when the bytes straight after the identifier would also read as a compressed position (`@R30549z2831.07N/08142.92W_015/001g006` was a compressed position at 54.06, -81.17 and is now the weather station at 28.52, -81.72). Vectors pinned at `b118424` (aprs-vectors round-5, packet-net/aprs-vectors#30).
+
 ## 1.2.0 (2026-11-14)
 
 The aprs-vectors round 4 rulings (version 1.2; vectors pinned at `656d583`, aprs-vectors#29). The licence is MIT from this release; versions up to 1.1.0 were published under AGPL-3.0-or-later. The vectors are now CC0.
