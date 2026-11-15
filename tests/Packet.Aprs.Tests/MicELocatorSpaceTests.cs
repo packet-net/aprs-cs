@@ -41,4 +41,27 @@ public class MicELocatorSpaceTests
     {
         MissingSpace(AprsPacket.Decode(Head + text)).Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData("!W1\"4e}2! hi", "!W12! hi")]
+    [InlineData("!w9\"4e}1!", "!w91!")]
+    public void A_dao_only_joined_across_a_lifted_altitude_is_text_and_the_space_is_missing(string text, string comment)
+    {
+        AprsPacket p = AprsPacket.Decode(Head + text);
+        MissingSpace(p).Should().BeTrue();
+        var report = p.Data.Should().BeOfType<AprsMicEReport>().Subject;
+        report.AltitudeFeet.Should().NotBeNull();
+        report.Comment.Should().Be(comment);
+        AprsPacket.Decode(Head + text, AprsParseOptions.Strict).Diagnostics.Should().Contain(d => d.Code == AprsDiagnosticCode.MissingSpaceAfterLocator && d.Severity == AprsDiagnosticSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData("\"4e}  x", "x")]
+    [InlineData("|!:&0hl!Y[/>\"4e}='p|  x", "x")]
+    [InlineData("  x", "x")]
+    public void Two_spaces_after_the_locator_leave_the_comment_without_either(string text, string comment)
+    {
+        AprsPacket p = AprsPacket.Decode(Head + text);
+        p.Data.Should().BeOfType<AprsMicEReport>().Subject.Comment.Should().Be(comment);
+    }
 }

@@ -214,25 +214,19 @@ internal static class MicECodec
         {
             report = report with { Locator = Text.Latin1(text.GetRange(0, locatorLength).ToArray()).ToUpperInvariant() };
             text.RemoveRange(0, locatorLength + 2);
-            // Base-91 telemetry and a !DAO! count as lifted before the locator is read, so a
-            // locator followed straight by either has nothing after it (vectors ruling F16). They
-            // are only lifted later, once a later altitude has been looked for (README Mic-E).
-            int spaceAt = text.Count > 0 ? FirstOutsideTrailer(text) : -1;
-            if (spaceAt >= 0)
+            // The locator's space is judged on what is left of the status text once the later
+            // altitude, base-91 telemetry and !DAO! are lifted, as they are lifted for the data
+            // (README Mic-E, "Where a Mic-E locator is read"): the verdict comes below. A space
+            // straight after the locator can be nothing but that space, so it is taken now.
+            if (text.Count > 0)
             {
-                if (text[spaceAt] == (byte)' ')
+                if (text[0] == (byte)' ')
                 {
-                    text.RemoveAt(spaceAt);
+                    text.RemoveAt(0);
                 }
-                else if (!altitudeFirst && ctx.Options.AllowMicEAltitudeNotFirst)
+                else
                 {
-                    // A later altitude may still be lifted, and telemetry with it; judge the
-                    // space once that is out (README, Where a Mic-E locator is read).
                     spacePending = true;
-                }
-                else if (!ReportMissingSpace(ctx, offset))
-                {
-                    return false;
                 }
             }
         }
@@ -242,6 +236,7 @@ internal static class MicECodec
         {
             byte[] head = text.GetRange(0, Math.Min(text.Count, 9)).ToArray();
             int pos = 0;
+            int mark = ctx.Diagnostics.Count;
             var probe = new PositionedFields { Position = fields.Position, Symbol = fields.Symbol };
             if (!PositionCodec.IsCourseSpeed(head) && PositionCodec.TryReadDataExtension(head, ref pos, ctx, probe) && pos > 0)
             {
@@ -254,7 +249,7 @@ internal static class MicECodec
                 {
                     // What follows the locator was read as a PHG: the space is judged as it stood.
                     spacePending = false;
-                    if (!ReportMissingSpace(ctx, offset))
+                    if (!ReportMissingSpaceAt(ctx, offset, mark))
                     {
                         return false;
                     }
@@ -280,22 +275,22 @@ internal static class MicECodec
                         ctx.Warn(AprsDiagnosticCode.MicEAltitudeNotFirst, "Mic-E altitude xxx} found after other status text; it should come first (APRS12c ch. 10)", offset + i);
                         ReadAltitude(text, i, fields);
                         fields.DaoBarrier = i;
+                    }
+                    else if (TrailerLiftJoinsAltitude(text))
+                    {
                         if (spacePending)
                         {
-                            spacePending = false;
-                            int at = text.Count > 0 ? FirstOutsideTrailer(text) : -1;
-                            if (at >= 0 && text[at] == (byte)' ')
-                            {
-                                text.RemoveAt(at);
-                            }
-                            else if (at >= 0 && !ReportMissingSpace(ctx, offset))
+                            // The packet is rejected for the join, but the locator comes first in
+                            // the packet: lift as for the data, judge its space, keep only that.
+                            int mark = ctx.Diagnostics.Count;
+                            CommentCodec.TryExtractTrailer(text, offset, ctx, fields);
+                            ctx.Diagnostics.RemoveRange(mark, ctx.Diagnostics.Count - mark);
+                            if (!JudgeLocatorSpace(text, ctx, offset, mark))
                             {
                                 return false;
                             }
                         }
-                    }
-                    else if (TrailerLiftJoinsAltitude(text))
-                    {
+
                         ctx.Error(AprsDiagnosticCode.MicEAltitudeNotFirst, "lifting telemetry and the !DAO! would join the bytes either side into a Mic-E altitude xxx} (APRS12c ch. 10)", offset + i);
                         return false;
                     }
@@ -305,12 +300,48 @@ internal static class MicECodec
             }
         }
 
-        if (spacePending && !ReportMissingSpace(ctx, offset))
+        // Base-91 telemetry and a !DAO! are lifted for the data here, so the locator's space is
+        // judged on the decoder's own result; its warning keeps its place before theirs.
+        int trailerMark = ctx.Diagnostics.Count;
+        bool trailerOk = CommentCodec.TryExtractTrailer(text, offset, ctx, fields);
+        if (spacePending && !JudgeLocatorSpace(text, ctx, offset, trailerMark))
         {
             return false;
         }
 
-        return CommentCodec.TryExtract(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
+        return trailerOk && CommentCodec.ExtractRest(text, offset, ctx, fields, frequencyAtStart: true) && CommentCodec.TryFinish(text, offset, ctx, fields);
+    }
+
+    /// <summary>
+    /// The locator's space, judged on the status text left once the later altitude, telemetry and
+    /// <c>!DAO!</c> are lifted: when it starts with a space that is the separator, otherwise the
+    /// space is missing (tolerated). A diagnostic raised for it goes at <paramref name="mark"/>, in
+    /// the order the packet is read.
+    /// </summary>
+    private static bool JudgeLocatorSpace(List<byte> text, DecodeContext ctx, int offset, int mark)
+    {
+        if (text.Count == 0)
+        {
+            return true;
+        }
+
+        if (text[0] == (byte)' ')
+        {
+            text.RemoveAt(0);
+            return true;
+        }
+
+        return ReportMissingSpaceAt(ctx, offset, mark);
+    }
+
+    private static bool ReportMissingSpaceAt(DecodeContext ctx, int offset, int mark)
+    {
+        int before = ctx.Diagnostics.Count;
+        bool ok = ReportMissingSpace(ctx, offset);
+        List<AprsDiagnostic> added = ctx.Diagnostics.GetRange(before, ctx.Diagnostics.Count - before);
+        ctx.Diagnostics.RemoveRange(before, added.Count);
+        ctx.Diagnostics.InsertRange(mark, added);
+        return ok;
     }
 
     private static bool ReportMissingSpace(DecodeContext ctx, int offset) =>
@@ -356,22 +387,6 @@ internal static class MicECodec
         }
 
         return false;
-    }
-
-    /// <summary>True when the text is only base-91 telemetry and a <c>!DAO!</c>, as a decoder lifts them.</summary>
-    /// <summary>The index of the first byte not in base-91 telemetry or a <c>!DAO!</c>, which are lifted before the locator's space is looked for; -1 when nothing else is left.</summary>
-    private static int FirstOutsideTrailer(List<byte> text)
-    {
-        var spans = CommentCodec.TrailerSpans(text);
-        for (int i = 0; i < text.Count; i++)
-        {
-            if (!spans.Any(sp => i >= sp.Start && i < sp.Start + sp.Length))
-            {
-                return i;
-            }
-        }
-
-        return -1;
     }
 
     private static void ReadAltitude(List<byte> text, int at, PositionedFields fields)

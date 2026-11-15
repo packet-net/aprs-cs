@@ -13,7 +13,7 @@ public class AprsVectorTests
 {
     public static TheoryData<string> DecodeCases => [.. VectorCases.Ids(c => !VectorCases.IsEncodeCase(c) && !VectorCases.IsBuildCase(c))];
 
-    public static TheoryData<string> FlagCases => [.. VectorCases.Ids(c => c["strict"] is JsonObject && FlagFor(c) is not null && !ToleranceCheckSkipped(c))];
+    public static TheoryData<string> FlagCases => [.. VectorCases.Ids(c => c["strict"] is JsonObject && FlagFor(c) is not null)];
 
     public static TheoryData<string> ReencodeCases => [.. VectorCases.Ids(c => c["reencode"] is not null)];
 
@@ -49,7 +49,7 @@ public class AprsVectorTests
         AprsParseOptions options = AprsParseOptions.Lenient with { };
         flag.SetValue(options, false);
         AprsPacket? packet = VectorCases.Decode(Input(c), options, out var headerDiagnostics);
-        Pass(c, CheckStrict(c, packet, headerDiagnostics), $"with only {flag.Name} off");
+        Pass(c, StrictRejectsByOtherCode(c) ? CheckOtherDefect(c, packet) : CheckStrict(c, packet, headerDiagnostics), $"with only {flag.Name} off");
     }
 
     /// <summary>
@@ -303,24 +303,22 @@ public class AprsVectorTests
     }
 
     /// <summary>
-    /// The tolerance check is skipped only where strict is rejected by a code other than the one
-    /// tolerable code (README, Checking a case); the vectors' RULED.md says one case leaves it.
+    /// The tolerance check runs on every case whose lenient diagnostics name exactly one tolerable
+    /// code (README, Checking a case); none is skipped. The count is printed.
     /// </summary>
     [Fact]
-    public void The_tolerance_check_runs_on_all_but_one_case()
+    public void The_tolerance_check_runs_on_every_case_with_one_tolerable_code()
     {
-        string[] skipped = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject && FlagFor(c) is not null && ToleranceCheckSkipped(c)).Select(c => (string)c["id"]!)];
-        int ran = VectorCases.ById.Values.Count(c => c["strict"] is JsonObject && FlagFor(c) is not null && !ToleranceCheckSkipped(c));
-        Console.WriteLine($"tolerance check ran on {ran} cases, skipped {skipped.Length}: {string.Join(", ", skipped)}");
-        skipped.Should().Equal("mic-e/telemetry-left-once-an-altitude-is-lifted-then-a-spaced-comment");
-        ran.Should().BeGreaterThan(300, "a mistake that skips too many cases would show here");
+        int ran = VectorCases.Ids(c => c["strict"] is JsonObject && FlagFor(c) is not null).Count();
+        Console.WriteLine($"tolerance check ran on {ran} cases");
+        ran.Should().BeGreaterThanOrEqualTo(726, "the check runs on every case whose lenient diagnostics name exactly one tolerable code");
     }
 
     /// <summary>Each tolerance needs a case showing both sides of it: strict rejecting (or reading differently) and lenient accepting.</summary>
     [Fact]
     public void Every_tolerance_flag_has_a_case()
     {
-        HashSet<string> covered = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject && !ToleranceCheckSkipped(c)).Select(FlagFor).OfType<string>()];
+        HashSet<string> covered = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject && !StrictRejectsByOtherCode(c)).Select(FlagFor).OfType<string>()];
         Flags.Values.Except(covered).Should().BeEmpty("each flag needs a case in spec/aprs/cases whose strict result differs");
     }
 
@@ -435,11 +433,26 @@ public class AprsVectorTests
         return flags.Length == 1 ? flags[0] : null;
     }
 
-    private static bool ToleranceCheckSkipped(JsonObject c)
+    private static bool StrictRejectsByOtherCode(JsonObject c)
     {
         string? flag = FlagFor(c);
         string? code = flag is null ? null : Flags.First(kv => kv.Value == flag).Key;
         return c["strict"] is JsonObject s && s["rejected_by"] is { } by && (string)by! != code;
+    }
+
+    /// <summary>
+    /// With strict rejecting by a code other than the one tolerance turned off, the result must be
+    /// a reading whose diagnostics include that code as a warning (README, Checking a case).
+    /// </summary>
+    private static IReadOnlyList<string> CheckOtherDefect(JsonObject c, AprsPacket? packet)
+    {
+        string other = (string)c["strict"]!["rejected_by"]!;
+        if (packet is null || packet.Data is AprsUnrecognizedData)
+        {
+            return [$"expected a reading with warning:{other}, got a rejection"];
+        }
+
+        return Strings(packet.Diagnostics).Contains($"warning:{other}") ? [] : [$"expected warning:{other} among the diagnostics, got {Describe(packet, [])}"];
     }
 
     private static void Pass(JsonObject c, IReadOnlyList<string> differences, string? how = null)

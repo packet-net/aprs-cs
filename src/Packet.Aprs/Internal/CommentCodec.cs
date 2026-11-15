@@ -86,11 +86,12 @@ internal static class CommentCodec
     /// </summary>
     internal static bool TryExtract(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
     {
-        if (!TryExtractTrailer(c, offset, ctx, f))
-        {
-            return false;
-        }
+        return TryExtractTrailer(c, offset, ctx, f) && ExtractRest(c, offset, ctx, f, frequencyAtStart);
+    }
 
+    /// <summary>What <see cref="TryExtract"/> lifts once the trailer is out: altitude, braces, a late data extension and a voice frequency.</summary>
+    internal static bool ExtractRest(List<byte> c, int offset, DecodeContext ctx, PositionedFields f, bool frequencyAtStart)
+    {
         ExtractAltitude(c, f);
         ExtractBraces(c, f);
         if (f.Phg is null && f.RangeMiles is null && f.DfSignalStrength is null)
@@ -210,8 +211,10 @@ internal static class CommentCodec
                         "!DAO! on an ambiguous position; any extra precision is ignored",
                         offset + i))
                 {
+                    // Lifted all the same, so a caller judging what is left sees the real text.
                     ok = false;
-                    return -1;
+                    c.RemoveRange(i, 5);
+                    return i;
                 }
             }
             else if (dao.Precision != AprsDaoPrecision.None && !f.IsCompressed)
