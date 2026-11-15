@@ -40,6 +40,21 @@ public class FinalPassTests
         AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data.Should().Be(r);
     }
 
+    [Theory]
+    [InlineData(">/A=000123/A=-00016}^")]
+    [InlineData("]/A=000123/A=000100}habc}ello")]
+    [InlineData("'146.52 MHz t077 -060/A=-00016/A=000100}  ")]
+    public void A_second_altitude_as_text_after_an_altitude_is_written_after_a_slash(string status)
+    {
+        AprsPacket decoded = AprsPacket.Decode("N0CALL>S32UVT:`(_fn\"Oj/" + status);
+        var r = decoded.Data.Should().BeOfType<AprsMicEReport>().Subject;
+        r.Comment.Should().StartWith("A=");
+        AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), r);
+        string info = System.Text.Encoding.Latin1.GetString(created.Information.Span);
+        info.Should().Contain("/A=");
+        AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data.Should().Be(r);
+    }
+
     [Fact]
     public void A_clear_later_altitude_is_still_taken_beside_an_altitude()
     {

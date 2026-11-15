@@ -968,6 +968,31 @@ internal static class MicECodec
             && MatchSuffix(r.TypeCode, new CommentText([(byte)' ', .. bytes])).Length > bytes.Length;
     }
 
+    /// <summary>
+    /// Whether the comment written straight after the <c>/A=</c> altitude would hold a later Mic-E
+    /// altitude while the same comment after a '/' would not.
+    /// </summary>
+    private static bool TextAltitudeNeedsSlash(double feet, byte[] comment, byte[] before)
+    {
+        int alt = (int)CommentCodec.CheckAltitude(feet);
+        byte[] head = System.Text.Encoding.ASCII.GetBytes(alt < 0 ? $"/A=-{-alt:D5}" : $"/A={alt:D6}");
+        return HoldsLaterAltitude(new CommentText([.. head, .. before, .. comment]))
+            && !HoldsLaterAltitude(new CommentText([.. head, .. before, (byte)'/', .. comment]));
+    }
+
+    private static bool HoldsLaterAltitude(CommentText text)
+    {
+        for (int i = 0; i + 4 <= text.Count; i++)
+        {
+            if (IsAltitudeAt(text, i) && !SharesAltitudeBytes(text, i))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static void WriteComment(InfoWriter w, AprsMicEReport r, bool altitudeAsFeet)
     {
         // Status text holds no control character, a leading 0x1D included (vectors README, "Control
@@ -986,7 +1011,8 @@ internal static class MicECodec
             // The space before the comment can join it into a device suffix (" X") when the text ends
             // there; the comment then goes after a '/'. Telemetry or a !DAO! after it ends the text
             // instead, and the suffix is not read (vectors "Delimiters at the start of free text").
-            bool slash = SpaceJoinsSuffix(r, r.Comment);
+            bool slash = SpaceJoinsSuffix(r, r.Comment)
+                || (altitudeAsFeet && r.Comment.Length > 0 && TextAltitudeNeedsSlash(r.AltitudeFeet!.Value, System.Text.Encoding.UTF8.GetBytes(r.Comment), " "u8.ToArray()));
             w.Field(() => FrequencyCodec.WriteWithComment(w, freq, r.Comment, slashDelimiter: slash));
         }
 
@@ -1016,6 +1042,14 @@ internal static class MicECodec
             bool laterAltitudeRead = r.AltitudeFeet is null || altitudeAsFeet;
             bool slashJoins = laterAltitudeRead && IsAltitudeAt(after, 0);
             w.Char(slashJoins ? ' ' : '/');
+        }
+        else if (r.Frequency is null && altitudeAsFeet && commentBytes.Length > 0 && TextAltitudeNeedsSlash(r.AltitudeFeet!.Value, commentBytes, []))
+        {
+            // Straight after a whole /A=, a comment holding a second /A= would read as a later Mic-E
+            // altitude in its digits (016}); after a '/' the second /A= stands whole, so those
+            // digits share its bytes and are text. The forms are tried in order and the first that
+            // reads no later altitude is written.
+            w.Char('/');
         }
 
         if (r.Frequency is null)
