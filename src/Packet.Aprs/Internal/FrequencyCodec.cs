@@ -12,9 +12,6 @@ internal static class FrequencyCodec
         ('I', 10200), ('J', 10300), ('K', 10400), ('L', 10500), ('M', 24000), ('N', 24100), ('O', 24200),
     ];
 
-    public static bool TryRead(ReadOnlySpan<byte> s, out AprsVoiceFrequency? frequency, out int consumed) =>
-        TryRead(s, [], out frequency, out consumed);
-
     /// <summary>
     /// Reads the frequency at the start of <paramref name="s"/>. <paramref name="cuts"/> (empty when
     /// nothing was lifted) says what was lifted before each byte, and after the last: the frequency

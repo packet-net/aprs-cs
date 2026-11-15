@@ -279,40 +279,49 @@ internal static class CommentCodec
         c.Lift(start, end - start + 1, Lifted.Other);
     }
 
+    /// <summary>The bytes of a <c>/A=nnnnnn</c> (or <c>/A=-nnnnn</c>) altitude.</summary>
+    internal const int AltitudeLength = 9;
+
+    /// <summary>
+    /// True when a whole <c>/A=</c> altitude stands at <paramref name="i"/>: <c>/A=</c> and six
+    /// digits, or <c>-</c> and five, with nothing lifted from between them. The value is its feet.
+    /// </summary>
+    internal static bool IsSlashAltitudeAt(CommentText c, int i, out int feet)
+    {
+        feet = 0;
+        if (i < 0 || i + AltitudeLength > c.Count || c[i] != (byte)'/' || c[i + 1] != (byte)'A' || c[i + 2] != (byte)'=' || !c.Whole(i, AltitudeLength))
+        {
+            return false;
+        }
+
+        bool negative = c[i + 3] == (byte)'-';
+        int value = 0;
+        for (int k = negative ? i + 4 : i + 3; k < i + AltitudeLength; k++)
+        {
+            if (!Text.IsDigit(c[k]))
+            {
+                return false;
+            }
+
+            value = (value * 10) + (c[k] - '0');
+        }
+
+        feet = negative ? -value : value;
+        return true;
+    }
+
     /// <summary><c>/A=nnnnnn</c> anywhere in the comment (APRS12c §6), or the de facto <c>/A=-nnnnn</c>.</summary>
     private static void ExtractAltitude(CommentText c, PositionedFields f)
     {
-        for (int i = 0; i + 9 <= c.Count; i++)
+        for (int i = 0; i + AltitudeLength <= c.Count; i++)
         {
-            if (c[i] != (byte)'/' || c[i + 1] != (byte)'A' || c[i + 2] != (byte)'=' || !c.Whole(i, 9))
+            if (IsSlashAltitudeAt(c, i, out int feet))
             {
-                continue;
+                f.AltitudeFeet = feet;
+                f.AltitudeFromComment = true;
+                c.Lift(i, AltitudeLength, Lifted.Altitude);
+                return;
             }
-
-            bool negative = c[i + 3] == (byte)'-';
-            int digitsFrom = negative ? i + 4 : i + 3;
-            int value = 0;
-            bool ok = true;
-            for (int k = digitsFrom; k < i + 9; k++)
-            {
-                if (!Text.IsDigit(c[k]))
-                {
-                    ok = false;
-                    break;
-                }
-
-                value = (value * 10) + (c[k] - '0');
-            }
-
-            if (!ok)
-            {
-                continue;
-            }
-
-            f.AltitudeFeet = negative ? -value : value;
-            f.AltitudeFromComment = true;
-            c.Lift(i, 9, Lifted.Altitude);
-            return;
         }
     }
 
