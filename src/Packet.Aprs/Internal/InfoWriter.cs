@@ -4,9 +4,25 @@ using System.Text;
 
 namespace Packet.Aprs.Internal;
 
+/// <summary>The delimiter written before Mic-E status text: the rule's choice, or one form tried because the rule's choice did not read back.</summary>
+internal enum CommentDelimiter
+{
+    /// <summary>The form the writing rules choose.</summary>
+    Auto,
+
+    /// <summary>A '/' before the comment.</summary>
+    Slash,
+
+    /// <summary>A space before the comment.</summary>
+    Space,
+}
+
 /// <summary>Builds information-field bytes.</summary>
 internal sealed class InfoWriter
 {
+    /// <summary>The delimiter form being tried for Mic-E status text.</summary>
+    public CommentDelimiter Delimiter { get; init; }
+
     private readonly ArrayBufferWriter<byte> buffer = new(64);
 
     public int Length => buffer.WrittenCount;

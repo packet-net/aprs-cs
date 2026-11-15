@@ -55,6 +55,45 @@ public class FinalPassTests
         AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data.Should().Be(r);
     }
 
+    [Theory]
+    [InlineData("\"4e}/PHG1|146.520MHz!!|", "PHG1")]
+    [InlineData("\"4e}/PHG5|146.520MHz!!|", "PHG5")]
+    public void Text_that_reads_as_a_phg_after_the_altitude_is_written_after_a_slash(string status, string comment)
+    {
+        var r = MicNoType(status);
+        r.Comment.Should().Be(comment);
+        r.Phg.Should().BeNull();
+        AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), r);
+        System.Text.Encoding.Latin1.GetString(created.Information.Span).Should().EndWith(status);
+        AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data.Should().Be(r);
+    }
+
+    [Theory]
+    [InlineData("/PHG1|146.520MHz!!|")]
+    [InlineData("/FN31ab/G PHG1|146.520MHz!!|")]
+    [InlineData("/\"4e}PHG1|x")]
+    public void Text_that_could_read_as_a_phg_reads_back_in_whatever_form_is_written(string status)
+    {
+        var r = MicNoType(status);
+        AprsPacket created = AprsPacket.Create(AprsAddress.Parse("N0CALL"), r);
+        AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span).Data.Should().Be(r);
+    }
+
+    [Theory]
+    [InlineData("RNG0100", true)]
+    [InlineData("DFS2360", true)]
+    [InlineData("RNG0100", false)]
+    [InlineData("DFS2360", false)]
+    public void Text_that_reads_as_an_extension_with_no_form_that_holds_it_is_refused_never_written(string comment, bool afterAltitude)
+    {
+        var r = MicNoType(afterAltitude ? "/\"4e}" : "/") with { Comment = comment };
+        Action act = () => AprsPacket.Create(AprsAddress.Parse("N0CALL"), r);
+        act.Should().Throw<AprsEncodeException>();
+    }
+
+    private static AprsMicEReport MicNoType(string status) =>
+        AprsPacket.Decode("N0CALL>S32UVT:`(_fn\"Oj3" + status).Data.Should().BeOfType<AprsMicEReport>().Subject;
+
     [Fact]
     public void A_clear_later_altitude_is_still_taken_beside_an_altitude()
     {

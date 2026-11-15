@@ -42,7 +42,34 @@ public abstract record AprsData
     /// <summary>The information field, whatever the data type (for a Mic-E report, without its destination).</summary>
     internal byte[] EncodeInformation()
     {
-        var writer = new InfoWriter();
+        if (this is not AprsMicEReport { Comment.Length: > 0 })
+        {
+            return EncodeInformation(CommentDelimiter.Auto);
+        }
+
+        // Mic-E status text: the delimiter forms are tried in order and each is read back; the
+        // first that reads back as the data is written. When none does, the refusal is the one
+        // the rule's own form met (vectors README, Encoding: an equivalent form or a refusal,
+        // never bytes that read back as different data).
+        AprsEncodeException? first = null;
+        foreach (CommentDelimiter form in new[] { CommentDelimiter.Auto, CommentDelimiter.Slash, CommentDelimiter.Space })
+        {
+            try
+            {
+                return EncodeInformation(form);
+            }
+            catch (AprsEncodeException ex) when (ex.Code is AprsRefusalCode.TextReadsAsField or AprsRefusalCode.DoesNotReadBack)
+            {
+                first ??= ex;
+            }
+        }
+
+        throw first!;
+    }
+
+    private byte[] EncodeInformation(CommentDelimiter form)
+    {
+        var writer = new InfoWriter { Delimiter = form };
         try
         {
             Encode(writer);
@@ -68,9 +95,18 @@ public abstract record AprsData
         }
 
         writer.ThrowDeferred();
-        if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)
+        if (this is AprsPositionedData positioned)
         {
-            CommentCodec.VerifyReadsBack(positioned, info, problem);
+            // Every Mic-E report with status text is decoded back: what the rules did not name is
+            // still checked, so no bytes that read back as different data are ever returned.
+            if (writer.CommentCheck is { } problem)
+            {
+                CommentCodec.VerifyReadsBack(positioned, info, problem);
+            }
+            else if (this is AprsMicEReport)
+            {
+                CommentCodec.VerifyReadsBack(positioned, info, null);
+            }
         }
 
         if (this is AprsMessage message)

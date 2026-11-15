@@ -1011,7 +1011,7 @@ internal static class MicECodec
             // The space before the comment can join it into a device suffix (" X") when the text ends
             // there; the comment then goes after a '/'. Telemetry or a !DAO! after it ends the text
             // instead, and the suffix is not read (vectors "Delimiters at the start of free text").
-            bool slash = SpaceJoinsSuffix(r, r.Comment)
+            bool slash = w.Delimiter == CommentDelimiter.Slash || SpaceJoinsSuffix(r, r.Comment)
                 || (altitudeAsFeet && r.Comment.Length > 0 && TextAltitudeNeedsSlash(r.AltitudeFeet!.Value, System.Text.Encoding.UTF8.GetBytes(r.Comment), " "u8.ToArray()));
             w.Field(() => FrequencyCodec.WriteWithComment(w, freq, r.Comment, slashDelimiter: slash));
         }
@@ -1032,7 +1032,12 @@ internal static class MicECodec
         // The space after a locator is part of the text, so a comment that with it ends in a device
         // suffix (" X") would read back as the suffix: it goes after a '/' as well.
         bool spaceJoinsSuffix = commentFirst && r.Locator is not null && SpaceJoinsSuffix(r, r.Comment);
-        if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode || spaceJoinsSuffix))
+        if (r.Frequency is null && w.Delimiter != CommentDelimiter.Auto && r.Comment.Length > 0)
+        {
+            // A form tried because the rule's own choice did not read back.
+            w.Char(w.Delimiter == CommentDelimiter.Slash ? '/' : ' ');
+        }
+        else if (r.Frequency is null && (CommentCodec.NeedsDelimiter(r.Comment, extensionJustWritten ? r.Phg : null) || readsAsLocator || readsAsTypeCode || spaceJoinsSuffix))
         {
             // A '/' delimiter can itself start a Mic-E altitude run (//x}); a space delimiter,
             // which a decoder drops as well, cannot (vectors ruling E12). A run that starts in the

@@ -675,13 +675,15 @@ internal static class CommentCodec
     /// Decodes an encoded field and throws <paramref name="problem"/> unless the comment, and
     /// everything text in the comment could turn into, reads back as it was sent.
     /// </summary>
-    internal static void VerifyReadsBack(AprsPositionedData sent, byte[] info, string problem)
+    internal static void VerifyReadsBack(AprsPositionedData sent, byte[] info, string? problem)
     {
         AprsAddress destination = sent is AprsMicEReport mic ? MicECodec.EncodeDestination(mic) : AprsAddress.Parse("APZ001");
         AprsPacket back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), destination, [], info);
         if (back.HasWarnings || back.HasErrors || back.Data is not AprsPositionedData b || !ReadsBackTheSame(sent, b))
         {
-            throw new AprsEncodeException(AprsRefusalCode.TextReadsAsField, problem);
+            throw problem is null
+                ? new AprsEncodeException(AprsRefusalCode.DoesNotReadBack, "the Mic-E bytes written do not decode to the data given")
+                : new AprsEncodeException(AprsRefusalCode.TextReadsAsField, problem);
         }
     }
 
