@@ -222,31 +222,47 @@ internal static class CommentCodec
         return -1;
     }
 
-    /// <summary>Where the last <c>|ss11..|</c> block is: 2 to 7 base-91 pairs between bars (APRS12c §13), or (-1, -1).</summary>
+    /// <summary>
+    /// Where the telemetry is: the last pair of neighbouring bars, as sent, that encloses a valid
+    /// <c>|ss11..|</c> block (4 to 14 base-91 characters, an even number, APRS12c §13), or (-1, -1).
+    /// Bars around anything else are text (vectors interpretations.md, "Base-91 telemetry is the
+    /// last valid block"). One pass from the end, each pair judged on at most 14 bytes, so the time
+    /// is linear in the comment however many bars it holds.
+    /// </summary>
     private static (int Start, int End) FindTelemetry(CommentText c)
     {
         int end = LastIndexOf(c, (byte)'|', c.Count - 1);
-        if (end < 5)
+        while (end >= 0)
         {
-            return (-1, -1);
+            int start = LastIndexOf(c, (byte)'|', end - 1);
+            if (start < 0)
+            {
+                break;
+            }
+
+            int length = end - start - 1;
+            if (length is >= 4 and <= 14 && length % 2 == 0 && c.Whole(start, length + 2) && AllBase91(c, start + 1, end))
+            {
+                return (start, end);
+            }
+
+            end = start;
         }
 
-        int start = LastIndexOf(c, (byte)'|', end - 1);
-        int length = end - start - 1;
-        if (start < 0 || length is < 4 or > 14 || length % 2 != 0 || !c.Whole(start, length + 2))
-        {
-            return (-1, -1);
-        }
+        return (-1, -1);
+    }
 
-        for (int i = start + 1; i < end; i++)
+    private static bool AllBase91(CommentText c, int from, int to)
+    {
+        for (int i = from; i < to; i++)
         {
             if (!Base91.IsDigit(c[i]))
             {
-                return (-1, -1);
+                return false;
             }
         }
 
-        return (start, end);
+        return true;
     }
 
     private static int LastIndexOf(CommentText c, byte value, int from)

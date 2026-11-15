@@ -130,7 +130,7 @@ public class FinalPassTests
         MicEHead + "x",
     ];
 
-    private static readonly string[] Elements = ["{", "PHG1", "|!!|", "/A=000001", "!W12!", "\"4e}", "/A=000100}", "RNG0", "DFS2"];
+    private static readonly string[] Elements = ["{", "PHG1", "|!!|", "/A=000001", "!W12!", "\"4e}", "/A=000100}", "RNG0", "DFS2", "|", "||", "|ab|", "|!!!!", "|!!!!|a b"];
 
     private static long Best(string head, string element, int bytes)
     {
