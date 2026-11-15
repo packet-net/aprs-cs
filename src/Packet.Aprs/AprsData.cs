@@ -40,9 +40,10 @@ public abstract record AprsData
     /// The information field, whatever the data type (for a Mic-E report, without its destination).
     /// Ends in the read-back. <paramref name="micEBytesFirst"/> is a builder telling the encoder to
     /// write a Mic-E altitude in the Mic-E bytes first; it is an argument of the call, never held
-    /// on the data.
+    /// on the data. <paramref name="destination"/> is the destination the call writes the field under,
+    /// which the read-back decodes it under (null for a field written alone).
     /// </summary>
-    internal byte[] EncodeInformation(bool micEBytesFirst = false) => InfoEncoder.Encode(this, micEBytesFirst);
+    internal byte[] EncodeInformation(bool micEBytesFirst = false, AprsAddress? destination = null) => InfoEncoder.Encode(this, micEBytesFirst, destination);
 
     internal abstract void Encode(InfoWriter writer);
 }

@@ -28,7 +28,7 @@ internal static class InfoEncoder
     private static readonly CommentDelimiter[] Forms = [CommentDelimiter.Auto, CommentDelimiter.Slash, CommentDelimiter.Space];
     private static readonly CommentDelimiter[] OneForm = [CommentDelimiter.Auto];
 
-    public static byte[] Encode(AprsData data, bool micEBytesFirst = false)
+    public static byte[] Encode(AprsData data, bool micEBytesFirst = false, AprsAddress? destination = null)
     {
         // The forms that differ only in what stands before a comment: straight on as the rules
         // choose, then after a '/', then after a space; and for a Mic-E altitude the Mic-E bytes
@@ -55,7 +55,7 @@ internal static class InfoEncoder
                     continue;
                 }
 
-                if (ReadBack.Check(data, info, altitude) is { } mismatch)
+                if (ReadBack.Check(data, info, altitude, destination) is { } mismatch)
                 {
                     first ??= mismatch.ToException();
                     continue;

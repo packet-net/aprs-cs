@@ -179,6 +179,69 @@ public class WriterRuleTests
             .Should().BeApproximately(305.4 * 3.280839895013123, 1e-9, "as given, in feet");
     }
 
+    // ------------------------------------------------------------------ read back under the header written
+
+    private static AprsUnrecognizedData MicEShapedBytes() => new() { Reason = AprsUnrecognizedReason.Malformed, Raw = "`(_fn\"Oj/"u8.ToArray() };
+
+    [Fact]
+    public void Bytes_that_read_as_a_mic_e_position_under_the_destination_written_are_not_encodable()
+    {
+        // Under APZ001 these bytes are undecoded data; under S32U6T they are a Mic-E position (33.43, -12.13).
+        AprsUnrecognizedData bytes = MicEShapedBytes();
+        System.Text.Encoding.Latin1.GetString(AprsPacket.Create(Me, bytes, AprsAddress.Parse("APZ001")).ToTnc2()).Should().Be("N0CALL>APZ001:`(_fn\"Oj/");
+        Refused(() => AprsPacket.Create(Me, bytes, AprsAddress.Parse("S32U6T"))).Should().Be(AprsRefusalCode.NotEncodable);
+        Refused(() => AprsStation.From("N0CALL").To("S32U6T").Data(bytes).Build()).Should().Be(AprsRefusalCode.NotEncodable);
+        Refused(() => AprsThirdPartyTraffic.Create(Me, bytes, AprsAddress.Parse("S32U6T"))).Should().Be(AprsRefusalCode.NotEncodable);
+        FluentActions.Invoking(() => AprsThirdPartyTraffic.Create(Me, bytes, AprsAddress.Parse("APZ001"))).Should().NotThrow();
+        bytes.ToInformationField().Should().NotBeEmpty("an information field written alone is judged under N0CALL>APZ001");
+    }
+
+    [Fact]
+    public void A_mic_e_report_is_written_under_the_destination_it_computes_and_no_other()
+    {
+        var mic = new AprsMicEReport { Position = new AprsPosition(33.42733333333334, -12.129), Symbol = new AprsSymbol('/', 'j'), MicEMessage = AprsMicEMessage.Returning, CourseDegrees = 251, SpeedKnots = 20 };
+        AprsAddress computed = AprsPacket.Create(Me, mic).Destination;
+        computed.Value.Should().Be("S32U6T");
+        AprsThirdPartyTraffic.Create(Me, mic, computed).Packet.Destination.Should().Be(computed, "written under the destination it computes");
+        Refused(() => AprsThirdPartyTraffic.Create(Me, mic, AprsAddress.Parse("APRS"))).Should().Be(AprsRefusalCode.NotEncodable);
+        Refused(() => AprsPacket.Create(Me, mic, AprsAddress.Parse("APZ001"))).Should().Be(AprsRefusalCode.NotEncodable);
+    }
+
+    [Theory]
+    [InlineData("S32U7T")]
+    [InlineData("S32U6T-3")]
+    [InlineData("332U6T")]
+    [InlineData("S3256T")]
+    [InlineData("S32UVT")]
+    [InlineData("S32U64")]
+    [InlineData("APZ001")]
+    public void A_held_mic_e_report_read_back_under_another_destination_is_not_encodable(string other)
+    {
+        AprsPacket held = AprsPacket.Decode("N0CALL>S32U6T:`(_fn\"Oj/");
+        held.Data.Should().BeOfType<AprsMicEReport>();
+        ReadBack.Check(held.Data, held.Information.ToArray(), null, held.Destination).Should().BeNull("under its own destination it reads back as held");
+        ReadBack.Check(held.Data, held.Information.ToArray(), null, AprsAddress.Parse(other))!.Code.Should().Be(AprsRefusalCode.NotEncodable);
+        Refused(() => AprsPacket.Create(Me, held.Data, AprsAddress.Parse(other))).Should().Be(AprsRefusalCode.NotEncodable);
+        Refused(() => AprsThirdPartyTraffic.Create(Me, held.Data, AprsAddress.Parse(other))).Should().Be(AprsRefusalCode.NotEncodable);
+    }
+
+    [Fact]
+    public void A_builder_made_mic_e_packet_with_a_latitude_between_steps_is_written_under_its_computed_destination()
+    {
+        AprsPacket built = AprsStation.From("N0CALL").MicE(51.50123456, -0.50123456).Symbol(AprsSymbol.Car).Build();
+        built.Destination.Value.Should().NotBe("APZ001");
+        AprsPacket.Decode(built.ToTnc2()).Data.Should().BeOfType<AprsMicEReport>();
+        ((AprsMicEReport)built.Data).Position.Latitude.Should().Be(51.50123456, "the data holds the value as given");
+    }
+
+    [Fact]
+    public void A_destination_ssid_of_zero_is_none()
+    {
+        var mic = new AprsMicEReport { Position = new AprsPosition(33.42733333333334, -12.129), Symbol = new AprsSymbol('/', 'j'), MicEMessage = AprsMicEMessage.Returning, CourseDegrees = 251, SpeedKnots = 20 };
+        AprsPacket.Create(Me, mic with { DestinationSsid = 0 }).Destination.Value.Should().Be("S32U6T");
+        AprsPacket.Create(Me, mic with { DestinationSsid = 3 }).Destination.Value.Should().Be("S32U6T-3");
+    }
+
     // ------------------------------------------------------------------ regressions from the review
 
     [Theory]

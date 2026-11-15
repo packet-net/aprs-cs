@@ -946,7 +946,8 @@ internal static class PositionCodec
     internal static int RangeStep(double range)
     {
         NotANumber.Refuse(range, "range");
-        int s = range <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
+        // Half a denormal underflows to 0, so the logarithm is judged only for a range whose half is a number.
+        int s = range <= 0 || range / 2 <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
         return s is < 0 or > 90
             ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed range is 2 to 2 x 1.08^90 miles (APRS12c ch. 9)")
             : s;

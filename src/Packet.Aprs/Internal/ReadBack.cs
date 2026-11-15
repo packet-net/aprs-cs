@@ -55,9 +55,17 @@ internal static class ReadBack
     /// destination the encoder computes) and compares it with <paramref name="given"/>. Null when it
     /// matches. <paramref name="altitudeAsFeet"/> says which form a Mic-E altitude was written in.
     /// </summary>
-    public static Mismatch? Check(AprsData given, byte[] info, bool? altitudeAsFeet = null)
+    public static Mismatch? Check(AprsData given, byte[] info, bool? altitudeAsFeet = null, AprsAddress? written = null)
     {
-        AprsAddress destination = given is AprsMicEReport mic ? MicECodec.EncodeDestination(mic) : DefaultDestination;
+        // The field is read back under the destination actually written (a Mic-E report under the one
+        // it computes), and an information field written alone under N0CALL>APZ001: the header changes
+        // a reading only through a Mic-E destination.
+        // A Mic-E report written under a destination other than the one its data computes is read back
+        // under that one, and any difference in the data (latitude digits, message bits, N/S, longitude
+        // offset, W/E, the destination SSID) is a report that is not the one held: not-encodable.
+        AprsAddress computed = given is AprsMicEReport micReport ? MicECodec.EncodeDestination(micReport) : default;
+        bool otherMicEDestination = given is AprsMicEReport && written is { } other && other.Value != computed.Value;
+        AprsAddress destination = given is AprsMicEReport ? (otherMicEDestination ? written!.Value : computed) : written ?? DefaultDestination;
         AprsPacket back = AprsPacket.Decode(Sender, destination, [], info);
         var bad = new List<string>();
 
@@ -70,7 +78,7 @@ internal static class ReadBack
                 bad.Add("raw");
             }
 
-            return bad.Count == 0 ? null : new Mismatch(AprsRefusalCode.DoesNotReadBack, bad);
+            return bad.Count == 0 ? null : new Mismatch(back.Data is AprsMicEReport ? AprsRefusalCode.NotEncodable : AprsRefusalCode.DoesNotReadBack, bad);
         }
 
         // Diagnostics: no warning, no error, and of infos only those the rules attach to the form the data asks for.
@@ -104,9 +112,24 @@ internal static class ReadBack
         }
 
         Dictionary<string, object> expected = Neutral.Given(given, altitudeAsFeet);
+
+        // The one place every number of the data is seen, whatever its type or depth: a number that is
+        // not a number never compares equal to a finite one, nor as absent, and is refused as what it is
+        // (each field's own check says so first; this holds for a field a check forgot).
+        if (expected.Values.Any(v => v is double d && !double.IsFinite(d)))
+        {
+            return new Mismatch(AprsRefusalCode.NotANumber, [.. expected.Where(kv => kv.Value is double d && !double.IsFinite(d)).Select(kv => kv.Key)]);
+        }
+
         Dictionary<string, object> read = Neutral.Decoded(back.Data);
         Allowances(given, expected, read);
         Compare(expected, read, bad);
+        if (bad.Count > 0 && (otherMicEDestination || (back.Data is AprsMicEReport && given is not AprsMicEReport)))
+        {
+            // Under this destination the field reads as a Mic-E position: nothing the call can write is the data.
+            return new Mismatch(AprsRefusalCode.NotEncodable, bad);
+        }
+
         return bad.Count == 0 ? null : new Mismatch(lost ? AprsRefusalCode.ValueHasNoForm : Code(given, back.Data, bad), bad);
     }
 

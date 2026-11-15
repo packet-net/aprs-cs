@@ -285,14 +285,44 @@ public class AprsVectorTests
         Pass(c, differences);
     }
 
-    private static IEnumerable<string> Written(AprsPacket packet, JsonObject expect, string which)
+    /// <summary>
+    /// A held packet under the optional <c>header</c> a pass-through expectation gives: its information
+    /// field written under that source, destination and path. Packet.Aprs decodes a packet under its
+    /// own header, so a held packet is only ever consistent with it; re-addressing one is done here by
+    /// reading the held data back under the destination to be written, with the library's own
+    /// read-back (<see cref="Packet.Aprs.Internal.ReadBack.Check"/>): a field that reads as other
+    /// data there (to or from a Mic-E destination, or under another Mic-E destination) is the
+    /// refusal the read-back names, <c>not-encodable</c>, and otherwise the packet is decoded under
+    /// the new header and written.
+    /// </summary>
+    private static (AprsPacket? Packet, AprsEncodeException? Refusal) Readdressed(AprsPacket packet, JsonObject expect)
     {
-        foreach (string difference in Written("tnc2", expect["tnc2"], expect["tnc2_refusal"], () => packet.ToTnc2(), b => System.Text.Encoding.UTF8.GetString(b), s => s))
+        if (expect["header"] is not JsonObject header)
+        {
+            return (packet, null);
+        }
+
+        AprsAddress destination = AprsAddress.CreateUnchecked((string?)header["destination"] ?? packet.Destination.Value);
+        if (Packet.Aprs.Internal.ReadBack.Check(packet.Data, packet.Information.ToArray(), null, destination) is { } mismatch)
+        {
+            return (null, mismatch.ToException());
+        }
+
+        IEnumerable<AprsPathEntry> path = (header["path"] as JsonArray ?? []).Select(e => (string)e!).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
+        return (AprsPacket.Decode(AprsAddress.Parse((string)header["source"]!), destination, path, packet.Information.Span), null);
+    }
+
+    private static IEnumerable<string> Written(AprsPacket held, JsonObject expect, string which)
+    {
+        (AprsPacket? readdressed, AprsEncodeException? refusal) = Readdressed(held, expect);
+        Func<Func<byte[]>, Func<byte[]>> through = write => refusal is null ? write : () => throw refusal;
+        AprsPacket? packet = readdressed;
+        foreach (string difference in Written("tnc2", expect["tnc2"], expect["tnc2_refusal"], through(() => packet!.ToTnc2()), b => System.Text.Encoding.UTF8.GetString(b), s => s))
         {
             yield return which + difference;
         }
 
-        foreach (string difference in Written("ax25_hex", expect["ax25_hex"], expect["ax25_refusal"], () => packet.ToAx25Frame(), b => Convert.ToHexStringLower(b), s => s.ToLowerInvariant()))
+        foreach (string difference in Written("ax25_hex", expect["ax25_hex"], expect["ax25_refusal"], through(() => packet!.ToAx25Frame()), b => Convert.ToHexStringLower(b), s => s.ToLowerInvariant()))
         {
             yield return which + difference;
         }

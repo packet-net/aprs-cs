@@ -71,7 +71,7 @@ public class RefusalCodeTests
         { "mic-e-status-text-starting-0x1d", AprsRefusalCode.InvalidCharacter },
         { "status-257-bytes", AprsRefusalCode.InformationFieldTooLong },
         { "storm-beside-wind", AprsRefusalCode.ValueOutOfRange },
-        { "third-party-mic-e-destination", AprsRefusalCode.FieldNotAllowed },
+        { "third-party-mic-e-destination", AprsRefusalCode.NotEncodable },
         { "bad-source", AprsRefusalCode.InvalidAddress },
         { "infinite-range", AprsRefusalCode.NotANumber },
         { "infinite-mic-e-altitude", AprsRefusalCode.NotANumber },

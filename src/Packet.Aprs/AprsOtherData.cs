@@ -403,7 +403,8 @@ public sealed record AprsTestData : AprsData
 
     internal override void Encode(InfoWriter writer)
     {
-        Internal.Text.RequireNoLineBreaks(Data);
+        // Data, not text: a CR or LF inside is written as it came in an information field alone (a
+        // line refuses it, Tnc2CannotCarry); one at the end is refused by the one check for every type.
         writer.Char(',').Utf8(Data);
     }
 }

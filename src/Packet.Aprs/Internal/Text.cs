@@ -142,13 +142,4 @@ internal static class Text
         }
     }
 
-    /// <summary>For encoders: rejects text containing CR or LF, which would end the packet on
-    /// APRS-IS (APRS12c §5 Comment Field). Used where the data is not judged as text (test data).</summary>
-    public static void RequireNoLineBreaks(string text)
-    {
-        if (text.AsSpan().IndexOfAny('\r', '\n') >= 0)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidCharacter, "text must not contain carriage return or line feed");
-        }
-    }
 }

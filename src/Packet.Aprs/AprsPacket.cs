@@ -39,12 +39,8 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
         this.information = information;
         Data = data;
         Diagnostics = diagnostics;
-        IsInner = inner;
         QConstruct = inner ? null : AprsQConstruct.Find(path);
     }
-
-    /// <summary>A packet carried inside a third-party packet: its header has the third-party form (a source of 1-9 printable characters).</summary>
-    internal bool IsInner { get; }
 
     /// <summary>The station that originated the packet.</summary>
     public AprsAddress Source { get; }
@@ -220,19 +216,16 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
         RequireAddress(source);
         if (data is AprsMicEReport micE)
         {
-            if (destination is not null)
-            {
-                throw new AprsEncodeException(AprsRefusalCode.FieldNotAllowed, "a Mic-E report computes its destination address, so none can be given");
-            }
-
-            // The information first, so a fault in the data is reported before one in the destination.
-            byte[] micEInformation = micE.EncodeInformation(micEBytesFirst);
-            return new AprsPacket(source, MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micEInformation, micE, [], inner);
+            // The information first, so a fault in the data is reported before one in the destination. A
+            // destination given is the one the field is written and read back under: one that is not the
+            // one the data computes reads back as another report (not-encodable), never replaced by it.
+            byte[] micEInformation = micE.EncodeInformation(micEBytesFirst, destination);
+            return new AprsPacket(source, destination ?? MicECodec.EncodeDestination(micE), path?.ToList() ?? [], micEInformation, micE, [], inner);
         }
 
         AprsAddress to = destination ?? AprsAddress.Parse(AprsStation.DefaultDestination);
         RequireAddress(to);
-        return new AprsPacket(source, to, path?.ToList() ?? [], data.EncodeInformation(micEBytesFirst), data, [], inner);
+        return new AprsPacket(source, to, path?.ToList() ?? [], data.EncodeInformation(micEBytesFirst, to), data, [], inner);
     }
 
     /// <summary>

@@ -13,7 +13,7 @@ public enum AprsRefusalCode
     /// <summary>An AX.25 frame cannot carry the header: a call over 6 characters, in lower case or empty (an empty destination written from a held packet), an SSID over 15 or written with a leading zero, more than 8 path entries.</summary>
     Ax25CannotCarry = 2,
 
-    /// <summary>A TNC2 line cannot carry the packet: its information field holds a CR or LF before its last byte, which would end the line (one at the very end is carried), or it is not UTF-8 text.</summary>
+    /// <summary>A TNC2 line cannot carry the packet: its information field holds a CR or LF before its trailing line breaks, which would end the line (a run of them at the very end is carried). The line carries any other byte as it is.</summary>
     Tnc2CannotCarry = 3,
 
     /// <summary>A third-party packet's inner header cannot be written as received.</summary>

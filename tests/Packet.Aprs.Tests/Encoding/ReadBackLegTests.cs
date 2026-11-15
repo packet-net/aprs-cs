@@ -151,6 +151,19 @@ public class ReadBackLegTests
         WithBytes(withPhg, info => [.. info[..^7], .. "PHG6132"u8.ToArray()]).Should().Be(AprsRefusalCode.DoesNotReadBack);
     }
 
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void A_number_that_is_not_a_number_is_not_a_number_in_the_read_back_whatever_the_field(double bad)
+    {
+        // The bytes are a clean position; the data gives a course that is not a number. Each field's own
+        // check says so first, so the read-back is asked directly: it never compares such a number equal.
+        byte[] info = Position().ToInformationField();
+        ReadBack.Check(Position() with { CourseDegrees = bad, SpeedKnots = 1 }, info)!.Code.Should().Be(AprsRefusalCode.NotANumber);
+        ReadBack.Check(Position(), info).Should().BeNull();
+    }
+
     // ------------------------------------------------------------------ a third-party packet's inner packet
 
     private static AprsThirdPartyTraffic Wrapping(AprsPacket inner) => new() { Packet = inner };

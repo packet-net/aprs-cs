@@ -237,9 +237,11 @@ internal static class NeutralReader
             return new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(source, destination, path, []) };
         }
 
-        // A Mic-E report's destination is computed from it; the neutral form's is that one.
+        // A Mic-E report's destination is computed from it. The neutral form's destination must be that
+        // one: written under another, the bytes would not be the report, and the computed one is not the
+        // one given (vectors encode/third-party-inner-mic-e-under-another-destination: not-encodable).
         AprsData inner = Data(data);
-        AprsThirdPartyTraffic traffic = AprsThirdPartyTraffic.Create(source, inner, inner is AprsMicEReport ? null : destination, path);
+        AprsThirdPartyTraffic traffic = AprsThirdPartyTraffic.Create(source, inner, destination, path);
 
         // Diagnostics on the inner packet are part of its data (a tolerated header defect such as
         // several used markers): the packet is the one that reads with them, its header as
@@ -380,8 +382,14 @@ internal static class NeutralReader
             return null;
         }
 
-        double rounded = Packet.Aprs.Internal.Steps.Nearest((double)node);
-        return (int)Math.Clamp(rounded, int.MinValue, int.MaxValue);
+        double value = (double)node;
+        if (!double.IsFinite(value))
+        {
+            StandIns.Note(AprsRefusalCode.NotANumber, "a number that is not a number cannot be held in a whole-number field");
+            return 0;
+        }
+
+        return (int)Math.Clamp(Packet.Aprs.Internal.Steps.Nearest(value), int.MinValue, int.MaxValue);
     }
 
     private static int? Code(JsonNode? node)
@@ -392,6 +400,13 @@ internal static class NeutralReader
         }
 
         double value = (double)node;
+        if (!double.IsFinite(value))
+        {
+            // The data cannot hold it; its value alone decides a refusal (README, Refusal reasons).
+            StandIns.Note(AprsRefusalCode.NotANumber, "a number that is not a number cannot be held in a whole-number field");
+            return 0;
+        }
+
         if (value != Math.Floor(value))
         {
             StandIns.Note(AprsRefusalCode.ValueOutOfRange, $"{node.ToJsonString()} is not a whole number, and this field holds only whole units or a code");

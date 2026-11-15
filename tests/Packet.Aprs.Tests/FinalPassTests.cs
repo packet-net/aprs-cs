@@ -6,6 +6,11 @@ namespace Packet.Aprs.Tests;
 /// Round 5, final pass: a later Mic-E altitude never uses the bytes of a whole /A= altitude, and
 /// a decoder fed hostile text stays linear. Beyond the shared vector cases.
 /// </summary>
+/// <summary>Holds the timing ratio test: a collection that runs alone, so other tests do not slow one size and not the other.</summary>
+[CollectionDefinition("Timing", DisableParallelization = true)]
+public class TimingDefinition;
+
+[Collection("Timing")]
 public class FinalPassTests
 {
     private const string MicEHead = "N0CALL>S32UVT:`(_fn\"Oj/`";

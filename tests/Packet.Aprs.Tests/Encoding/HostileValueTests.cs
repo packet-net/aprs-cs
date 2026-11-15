@@ -237,9 +237,11 @@ public class HostileValueTests
                         AprsPacket packet = AprsPacket.Create(Me, data, data is AprsMicEReport ? null : AprsAddress.Parse("APZ001"));
                         packet.ToTnc2();
                     }
-                    catch (AprsEncodeException)
+                    catch (AprsEncodeException ex)
                     {
-                        // A refusal is an answer.
+                        // A refusal is an answer, but only a value that is not a number is not-a-number: a
+                        // finite value never becomes one by arithmetic on it (a denormal's half is 0).
+                        ex.Code.Should().NotBe(AprsRefusalCode.NotANumber, where);
                     }
                     catch (Exception ex)
                     {

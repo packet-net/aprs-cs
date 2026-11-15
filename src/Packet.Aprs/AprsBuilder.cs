@@ -156,7 +156,7 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     /// one outside -10000 to 743570 m is refused there (<see cref="AprsRefusalCode.ValueOutOfRange"/>).</summary>
     public TSelf AltitudeMetres(double metres)
     {
-        altitudeFeet = metres * Units.FeetPerMetre;
+        altitudeFeet = Units.Scaled(metres, metres * Units.FeetPerMetre);
         return Self;
     }
 
