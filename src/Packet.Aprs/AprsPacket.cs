@@ -178,7 +178,8 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     /// normally your software's registered identifier (<c>APxxxx</c>, or <c>APZxxx</c> while
     /// experimenting; APRS12c §4); when null it is <see cref="AprsStation.DefaultDestination"/>. A
     /// Mic-E report puts part of its position in the destination, so its destination is computed
-    /// from it, and giving one is refused. Throws <see cref="AprsEncodeException"/> for a header that
+    /// from it: one given with it is written only when it is the computed one, and any other is
+    /// <see cref="AprsRefusalCode.NotEncodable"/> (the computed one is never put in place of it). Throws <see cref="AprsEncodeException"/> for a header that
     /// is not one, before anything in the data is looked at (<see cref="AprsRefusalCode.InvalidAddress"/>
     /// for an address that is not 1-9 letters, digits or <c>-</c>, <see cref="AprsRefusalCode.InvalidPath"/>
     /// for a path with an entry not marked used before one that is), then for data the library will
@@ -263,7 +264,7 @@ public sealed class AprsPacket : IEquatable<AprsPacket>
     /// entry only. An address that is not 1-9 letters, digits or <c>-</c> is
     /// <see cref="AprsRefusalCode.InvalidAddress"/>, a path with an entry not marked used before one
     /// that is <see cref="AprsRefusalCode.InvalidPath"/>, and an information field with a CR or LF
-    /// inside it (one at the very end is carried) <see cref="AprsRefusalCode.Tnc2CannotCarry"/>,
+    /// inside it (a run of them at the very end is carried) <see cref="AprsRefusalCode.Tnc2CannotCarry"/>,
     /// since a line ends there.
     /// </summary>
     public byte[] ToTnc2()

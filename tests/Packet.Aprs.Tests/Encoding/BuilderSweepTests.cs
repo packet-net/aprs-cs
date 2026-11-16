@@ -97,14 +97,22 @@ public class BuilderSweepTests
             }
             catch (AprsEncodeException ex)
             {
-                if (!notFinite)
+                if (notFinite)
+                {
+                    ex.Code.Should().Be(AprsRefusalCode.NotANumber, call);
+                }
+                else
                 {
                     ex.Code.Should().NotBe(AprsRefusalCode.NotANumber, call);
                 }
             }
             catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is AprsEncodeException inner)
             {
-                if (!notFinite)
+                if (notFinite)
+                {
+                    inner.Code.Should().Be(AprsRefusalCode.NotANumber, call);
+                }
+                else
                 {
                     inner.Code.Should().NotBe(AprsRefusalCode.NotANumber, call);
                 }
@@ -120,20 +128,25 @@ public class BuilderSweepTests
             }
 
             notFinite.Should().BeFalse($"{call} wrote bytes from a number that is not a number");
-            built.ToTnc2().Should().NotBeEmpty(call);
+            byte[] line = built.ToTnc2();
+            line.Should().NotBeEmpty(call);
+            AprsPacket again = AprsPacket.Decode(line);
+            again.HasErrors.Should().BeFalse(call);
+            again.Information.ToArray().Should().Equal(built.Information.ToArray(), call);
+            again.Data.GetType().Should().Be(built.Data.GetType(), call);
 
             // The same data inside third-party packets, one and two deep.
             AprsData data = built.Data;
             for (int depth = 1; depth <= 2; depth++)
             {
-                try
-                {
-                    data = AprsThirdPartyTraffic.Create(AprsAddress.Parse("G4ABC"), data, data is AprsMicEReport ? built.Destination : null, [new AprsPathEntry(AprsAddress.Parse("TCPIP"), true)]);
-                }
-                catch (AprsEncodeException)
-                {
-                    break;
-                }
+                // Data a builder wrote is writable inside a third-party packet at depth 1 and 2;
+                // a refusal here is a failure, not something to skip.
+                AprsThirdPartyTraffic wrapped = AprsThirdPartyTraffic.Create(AprsAddress.Parse("G4ABC"), data, data is AprsMicEReport ? built.Destination : null, [new AprsPathEntry(AprsAddress.Parse("TCPIP"), true)]);
+                AprsPacket outer = AprsPacket.Create(AprsAddress.Parse("N0CALL"), wrapped);
+                AprsPacket outerAgain = AprsPacket.Decode(outer.ToTnc2());
+                outerAgain.HasErrors.Should().BeFalse($"{call} at depth {depth}");
+                outerAgain.Information.ToArray().Should().Equal(outer.Information.ToArray(), $"{call} at depth {depth}");
+                data = wrapped;
             }
         }
 

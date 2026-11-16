@@ -79,7 +79,7 @@ public enum AprsRefusalCode
     /// <summary>An NMEA sentence is malformed, its checksum does not match, or a field given beside it disagrees with it.</summary>
     InvalidNmea = 24,
 
-    /// <summary>The call has nothing it can write: undecoded data, or Mic-E through a call that cannot return the destination.</summary>
+    /// <summary>The call has nothing it can write: undecoded data, Mic-E through a call that cannot return the destination, a Mic-E report written under a destination other than the one its data computes, or a field that reads as other data under the header written (undecoded bytes that read as a Mic-E position under that destination, say).</summary>
     NotEncodable = 25,
 
     /// <summary>Fallback: the library's own read-back check found the bytes decode to different data and no rule names why. Numbered last as the fallback; every refusal that can be named is.</summary>

@@ -310,7 +310,8 @@ public sealed record AprsThirdPartyTraffic : AprsData
     /// (vectors README, Refusal reasons); then the inner packet is made as
     /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>
     /// makes it, with the same destination rules: null is <see cref="AprsStation.DefaultDestination"/>,
-    /// and a Mic-E report computes its own, so one given with it is refused.
+    /// and a Mic-E report computes its own: one given with it is written only when it is the computed
+    /// one, and any other is <see cref="AprsRefusalCode.NotEncodable"/>.
     /// </summary>
     public static AprsThirdPartyTraffic Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
     {
