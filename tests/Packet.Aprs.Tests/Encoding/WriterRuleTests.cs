@@ -242,6 +242,28 @@ public class WriterRuleTests
         AprsPacket.Create(Me, mic with { DestinationSsid = 3 }).Destination.Value.Should().Be("S32U6T-3");
     }
 
+    // ------------------------------------------------------------------ decoder diagnostics
+
+    private static AprsDiagnosticCode[] Codes(AprsPacket p) => [.. p.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => d.Code)];
+
+    [Fact]
+    public void A_defect_of_one_field_or_entry_is_listed_once_for_each_and_a_judgement_of_a_whole_once()
+    {
+        Codes(AprsPacket.Decode("N0CALL>APZ001,,,WIDE1-1:>x")).Should().Equal(AprsDiagnosticCode.EmptyPathEntry, AprsDiagnosticCode.EmptyPathEntry);
+        Codes(((AprsThirdPartyTraffic)AprsPacket.Decode("N0CALL>APZ001:}A>B,,,C:>x").Data).Packet).Should().Equal(AprsDiagnosticCode.EmptyPathEntry, AprsDiagnosticCode.EmptyPathEntry);
+        Codes(AprsPacket.Decode("N0CALL>APZ001,A*,B*,C*:>x")).Should().Equal(AprsDiagnosticCode.MultipleUsedMarkers);
+        Codes(AprsPacket.Decode("N0CALL>APZ001:!5130.00n/00030.00w>")).Should().Equal(AprsDiagnosticCode.LowercaseHemisphere, AprsDiagnosticCode.LowercaseHemisphere);
+        Codes(AprsPacket.Decode("N0CALL>APZ001:>a\u0001b\u0002c")).Should().Equal(AprsDiagnosticCode.ControlCharacterInText);
+    }
+
+    [Fact]
+    public void A_strict_decoder_lists_nothing_found_after_the_defect_it_rejects_by()
+    {
+        // A missing space after a Mic-E locator is met where the locator is read, before the DAO and its ambiguity check.
+        AprsPacket packet = AprsPacket.Decode("KJ5IMV-2>RYTWLZ,WIDE1-1,WIDE2-1,qAR,KJ5IMV:'{P\u001c\u001c\u001c\u001cj/]IO91/G!w3U!}Pi/\"4G}Graywolf/181.14.13", AprsParseOptions.Strict);
+        packet.Diagnostics.Select(d => $"{d.Severity}:{d.Code}").Should().Equal("Error:MissingSpaceAfterLocator");
+    }
+
     // ------------------------------------------------------------------ regressions from the review
 
     [Theory]

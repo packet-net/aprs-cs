@@ -283,6 +283,9 @@ internal static class MicECodec
         bool trailerOk = CommentCodec.TryExtractTrailer(text, offset, ctx, fields);
         if (spacePending && !JudgeLocatorSpace(text, ctx, offset, trailerMark))
         {
+            // A strict decoder stops at the defect it rejects by, and the locator's missing space is met
+            // where the locator is read, before the telemetry and the !DAO!: nothing they found is listed.
+            ctx.Diagnostics.RemoveRange(trailerMark + 1, ctx.Diagnostics.Count - trailerMark - 1);
             return false;
         }
 
