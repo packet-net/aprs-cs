@@ -27,7 +27,7 @@ What changes for callers
 - Considered and not done: a typed comparison in place of the generic one to win back part of the writing cost above; the comparison stays one definition.
 - A strict decoder stops at the defect it rejects by and lists nothing found after it: a Mic-E packet whose locator lacks its space no longer also lists `DaoWithAmbiguity`. A defect of one field or entry is listed once for each, a judgement of a whole once.
 - An `AprsPacket` is immutable (no public constructor, nothing settable), so a packet you hold cannot carry data or a header that disagrees with its bytes; data or a header changed with `with` or by hand becomes a packet only through `AprsPacket.Create`, a builder or `AprsThirdPartyTraffic.Create`, which write it and read it back, at every depth. A test shows it.
-- Vectors pinned at `72583b4`.
+- Vectors pinned at `abe1b50`.
 
 ## 1.2.0 (2026-11-14)
 
