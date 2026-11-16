@@ -127,10 +127,6 @@ public sealed record AprsMicEReport : AprsPositionedData
     /// </summary>
     public bool AltitudeInComment { get; init; }
 
-    /// <summary>Set by a builder: the altitude goes in the Mic-E altitude bytes whatever its value,
-    /// refused if they cannot hold it, never moved to a <c>/A=</c> (vectors README, "Units").</summary>
-    internal bool AltitudeInBytes { get; init; }
-
     /// <inheritdoc/>
     public override char DataTypeIdentifier => IsOldData ? '\'' : '`';
 

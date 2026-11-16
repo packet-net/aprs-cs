@@ -47,7 +47,13 @@ public readonly record struct AprsPathEntry(AprsAddress Address, bool Used = fal
         return entries;
     }
 
-    /// <summary>Formats a path in TNC2 form with a single <c>*</c> after the last used entry.</summary>
+    /// <summary>
+    /// Formats a path in TNC2 form with a single <c>*</c> after the last used entry, for display
+    /// and for the header text of a line. It is not a writer: it checks nothing, never refuses,
+    /// shows the entries as held and is not read back, so it is not for sending (a path with an
+    /// entry not marked used before a used one is shown as it stands). Send with
+    /// <see cref="AprsPacket.ToTnc2"/> or <see cref="AprsPacket.ToAx25Frame"/>.
+    /// </summary>
     public static string FormatList(IEnumerable<AprsPathEntry> path)
     {
         ArgumentNullException.ThrowIfNull(path);
@@ -64,6 +70,6 @@ public readonly record struct AprsPathEntry(AprsAddress Address, bool Used = fal
         return string.Join(',', list.Select((e, i) => i == lastUsed ? e.Address.Value + "*" : e.Address.Value));
     }
 
-    /// <summary>Returns the address, followed by <c>*</c> if used.</summary>
+    /// <summary>Returns the address, followed by <c>*</c> if used, for display.</summary>
     public override string ToString() => Used ? Address.Value + "*" : Address.Value;
 }

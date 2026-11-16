@@ -730,6 +730,7 @@ namespace Packet.Aprs
         NotEncodable = 25,
         DoesNotReadBack = 26,
         InformationFieldTooLong = 27,
+        InvalidPath = 28,
     }
     public sealed class AprsStation
     {

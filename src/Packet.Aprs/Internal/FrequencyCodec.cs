@@ -12,11 +12,18 @@ internal static class FrequencyCodec
         ('I', 10200), ('J', 10300), ('K', 10400), ('L', 10500), ('M', 24000), ('N', 24100), ('O', 24200),
     ];
 
-    public static bool TryRead(ReadOnlySpan<byte> s, out AprsVoiceFrequency? frequency, out int consumed)
+    /// <summary>
+    /// Reads the frequency at the start of <paramref name="s"/>. <paramref name="cuts"/> (empty when
+    /// nothing was lifted) says what was lifted before each byte, and after the last: the frequency
+    /// stands whole as sent, and a field is read only where it does too, after a space that comes
+    /// straight after a lifted <c>/A=</c> altitude at most (APRS12c ch. 6, ch. 18; vectors
+    /// interpretations.md, "Lifting an element never joins the text either side of it").
+    /// </summary>
+    public static bool TryRead(ReadOnlySpan<byte> s, ReadOnlySpan<Lifted> cuts, out AprsVoiceFrequency? frequency, out int consumed)
     {
         frequency = null;
         consumed = 0;
-        if (s.Length < 10 || s[3] != (byte)'.' || !"MHZ"u8.SequenceEqual(Upper(s.Slice(7, 3))))
+        if (s.Length < 10 || !Whole(cuts, 0, 10) || s[3] != (byte)'.' || !"MHZ"u8.SequenceEqual(Upper(s.Slice(7, 3))))
         {
             return false;
         }
@@ -51,18 +58,18 @@ internal static class FrequencyCodec
         int? range = null;
         bool rangeKm = false;
 
-        if (TryField(s, pos, 4, out ReadOnlySpan<byte> tone) && TryTone(tone, out toneType, out toneValue, out narrow))
+        if (TryField(s, cuts, pos, 4, out ReadOnlySpan<byte> tone) && TryTone(tone, out toneType, out toneValue, out narrow))
         {
             pos += 5;
         }
 
-        if (TryField(s, pos, 4, out ReadOnlySpan<byte> off) && off[0] is (byte)'+' or (byte)'-' && Text.AllDigits(off[1..]))
+        if (TryField(s, cuts, pos, 4, out ReadOnlySpan<byte> off) && off[0] is (byte)'+' or (byte)'-' && Text.AllDigits(off[1..]))
         {
             offset = Text.ParseDigits(off[1..]) * 10 * (off[0] == (byte)'-' ? -1 : 1);
             pos += 5;
         }
 
-        if (TryField(s, pos, 4, out ReadOnlySpan<byte> rng) && rng[0] == (byte)'R' && Text.AllDigits(rng.Slice(1, 2)) && rng[3] is (byte)'m' or (byte)'k')
+        if (TryField(s, cuts, pos, 4, out ReadOnlySpan<byte> rng) && rng[0] == (byte)'R' && Text.AllDigits(rng.Slice(1, 2)) && rng[3] is (byte)'m' or (byte)'k')
         {
             range = Text.ParseDigits(rng.Slice(1, 2));
             rangeKm = rng[3] == (byte)'k';
@@ -85,15 +92,36 @@ internal static class FrequencyCodec
     }
 
     /// <summary>A space then exactly <paramref name="length"/> bytes, ending at a space or the end.</summary>
-    private static bool TryField(ReadOnlySpan<byte> s, int pos, int length, out ReadOnlySpan<byte> field)
+    private static bool TryField(ReadOnlySpan<byte> s, ReadOnlySpan<Lifted> cuts, int pos, int length, out ReadOnlySpan<byte> field)
     {
         field = default;
-        if (s.Length < pos + 1 + length || s[pos] != (byte)' ' || (s.Length > pos + 1 + length && s[pos + 1 + length] != (byte)' '))
+        if (s.Length < pos + 1 + length || s[pos] != (byte)' ' || !Whole(cuts, pos, 1 + length)
+            || (cuts.Length > pos && cuts[pos] == Lifted.Other))
+        {
+            return false;
+        }
+
+        // Complete when a space, the end or anything lifted comes next.
+        int next = pos + 1 + length;
+        if (s.Length > next && s[next] != (byte)' ' && !(cuts.Length > next && cuts[next] != Lifted.None))
         {
             return false;
         }
 
         field = s.Slice(pos + 1, length);
+        return true;
+    }
+
+    private static bool Whole(ReadOnlySpan<Lifted> cuts, int start, int length)
+    {
+        for (int k = start + 1; k < start + length && k < cuts.Length; k++)
+        {
+            if (cuts[k] != Lifted.None)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -172,6 +200,14 @@ internal static class FrequencyCodec
         Write(alone, f);
         f = f.Rounded();
         byte[] text = System.Text.Encoding.UTF8.GetBytes(comment);
+
+        // What the decoder lifts from between the frequency and the comment leaves a boundary there:
+        // a /A= alone lets the comment's own fields be read as the frequency's, anything else cuts them off.
+        var scratch = new InfoWriter();
+        between?.Invoke(scratch);
+        byte[] mid = scratch.Written.ToArray();
+        Lifted lifted = mid.Length == 0 ? Lifted.None : mid.Length == 9 && mid.AsSpan().StartsWith("/A="u8) ? Lifted.Altitude : Lifted.Other;
+
         foreach (bool separator in (bool[])[true, false])
         {
             if (!separator && comment.Length > 0 && comment[0] == ' ')
@@ -180,9 +216,14 @@ internal static class FrequencyCodec
             }
 
             byte[] tail = [.. (separator && comment.Length > 0 ? " "u8.ToArray() : []), .. text];
-            byte[] candidate = [.. alone.Written, .. tail];
-            if (TryRead(candidate, out AprsVoiceFrequency? back, out int consumed) && back == f
-                && consumed + (separator && comment.Length > 0 ? 1 : 0) == alone.Length + (separator && comment.Length > 0 ? 1 : 0))
+            var candidate = new CommentText([.. alone.Written, .. mid, .. tail]);
+            if (mid.Length > 0)
+            {
+                candidate.Lift(alone.Length, mid.Length, lifted);
+            }
+
+            if (TryRead(candidate.ToArray(), candidate.CutsFrom(0), out AprsVoiceFrequency? back, out int consumed) && back == f
+                && consumed == alone.Length)
             {
                 w.Bytes(alone.Written);
                 between?.Invoke(w);
@@ -196,7 +237,6 @@ internal static class FrequencyCodec
         w.Bytes(alone.Written);
         between?.Invoke(w);
         w.Bytes([.. " /"u8, .. text]);
-        w.CommentCheck ??= "the comment starts with text that would be read as part of the frequency specification";
     }
 
     public static void Write(InfoWriter w, AprsVoiceFrequency f)
@@ -243,7 +283,7 @@ internal static class FrequencyCodec
 
         if (f.OffsetKHz is { } offset)
         {
-            w.Char(' ').Char(offset < 0 ? '-' : '+').Digits(Math.Abs(offset) / 10, 3);
+            w.Char(' ').Char(offset < 0 ? '-' : '+').Digits((int)(Math.Abs((long)offset) / 10), 3);
         }
 
         if (f.Range is { } range)

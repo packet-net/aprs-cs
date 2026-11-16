@@ -465,7 +465,7 @@ internal static class ThirdPartyCodec
     /// had a defect of its own tolerated when it was decoded: that defect is part of its data
     /// (diagnostics included), so no clean form reproduces it.
     /// </summary>
-    public static bool CanWrite(AprsPacket packet, byte[] tnc2)
+    public static bool CanWrite(AprsPacket packet)
     {
         if (packet.Diagnostics.Any(d => d.Code is AprsDiagnosticCode.EmptyDestination or AprsDiagnosticCode.EmptyPathEntry or AprsDiagnosticCode.MultipleUsedMarkers
             or AprsDiagnosticCode.NulPaddedAddress or AprsDiagnosticCode.InvalidAx25AddressCharacters))
@@ -473,7 +473,7 @@ internal static class ThirdPartyCodec
             return false;
         }
 
-        return HeaderCanBeWritten(packet.Path) && Tnc2Codec.TrySplit(tnc2, new DecodeContext(AprsParseOptions.Strict), out _, out _, thirdParty: true);
+        return HeaderCanBeWritten(packet.Source, packet.Destination, packet.Path);
     }
 
     /// <summary>
@@ -495,11 +495,30 @@ internal static class ThirdPartyCodec
 
     /// <summary>
     /// For the encoder: whether a third-party header can be written as given, before anything in
-    /// the inner packet's data is looked at (vectors README, Refusal reasons: the header first).
+    /// the inner packet's data is looked at (vectors README, Refusal reasons: the header first). It
+    /// must be one a strict decoder reads back as given: the same source, destination and path, entry
+    /// by entry with its used mark (a destination of <c>A,B</c> would read back as a destination and
+    /// a path entry).
     /// </summary>
-    public static bool HeaderCanBeWritten(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path) =>
-        HeaderCanBeWritten(path)
-        && Tnc2Codec.TrySplit(Tnc2Codec.Format(source, destination, path, []), new DecodeContext(AprsParseOptions.Strict), out _, out _, thirdParty: true);
+    public static bool HeaderCanBeWritten(AprsAddress source, AprsAddress destination, IReadOnlyList<AprsPathEntry> path)
+    {
+        if (!HeaderCanBeWritten(path)
+            || !Tnc2Codec.TrySplit(Tnc2Codec.Format(source, destination, path, []), new DecodeContext(AprsParseOptions.Strict), out Tnc2Codec.Header read, out _, thirdParty: true)
+            || read.Source.Value != source.Value || read.Destination.Value != destination.Value || read.Path.Count != path.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < path.Count; i++)
+        {
+            if (read.Path[i].Address.Value != path[i].Address.Value || read.Path[i].Used != path[i].Used)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// A path entry before a used one is used too, so one not marked used there reads back marked

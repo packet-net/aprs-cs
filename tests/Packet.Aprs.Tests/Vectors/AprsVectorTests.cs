@@ -21,6 +21,8 @@ public class AprsVectorTests
 
     public static TheoryData<string> BuildCases => [.. VectorCases.Ids(VectorCases.IsBuildCase)];
 
+    public static TheoryData<string> PassThroughCases => [.. VectorCases.Ids(c => c.ContainsKey("pass_through") || c.ContainsKey("pass_through_inner"))];
+
     [Theory]
     [MemberData(nameof(DecodeCases))]
     public void Lenient_decoding(string id)
@@ -49,7 +51,7 @@ public class AprsVectorTests
         AprsParseOptions options = AprsParseOptions.Lenient with { };
         flag.SetValue(options, false);
         AprsPacket? packet = VectorCases.Decode(Input(c), options, out var headerDiagnostics);
-        Pass(c, CheckStrict(c, packet, headerDiagnostics), $"with only {flag.Name} off");
+        Pass(c, StrictRejectsByOtherCode(c) ? CheckOtherDefect(c, packet) : CheckStrict(c, packet, headerDiagnostics), $"with only {flag.Name} off");
     }
 
     /// <summary>
@@ -195,7 +197,9 @@ public class AprsVectorTests
 
     /// <summary>
     /// A builder recipe, built through the same code as the dump tool's build mode (RecipeBuilder):
-    /// the TNC2 line it writes, byte for byte, or its refusal code.
+    /// the TNC2 line it writes, byte for byte, or with <c>"write": "ax25"</c> the AX.25 frame (KISS
+    /// form, no flags, no FCS), or its refusal code. The header is read back as it is written, so a
+    /// path no line (or no frame) can carry is refused there.
     /// </summary>
     [Theory]
     [MemberData(nameof(BuildCases))]
@@ -203,33 +207,164 @@ public class AprsVectorTests
     {
         JsonObject c = VectorCases.Get(id);
         JsonObject expect = c["expect"]!.AsObject();
+        bool frame = (string?)Input(c)["write"] == "ax25";
         RecipeBuilder.Outcome outcome = RecipeBuilder.Run(Input(c)["build"]!.AsObject());
+        byte[]? written = null;
+        string? refusal = outcome.Refusal;
+        string? reason = outcome.Reason;
+        if (outcome.Packet is { } packet)
+        {
+            try
+            {
+                written = frame ? packet.ToAx25Frame() : packet.ToTnc2();
+            }
+            catch (AprsEncodeException ex)
+            {
+                refusal = NeutralJson.Kebab(ex.Code.ToString());
+                reason = ex.Message;
+            }
+        }
+
         var differences = new List<string>();
+        string form = frame ? "ax25_hex" : "tnc2";
         if (outcome.Unsupported is { } unsupported)
         {
             differences.Add($"build: the runner cannot say the recipe: {unsupported}");
         }
         else if ((bool?)expect["refused"] == true)
         {
-            if (outcome.Packet is { } written)
+            if (written is not null)
             {
-                differences.Add($"build: expected a refusal, built {Show(written.ToTnc2())}");
+                differences.Add($"build: expected a refusal, built {Show(written)}");
             }
-            else if ((string?)expect["refusal"] is { } code && code != outcome.Refusal)
+            else if ((string?)expect["refusal"] is { } code && code != refusal)
             {
-                differences.Add($"build: expected the refusal '{code}', got '{outcome.Refusal}': {outcome.Reason}");
+                differences.Add($"build: expected the refusal '{code}', got '{refusal}': {reason}");
             }
         }
-        else if (outcome.Packet is not { } packet)
+        else if (written is null)
         {
-            differences.Add($"build: expected {expect["tnc2"]?.ToJsonString()}, but the builder refused ({outcome.Refusal}): {outcome.Reason}");
+            differences.Add($"build: expected {expect[form]?.ToJsonString()}, but the builder refused ({refusal}): {reason}");
         }
-        else if (!System.Text.Encoding.UTF8.GetBytes((string)expect["tnc2"]!).AsSpan().SequenceEqual(packet.ToTnc2()))
+        else if (frame
+            ? !Convert.ToHexStringLower(written).Equals(((string)expect["ax25_hex"]!).ToLowerInvariant(), StringComparison.Ordinal)
+            : !System.Text.Encoding.UTF8.GetBytes((string)expect["tnc2"]!).AsSpan().SequenceEqual(written))
         {
-            differences.Add($"build: expected {expect["tnc2"]!.ToJsonString()}, built {Show(packet.ToTnc2())}");
+            differences.Add($"build: expected {expect[form]!.ToJsonString()}, built {(frame ? Convert.ToHexStringLower(written) : Show(written))}");
         }
 
         Pass(c, differences);
+    }
+
+    /// <summary>
+    /// A decoded packet written back as a program holds it (README, Read-back, Header): the line
+    /// and the frame, byte for byte, or the code each writer refuses with. The header it writes
+    /// is read back, and the information field passes through as received.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PassThroughCases))]
+    public void Writing_a_held_packet_back(string id)
+    {
+        JsonObject c = VectorCases.Get(id);
+        AprsPacket? packet = VectorCases.Decode(Input(c), AprsParseOptions.Lenient, out _);
+        packet.Should().NotBeNull(id);
+        var differences = new List<string>();
+        if (c["pass_through"] is JsonObject held)
+        {
+            differences.AddRange(Written(packet!, held, ""));
+        }
+
+        // The inner packet of a third-party packet written on its own: its header is read back by the
+        // outer rules, whatever its origin.
+        if (c["pass_through_inner"] is JsonObject inner)
+        {
+            packet!.Data.Should().BeOfType<AprsThirdPartyTraffic>(id);
+            differences.AddRange(Written(((AprsThirdPartyTraffic)packet.Data).Packet, inner, "inner "));
+        }
+
+        Pass(c, differences);
+    }
+
+    /// <summary>
+    /// A held packet under the optional <c>header</c> a pass-through expectation gives: its information
+    /// field written under that source, destination and path. Packet.Aprs decodes a packet under its
+    /// own header, so a held packet is only ever consistent with it; re-addressing one is done here by
+    /// reading the held data back under the destination to be written, with the library's own
+    /// read-back (<see cref="Packet.Aprs.Internal.ReadBack.Check"/>): a field that reads as other
+    /// data there (to or from a Mic-E destination, or under another Mic-E destination) is the
+    /// refusal the read-back names, <c>not-encodable</c>, and otherwise the packet is decoded under
+    /// the new header and written.
+    /// </summary>
+    private static (AprsPacket? Packet, AprsEncodeException? Refusal) Readdressed(AprsPacket packet, JsonObject expect)
+    {
+        if (expect["header"] is not JsonObject header)
+        {
+            return (packet, null);
+        }
+
+        AprsAddress destination = AprsAddress.CreateUnchecked((string?)header["destination"] ?? packet.Destination.Value);
+        if (Packet.Aprs.Internal.ReadBack.Check(packet.Data, packet.Information.ToArray(), null, destination) is { } mismatch)
+        {
+            return (null, mismatch.ToException());
+        }
+
+        IEnumerable<AprsPathEntry> path = (header["path"] as JsonArray ?? []).Select(e => (string)e!).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
+        return (AprsPacket.Decode(AprsAddress.Parse((string)header["source"]!), destination, path, packet.Information.Span), null);
+    }
+
+    private static IEnumerable<string> Written(AprsPacket held, JsonObject expect, string which)
+    {
+        (AprsPacket? readdressed, AprsEncodeException? refusal) = Readdressed(held, expect);
+        Func<Func<byte[]>, Func<byte[]>> through = write => refusal is null ? write : () => throw refusal;
+        AprsPacket? packet = readdressed;
+        foreach (string difference in Written("tnc2", expect["tnc2"], expect["tnc2_refusal"], through(() => packet!.ToTnc2()), b => System.Text.Encoding.UTF8.GetString(b), s => s))
+        {
+            yield return which + difference;
+        }
+
+        foreach (string difference in Written("ax25_hex", expect["ax25_hex"], expect["ax25_refusal"], through(() => packet!.ToAx25Frame()), b => Convert.ToHexStringLower(b), s => s.ToLowerInvariant()))
+        {
+            yield return which + difference;
+        }
+    }
+
+    private static IEnumerable<string> Written(string form, JsonNode? bytes, JsonNode? refusal, Func<byte[]> write, Func<byte[], string> show, Func<string, string> normal)
+    {
+        if (bytes is null && refusal is null)
+        {
+            yield break;
+        }
+
+        byte[]? written = null;
+        AprsEncodeException? refused = null;
+        try
+        {
+            written = write();
+        }
+        catch (AprsEncodeException ex)
+        {
+            refused = ex;
+        }
+
+        if (refusal is not null)
+        {
+            if (written is not null)
+            {
+                yield return $"pass_through {form}: expected the refusal '{(string)refusal!}', wrote {show(written)}";
+            }
+            else if (NeutralJson.Kebab(refused!.Code.ToString()) != (string)refusal!)
+            {
+                yield return $"pass_through {form}: expected the refusal '{(string)refusal!}', got '{NeutralJson.Kebab(refused.Code.ToString())}': {refused.Message}";
+            }
+        }
+        else if (written is null)
+        {
+            yield return $"pass_through {form}: expected {bytes!.ToJsonString()}, but it refused ({NeutralJson.Kebab(refused!.Code.ToString())}): {refused.Message}";
+        }
+        else if (show(written) != normal((string)bytes!))
+        {
+            yield return $"pass_through {form}: expected {bytes!.ToJsonString()}, wrote {show(written)}";
+        }
     }
 
     /// <summary>The reader is the writer's inverse: every decoded case's data reads back to the same neutral form.</summary>
@@ -269,9 +404,9 @@ public class AprsVectorTests
 
     // ------------------------------------------------------------------ the case files
 
-    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info"];
-    private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "build", "source", "destination", "path"];
-    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "tnc2", "refused", "refusal"];
+    private static readonly string[] CaseKeys = ["id", "description", "source", "authority", "interpretations", "input", "expect", "strict", "reencode", "reencode_refusal", "canonical_info", "pass_through", "pass_through_inner"];
+    private static readonly string[] InputKeys = ["tnc2", "tnc2_hex", "ax25_hex", "info", "info_hex", "encode", "build", "write", "source", "destination", "path"];
+    private static readonly string[] ExpectKeys = ["data", "diagnostics", "header", "header_error", "device", "info", "destination", "tnc2", "ax25_hex", "refused", "refusal"];
 
     /// <summary>
     /// The cases' own consistency (schema, ids, codes, interpretation links) is checked in
@@ -302,11 +437,23 @@ public class AprsVectorTests
         Flags.Values.Should().BeEquivalentTo(typeof(AprsParseOptions).GetProperties().Where(p => p.PropertyType == typeof(bool)).Select(p => p.Name), "every flag is mapped to the code it tolerates");
     }
 
+    /// <summary>
+    /// The tolerance check runs on every case whose lenient diagnostics name exactly one tolerable
+    /// code (README, Checking a case); none is skipped. The count is printed.
+    /// </summary>
+    [Fact]
+    public void The_tolerance_check_runs_on_every_case_with_one_tolerable_code()
+    {
+        int ran = VectorCases.Ids(c => c["strict"] is JsonObject && FlagFor(c) is not null).Count();
+        Console.WriteLine($"tolerance check ran on {ran} cases");
+        ran.Should().BeGreaterThanOrEqualTo(726, "the check runs on every case whose lenient diagnostics name exactly one tolerable code");
+    }
+
     /// <summary>Each tolerance needs a case showing both sides of it: strict rejecting (or reading differently) and lenient accepting.</summary>
     [Fact]
     public void Every_tolerance_flag_has_a_case()
     {
-        HashSet<string> covered = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject).Select(FlagFor).OfType<string>()];
+        HashSet<string> covered = [.. VectorCases.ById.Values.Where(c => c["strict"] is JsonObject && !StrictRejectsByOtherCode(c)).Select(FlagFor).OfType<string>()];
         Flags.Values.Except(covered).Should().BeEmpty("each flag needs a case in spec/aprs/cases whose strict result differs");
     }
 
@@ -419,6 +566,28 @@ public class AprsVectorTests
             .Select(d => (string)d!).Where(d => d.StartsWith("warning:", StringComparison.Ordinal))
             .Select(d => Flags.GetValueOrDefault(d["warning:".Length..])).OfType<string>().Distinct()];
         return flags.Length == 1 ? flags[0] : null;
+    }
+
+    private static bool StrictRejectsByOtherCode(JsonObject c)
+    {
+        string? flag = FlagFor(c);
+        string? code = flag is null ? null : Flags.First(kv => kv.Value == flag).Key;
+        return c["strict"] is JsonObject s && s["rejected_by"] is { } by && (string)by! != code;
+    }
+
+    /// <summary>
+    /// With strict rejecting by a code other than the one tolerance turned off, the result must be
+    /// a reading whose diagnostics include that code as a warning (README, Checking a case).
+    /// </summary>
+    private static IReadOnlyList<string> CheckOtherDefect(JsonObject c, AprsPacket? packet)
+    {
+        string other = (string)c["strict"]!["rejected_by"]!;
+        if (packet is null || packet.Data is AprsUnrecognizedData)
+        {
+            return [$"expected a reading with warning:{other}, got a rejection"];
+        }
+
+        return Strings(packet.Diagnostics).Contains($"warning:{other}") ? [] : [$"expected warning:{other} among the diagnostics, got {Describe(packet, [])}"];
     }
 
     private static void Pass(JsonObject c, IReadOnlyList<string> differences, string? how = null)

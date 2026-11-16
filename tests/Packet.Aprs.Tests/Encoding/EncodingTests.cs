@@ -414,15 +414,15 @@ public class EncodingTests : AprsSpec
     }
 
     [Fact]
-    public void A_mic_e_comment_that_would_end_an_altitude_is_written_after_a_space()
+    public void A_mic_e_comment_after_an_altitude_is_written_straight_after_it()
     {
-        // E12: written straight after the /A= altitude, the comment's "4} would read back as the
-        // Mic-E altitude 0"4}. A separating space is a clean form, so it is written, not refused.
+        // The comment's "4} straight after the /A= altitude makes the run 0"4}, which shares a byte
+        // with the /A= and is never a Mic-E altitude (round 5), so no separating space is written.
         GivenPacket("AK6ID-9>SS5UQQ:`.3 lSU>/`\"4}_01/A=000010 70cm%");
         WhenDecoded();
         var report = ThenDataIs<AprsMicEReport>();
         AprsPacket created = AprsPacket.Create(Packet.Source, report);
-        Show(created.Information.Span).Should().Be("`.3 lSU>/`/A=000010 \"4}_01 70cm%");
+        Show(created.Information.Span).Should().Be("`.3 lSU>/`/A=000010\"4}_01 70cm%");
         AprsPacket again = AprsPacket.Decode(created.Source, created.Destination, [], created.Information.Span);
         again.Diagnostics.Should().BeEmpty();
         again.Data.Should().Be(report);

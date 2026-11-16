@@ -58,10 +58,10 @@ public class RefusalCodeTests
         { "builder-bits-after-text", AprsRefusalCode.InvalidCharacter },
         { "mic-e-longitude-then-nan", AprsRefusalCode.NotANumber },
         { "longitude-then-nan-altitude", AprsRefusalCode.NotANumber },
-        { "longitude-then-infinite-altitude-on-weather", AprsRefusalCode.ValueOutOfRange },
-        { "longitude-then-infinite-altitude-on-compressed-weather", AprsRefusalCode.ValueOutOfRange },
+        { "longitude-then-infinite-altitude-on-weather", AprsRefusalCode.NotANumber },
+        { "longitude-then-infinite-altitude-on-compressed-weather", AprsRefusalCode.NotANumber },
         { "longitude-then-infinite-gga-altitude-on-compressed-weather", AprsRefusalCode.NotANumber },
-        { "infinite-altitude-on-weather-has-no-place", AprsRefusalCode.FieldNotAllowed },
+        { "infinite-altitude-on-weather-has-no-place", AprsRefusalCode.NotANumber },
         { "no-sequence-before-size", AprsRefusalCode.MissingField },
         { "no-timestamp-before-size", AprsRefusalCode.MissingField },
         { "status-symbol-with-no-locator", AprsRefusalCode.MissingField },
@@ -71,7 +71,7 @@ public class RefusalCodeTests
         { "mic-e-status-text-starting-0x1d", AprsRefusalCode.InvalidCharacter },
         { "status-257-bytes", AprsRefusalCode.InformationFieldTooLong },
         { "storm-beside-wind", AprsRefusalCode.ValueOutOfRange },
-        { "third-party-mic-e-destination", AprsRefusalCode.FieldNotAllowed },
+        { "third-party-mic-e-destination", AprsRefusalCode.NotEncodable },
         { "bad-source", AprsRefusalCode.InvalidAddress },
         { "infinite-range", AprsRefusalCode.NotANumber },
         { "infinite-mic-e-altitude", AprsRefusalCode.NotANumber },
@@ -173,7 +173,11 @@ public class RefusalCodeTests
         string[] listed = [.. JsonNode.Parse(File.ReadAllText(Path.Combine(VectorCases.Directory, "codes.json")))!["refusals"]!.AsArray().Select(n => (string)n!["id"]!)];
         string[] ours = [.. Enum.GetValues<AprsRefusalCode>().Select(c => NeutralJson.Kebab(c.ToString()))];
 
-        ours.Should().Equal(listed);
-        ((int)AprsRefusalCode.InformationFieldTooLong).Should().Be(listed.Length);
+        // Values are never renumbered, so a code added later (invalid-path) stands last in the enum
+        // wherever the vectors list it.
+        ours.Should().BeEquivalentTo(listed);
+        Enum.GetValues<AprsRefusalCode>().Select(c => (int)c).Should().OnlyHaveUniqueItems();
+        ((int)AprsRefusalCode.InformationFieldTooLong).Should().Be(27);
+        ((int)AprsRefusalCode.InvalidPath).Should().Be(28);
     }
 }

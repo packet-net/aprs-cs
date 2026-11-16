@@ -86,8 +86,12 @@ internal static class Ax25Codec
             return false;
         }
 
-        var path = addresses.Skip(2).Where(a => a.Address.Value.Length > 0).Select(a => new AprsPathEntry(a.Address, a.H)).ToList();
-        header = new Tnc2Codec.Header(addresses[1].Address, addresses[0].Address, path);
+        // A digipeater is used when its H bit is set or one after it is (README, Addresses and path),
+        // as a line's entries before a * are.
+        var path = addresses.Skip(2).Where(a => a.Address.Value.Length > 0).ToList();
+        int lastUsed = path.FindLastIndex(a => a.H);
+        var entries = path.Select((a, i) => new AprsPathEntry(a.Address, i <= lastUsed)).ToList();
+        header = new Tnc2Codec.Header(addresses[1].Address, addresses[0].Address, entries);
         infoStart = pos + 2;
         return true;
     }
@@ -173,11 +177,11 @@ internal static class Ax25Codec
         }
 
         byte[] frame = new byte[(7 * (2 + path.Count)) + 2 + information.Length];
-        WriteAddress(frame.AsSpan(0, 7), destination, commandBit: true, last: false, nameof(destination));
-        WriteAddress(frame.AsSpan(7, 7), source, commandBit: false, last: path.Count == 0, nameof(source));
+        WriteAddress(frame.AsSpan(0, 7), destination, commandBit: true, last: false);
+        WriteAddress(frame.AsSpan(7, 7), source, commandBit: false, last: path.Count == 0);
         for (int i = 0; i < path.Count; i++)
         {
-            WriteAddress(frame.AsSpan(14 + (7 * i), 7), path[i].Address, path[i].Used, i == path.Count - 1, nameof(path));
+            WriteAddress(frame.AsSpan(14 + (7 * i), 7), path[i].Address, path[i].Used, i == path.Count - 1);
         }
 
         int pos = 7 * (2 + path.Count);
@@ -189,7 +193,7 @@ internal static class Ax25Codec
 
     /// <summary>The C bit is set on the destination and clear on the source for a UI command (APRS12c §3);
     /// on digipeaters the same bit is the has-been-repeated flag.</summary>
-    private static void WriteAddress(Span<byte> a, AprsAddress address, bool commandBit, bool last, string paramName)
+    private static void WriteAddress(Span<byte> a, AprsAddress address, bool commandBit, bool last)
     {
         if (!address.IsAx25)
         {

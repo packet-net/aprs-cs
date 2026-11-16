@@ -22,10 +22,15 @@ internal static class ApiView
             ["q_construct"] = packet.QConstruct is { } q ? QConstruct(q) : null,
             ["has_errors"] = packet.HasErrors,
             ["has_warnings"] = packet.HasWarnings,
-            ["tnc2"] = Convert.ToHexStringLower(packet.ToTnc2()),
+            ["tnc2"] = Tnc2(packet, out string? tnc2Refusal),
             ["ax25"] = Ax25(packet, out string? ax25Refusal),
             ["device"] = Device(AprsDeviceIdentification.Identify(packet)),
         };
+        if (tnc2Refusal is not null)
+        {
+            o["tnc2_refusal"] = tnc2Refusal;
+        }
+
         if (ax25Refusal is not null)
         {
             o["ax25_refusal"] = ax25Refusal;
@@ -72,6 +77,21 @@ internal static class ApiView
         }
 
         return o;
+    }
+
+    /// <summary>The line written back, or <c>refused</c> when its header would not read back as the packet's.</summary>
+    private static string Tnc2(AprsPacket packet, out string? refusal)
+    {
+        refusal = null;
+        try
+        {
+            return Convert.ToHexStringLower(packet.ToTnc2());
+        }
+        catch (AprsEncodeException ex)
+        {
+            refusal = NeutralJson.Kebab(ex.Code.ToString());
+            return "refused";
+        }
     }
 
     /// <summary>The UI frame without flags or FCS, or <c>refused</c> when an address or the path cannot be carried.</summary>

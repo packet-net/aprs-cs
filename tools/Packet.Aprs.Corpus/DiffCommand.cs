@@ -399,7 +399,7 @@ internal static class DiffCommand
         {
             if (thirdParty)
             {
-                NeutralReader.CheckNesting(neutral["packet"]!["data"]);
+                NeutralReader.CheckChain(neutral["packet"]!.AsObject());
             }
 
             if (thirdParty && (string?)neutral["packet"]!["data"]!["type"] != "unrecognized")

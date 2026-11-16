@@ -36,58 +36,14 @@ public abstract record AprsData
         ? throw new AprsEncodeException(AprsRefusalCode.NotEncodable, "a Mic-E report carries part of its position in the destination address, so its information field alone is not a position; make a packet with AprsPacket.Create")
         : EncodeInformation();
 
-    /// <summary>The most bytes an information field holds (APRS12c ch. 3). A decoder sets no limit; an encoder refuses more.</summary>
-    internal const int MaxInformationField = 256;
-
-    /// <summary>The information field, whatever the data type (for a Mic-E report, without its destination).</summary>
-    internal byte[] EncodeInformation()
-    {
-        var writer = new InfoWriter();
-        try
-        {
-            Encode(writer);
-        }
-        catch (AprsEncodeException ex)
-        {
-            writer.Interrupted = true;
-            writer.Hold(ex);
-        }
-        catch (Exception) when (writer.HasDeferred)
-        {
-            writer.Interrupted = true;
-            // A field written after one already refused may not make sense on its own; the
-            // refusal held for the earlier field is the answer.
-        }
-
-        byte[] info = writer.ToArray();
-        if (!writer.Interrupted && info.Length > 0 && info[^1] is (byte)'\r' or (byte)'\n')
-        {
-            // A field ending in CR or LF reads back with trailing-line-break, a warning, and
-            // without the byte (Mic-E telemetry ending 13, say), so no clean form exists.
-            writer.Defer(AprsRefusalCode.InvalidCharacter, "the information field would end with a line break, which a decoder strips with a warning");
-        }
-
-        writer.ThrowDeferred();
-        if (writer.CommentCheck is { } problem && this is AprsPositionedData positioned)
-        {
-            CommentCodec.VerifyReadsBack(positioned, info, problem);
-        }
-
-        if (this is AprsMessage message)
-        {
-            MessageCodec.VerifyReadsBack(message, info);
-        }
-
-        if (info.Length > MaxInformationField)
-        {
-            // The last check, on the bytes actually written: a record any other rule refuses gets
-            // that rule's code, and nothing is measured that was not written (vectors README,
-            // Encoding and Refusal reasons).
-            throw new AprsEncodeException(AprsRefusalCode.InformationFieldTooLong, $"the information field is {info.Length} bytes, over the 256 an APRS information field holds (APRS12c ch. 3)");
-        }
-
-        return info;
-    }
+    /// <summary>
+    /// The information field, whatever the data type (for a Mic-E report, without its destination).
+    /// Ends in the read-back. <paramref name="micEBytesFirst"/> is a builder telling the encoder to
+    /// write a Mic-E altitude in the Mic-E bytes first; it is an argument of the call, never held
+    /// on the data. <paramref name="destination"/> is the destination the call writes the field under,
+    /// which the read-back decodes it under (null for a field written alone).
+    /// </summary>
+    internal byte[] EncodeInformation(bool micEBytesFirst = false, AprsAddress? destination = null) => InfoEncoder.Encode(this, micEBytesFirst, destination);
 
     internal abstract void Encode(InfoWriter writer);
 }

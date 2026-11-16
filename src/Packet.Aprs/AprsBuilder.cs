@@ -27,6 +27,8 @@ public abstract class AprsBuilder
 
     /// <summary>
     /// The packet: the station's header and this data, encoded. Throws <see cref="AprsEncodeException"/>
+    /// for a header that is not one (<see cref="AprsRefusalCode.InvalidAddress"/>,
+    /// <see cref="AprsRefusalCode.InvalidPath"/>) before anything in the data is looked at, and then
     /// for anything APRS12c does not allow, a symbol, an object's timestamp or a position never given
     /// included (<see cref="AprsRefusalCode.InvalidSymbol"/>, <see cref="AprsRefusalCode.MissingField"/>),
     /// and <see cref="InvalidOperationException"/> when a report that needs a position has none. A builder never
@@ -38,8 +40,26 @@ public abstract class AprsBuilder
     public AprsPacket Build()
     {
         AprsData data = Assemble();
-        return AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path);
+        AprsEncodeException? own = InputFault;
+        AprsPacket packet;
+        try
+        {
+            packet = AprsPacket.Create(Station.Source, data, data is AprsMicEReport ? null : Station.Destination, Station.Path, micEBytesFirst: true);
+        }
+        catch (AprsEncodeException ex) when (own is not null && InfoWriter.Rank(ex.Code) >= InfoWriter.Rank(own.Code))
+        {
+            throw own;
+        }
+
+        return own is null ? packet : throw own;
     }
+
+    /// <summary>
+    /// A fault in what the program gave the builder that the data record cannot hold (an empty message
+    /// ID is no ID in data, but a builder is given one on purpose, so it is out of range), refused in
+    /// its place in the reason order: after the codes before it and before the codes after it.
+    /// </summary>
+    private protected virtual AprsEncodeException? InputFault => null;
 }
 
 /// <summary>Sends a data record built by hand, from <see cref="AprsStation.Data(AprsData)"/>.</summary>
@@ -74,7 +94,6 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     private double? course;
     private double? speedKnots;
     private double? altitudeFeet;
-    private double? altitudeMetres;
     private AprsPhg? phg;
     private double? rangeMiles;
     private AprsVoiceFrequency? frequency;
@@ -129,7 +148,6 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     public TSelf AltitudeFeet(double feet)
     {
         altitudeFeet = feet;
-        altitudeMetres = null;
         return Self;
     }
 
@@ -138,13 +156,9 @@ public abstract class AprsPositionedBuilder<TSelf> : AprsBuilder
     /// one outside -10000 to 743570 m is refused there (<see cref="AprsRefusalCode.ValueOutOfRange"/>).</summary>
     public TSelf AltitudeMetres(double metres)
     {
-        altitudeFeet = metres * Units.FeetPerMetre;
-        altitudeMetres = metres;
+        altitudeFeet = Units.Scaled(metres, metres * Units.FeetPerMetre);
         return Self;
     }
-
-    /// <summary>The altitude given in metres, or null when none was or it was given in feet.</summary>
-    private protected double? AltitudeInMetres => altitudeMetres;
 
     /// <summary>Free text after the structured parts. May contain UTF-8.</summary>
     public TSelf Comment(string text)
@@ -449,14 +463,9 @@ public sealed class AprsMicEBuilder : AprsPositionedBuilder<AprsMicEBuilder>
             report = report with { CourseDegrees = null };
         }
 
-        // An altitude goes in the Mic-E altitude bytes, whose unit is the metre, whatever unit it was
-        // given in, rounded once to the metre from the value given (1000 feet is 305 m). One the
-        // bytes cannot hold is value-out-of-range when the report is encoded.
-        return report.AltitudeFeet is null ? report
-            : report with
-            {
-                AltitudeFeet = AltitudeInMetres is { } metres ? Steps.Whole(metres) * Units.FeetPerMetre : report.AltitudeFeet,
-                AltitudeInBytes = true,
-            };
+        // An altitude goes in the Mic-E altitude bytes first, whose unit is the metre whatever unit it
+        // was given in, rounded once to the metre from the value given (1000 feet is 305 m): the
+        // builder tells the encoder so when it builds (Build), and the data holds the value as given.
+        return report;
     }
 }

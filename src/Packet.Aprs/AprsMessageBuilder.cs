@@ -39,6 +39,10 @@ public sealed class AprsMessageBuilder : AprsBuilder
 
     /// <inheritdoc/>
     public override AprsTextMessage ToData() => new() { Addressee = addressee, Text = text, MessageId = id, ReplyAck = replyAck };
+
+    /// <inheritdoc/>
+    private protected override AprsEncodeException? InputFault =>
+        id is { Length: 0 } ? new AprsEncodeException(AprsRefusalCode.InvalidMessageId, "a message ID is 1-5 letters or digits (APRS12c ch. 14)") : null;
 }
 
 /// <summary>An acknowledgement or rejection, from <see cref="AprsStation.Ack(string, string)"/> or

@@ -4,19 +4,34 @@ using System.Text;
 
 namespace Packet.Aprs.Internal;
 
+/// <summary>The delimiter written before Mic-E status text: the rule's choice, or one form tried because the rule's choice did not read back.</summary>
+internal enum CommentDelimiter
+{
+    /// <summary>The form the writing rules choose.</summary>
+    Auto,
+
+    /// <summary>A '/' before the comment.</summary>
+    Slash,
+
+    /// <summary>A space before the comment.</summary>
+    Space,
+}
+
 /// <summary>Builds information-field bytes.</summary>
 internal sealed class InfoWriter
 {
+    /// <summary>The delimiter form being tried for Mic-E status text.</summary>
+    public CommentDelimiter Delimiter { get; init; }
+
+    /// <summary>
+    /// For a Mic-E report with an altitude: the form being tried, a <c>/A=</c> (true) or the Mic-E
+    /// altitude bytes (false); null for the form the data itself asks for first.
+    /// </summary>
+    public bool? AltitudeAsFeet { get; init; }
+
     private readonly ArrayBufferWriter<byte> buffer = new(64);
 
     public int Length => buffer.WrittenCount;
-
-    /// <summary>
-    /// Set by a comment check that cannot tell from the text alone whether the comment will read
-    /// back unchanged, because that depends on what is written around it. <see cref="AprsData.ToInformationField"/>
-    /// then decodes the finished field to find out, and refuses with this message if it does not.
-    /// </summary>
-    public string? CommentCheck { get; set; }
 
     private AprsEncodeException? deferred;
 
@@ -85,9 +100,8 @@ internal sealed class InfoWriter
     {
         AprsRefusalCode.NotEncodable => 0,
         AprsRefusalCode.InvalidAddress => 1,
-        AprsRefusalCode.Ax25CannotCarry => 2,
-        AprsRefusalCode.Tnc2CannotCarry => 3,
-        AprsRefusalCode.InvalidThirdPartyHeader => 4,
+        AprsRefusalCode.InvalidPath => 2,
+        AprsRefusalCode.InvalidThirdPartyHeader => 3,
         AprsRefusalCode.InvalidAddressee => 5,
         AprsRefusalCode.InvalidName => 6,
         AprsRefusalCode.InvalidTimestamp => 7,
@@ -108,7 +122,10 @@ internal sealed class InfoWriter
         AprsRefusalCode.MissingField => 22,
         AprsRefusalCode.ValueGivenTwice => 23,
         AprsRefusalCode.TextReadsAsField => 24,
+        AprsRefusalCode.DoesNotReadBack => 25,
         AprsRefusalCode.InformationFieldTooLong => 26,
+        AprsRefusalCode.Ax25CannotCarry => 27,
+        AprsRefusalCode.Tnc2CannotCarry => 28,
         _ => 25,
     };
 
@@ -179,5 +196,6 @@ internal sealed class InfoWriter
         return Bytes(tmp);
     }
 
-    public byte[] ToArray() => buffer.WrittenSpan.ToArray();
+    /// <summary>The bytes written. Only <see cref="InfoEncoder"/> takes them, after the read-back: a test holds the source to that.</summary>
+    internal byte[] TakeBytes() => buffer.WrittenSpan.ToArray();
 }

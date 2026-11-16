@@ -149,36 +149,6 @@ public sealed record AprsNmeaReport : AprsData
         }
 
         writer.Char('$').Ascii(Sentence).Utf8(Comment);
-        VerifyReadsBack();
-    }
-
-    /// <summary>
-    /// The sentence is what is sent; the values read from it (position, fix, course, speed,
-    /// altitude, time, waypoint) are not written. Any of them given must be what the sentence
-    /// reads back as, or the report would read back as different data (vectors README, Encoding).
-    /// The time is compared as a time: <see cref="TimeText"/> is its text, which the sentence holds.
-    /// </summary>
-    private void VerifyReadsBack()
-    {
-        byte[] info = [(byte)'$', .. System.Text.Encoding.Latin1.GetBytes(Sentence)];
-        var back = AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], info).Data as AprsNmeaReport;
-        string? differs =
-            back is null ? "the sentence"
-            : Position is { } p && (back.Position is not { } q || p.Ambiguity != q.Ambiguity || !Near(p.Latitude, q.Latitude) || !Near(p.Longitude, q.Longitude)) ? nameof(Position)
-            : FixValid is not null && FixValid != back.FixValid ? nameof(FixValid)
-            : CourseDegrees is { } c && (back.CourseDegrees is not { } c2 || !Near(c, c2)) ? nameof(CourseDegrees)
-            : SpeedKnots is { } s && (back.SpeedKnots is not { } s2 || !Near(s, s2)) ? nameof(SpeedKnots)
-            : AltitudeMetres is { } a && (back.AltitudeMetres is not { } a2 || !Near(a, a2)) ? nameof(AltitudeMetres)
-            : Time is not null && Time != back.Time ? nameof(Time)
-            : WaypointName is not null && WaypointName != back.WaypointName ? nameof(WaypointName)
-            : null;
-        if (differs is not null)
-        {
-            throw new AprsEncodeException(AprsRefusalCode.InvalidNmea, $"{differs} is not what the sentence reads back as; the sentence is what is sent");
-        }
-
-        // The same value, but for the last bits a different computation of it may differ in.
-        static bool Near(double x, double y) => Math.Abs(x - y) <= 1e-9 * Math.Max(1, Math.Abs(x));
     }
 }
 
@@ -340,7 +310,8 @@ public sealed record AprsThirdPartyTraffic : AprsData
     /// (vectors README, Refusal reasons); then the inner packet is made as
     /// <see cref="AprsPacket.Create(AprsAddress, AprsData, AprsAddress?, IEnumerable{AprsPathEntry}?)"/>
     /// makes it, with the same destination rules: null is <see cref="AprsStation.DefaultDestination"/>,
-    /// and a Mic-E report computes its own, so one given with it is refused.
+    /// and a Mic-E report computes its own: one given with it is written only when it is the computed
+    /// one, and any other is <see cref="AprsRefusalCode.NotEncodable"/>.
     /// </summary>
     public static AprsThirdPartyTraffic Create(AprsAddress source, AprsData data, AprsAddress? destination = null, IEnumerable<AprsPathEntry>? path = null)
     {
@@ -360,7 +331,7 @@ public sealed record AprsThirdPartyTraffic : AprsData
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
         }
 
-        return new AprsThirdPartyTraffic { Packet = AprsPacket.CreateUnchecked(source, data, destination, entries) };
+        return new AprsThirdPartyTraffic { Packet = AprsPacket.CreateUnchecked(source, data, destination, entries, inner: true) };
     }
 
     private const string NestingRefusal = "third-party packets nest at most four deep: a decoder does not read a fifth header (vectors interpretations.md, \"Third-party packets nest at most four deep\")";
@@ -372,8 +343,8 @@ public sealed record AprsThirdPartyTraffic : AprsData
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, NestingRefusal);
         }
 
-        byte[] inner = Packet.ToTnc2();
-        if (!ThirdPartyCodec.CanWrite(Packet, inner))
+        byte[] inner = Packet.ToTnc2Unchecked();
+        if (!ThirdPartyCodec.CanWrite(Packet))
         {
             throw new AprsEncodeException(AprsRefusalCode.InvalidThirdPartyHeader, HeaderRefusal);
         }
@@ -433,7 +404,8 @@ public sealed record AprsTestData : AprsData
 
     internal override void Encode(InfoWriter writer)
     {
-        Internal.Text.RequireNoLineBreaks(Data);
+        // Data, not text: a CR or LF inside is written as it came in an information field alone (a
+        // line refuses it, Tnc2CannotCarry); one at the end is refused by the one check for every type.
         writer.Char(',').Utf8(Data);
     }
 }

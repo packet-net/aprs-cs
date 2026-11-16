@@ -913,7 +913,7 @@ internal static class PositionCodec
         }
     }
 
-    private static long GgaStep(double alt)
+    internal static long GgaStep(double alt)
     {
         NotANumber.Refuse(alt, "altitude");
         long cs = alt <= 1 ? 0 : Steps.Count(Math.Log(alt) / Math.Log(1.002));
@@ -943,10 +943,11 @@ internal static class PositionCodec
         }
     }
 
-    private static int RangeStep(double range)
+    internal static int RangeStep(double range)
     {
         NotANumber.Refuse(range, "range");
-        int s = range <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
+        // Half a denormal underflows to 0, so the logarithm is judged only for a range whose half is a number.
+        int s = range <= 0 || range / 2 <= 0 ? -1 : (int)Math.Max(-1, Steps.Count(Math.Log(range / 2) / Math.Log(1.08)));
         return s is < 0 or > 90
             ? throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "a compressed range is 2 to 2 x 1.08^90 miles (APRS12c ch. 9)")
             : s;
@@ -959,7 +960,7 @@ internal static class PositionCodec
     /// from zero (vectors ruling E9). Every s from 0 to 90 (<c>!</c> to <c>{</c>) is a speed
     /// (APRS12c ch. 9 limits only the course byte, vectors ruling E10).
     /// </summary>
-    private static int SpeedCode(double knots)
+    internal static int SpeedCode(double knots)
     {
         // The steps follow 1.08^s - 1 for every whole s; a speed rounds to the nearest, and one
         // whose s is outside the byte is refused: -0.03 knots is s = 0, -0.3 is s = -5 (vectors
@@ -1110,7 +1111,7 @@ internal static class PositionCodec
         }
     }
 
-    private static double RangeMilesUncompressed(double range)
+    internal static double RangeMilesUncompressed(double range)
     {
         // Rounded to whole miles, then checked (vectors ruling F2).
         NotANumber.Refuse(range, "RNG");

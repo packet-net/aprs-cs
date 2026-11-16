@@ -85,3 +85,4 @@ tait-programming-research/
 
 # scripts/backfill-release-notes.sh saves the release bodies it replaces here.
 .release-notes-backup/
+*.received.txt

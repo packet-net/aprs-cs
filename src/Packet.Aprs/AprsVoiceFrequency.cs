@@ -89,12 +89,12 @@ public sealed record AprsVoiceFrequency
             throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "tone value 0-999 is required for Tone, Ctcss and Dcs and not allowed otherwise");
         }
 
-        if (OffsetKHz is { } o && Math.Abs(o) <= 9990 && o % 10 != 0)
+        if (OffsetKHz is { } o && Math.Abs((long)o) <= 9990 && o % 10 != 0)
         {
             throw new AprsEncodeException(AprsRefusalCode.ValueHasNoForm, "offset must be a multiple of 10 kHz up to 9.99 MHz");
         }
 
-        if (OffsetKHz is { } o2 && Math.Abs(o2) > 9990)
+        if (OffsetKHz is { } o2 && Math.Abs((long)o2) > 9990)
         {
             throw new AprsEncodeException(AprsRefusalCode.ValueOutOfRange, "offset must be a multiple of 10 kHz up to 9.99 MHz");
         }

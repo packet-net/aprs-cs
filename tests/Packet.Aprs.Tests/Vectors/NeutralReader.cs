@@ -43,8 +43,8 @@ internal static class NeutralReader
                 TypeCode = OptChar(d, "type_code"),
                 DeviceSuffix = OptStr(d, "device_suffix") ?? "",
                 Locator = OptStr(d, "locator"),
-                LegacyTelemetry = d["legacy_telemetry"] is JsonArray lt ? [.. lt.Select(v => (int)v!)] : null,
-                DestinationSsid = (int?)d["destination_ssid"] ?? 0,
+                LegacyTelemetry = d["legacy_telemetry"] is JsonArray lt ? [.. lt.Select(v => Code(v)!.Value)] : null,
+                DestinationSsid = Code(d["destination_ssid"]) ?? 0,
             }, "mic_e_message", "old_data", "type_code", "device_suffix", "locator", "legacy_telemetry", "destination_ssid"),
             "object" => Positioned(d, new AprsObjectReport
             {
@@ -62,8 +62,8 @@ internal static class NeutralReader
                 IsKilled = Flag(d, "killed"),
             }, "name", "killed"),
             "message" => Only(d, new AprsTextMessage { Addressee = Absent(d, "addressee"), Text = OptStr(d, "text") ?? "", ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "text", "reply_ack", "message_id"),
-            "ack" => Only(d, new AprsMessageAck { Addressee = Absent(d, "addressee"), AcknowledgedId = Str(d, "acked_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "acked_id", "reply_ack", "message_id"),
-            "reject" => Only(d, new AprsMessageReject { Addressee = Absent(d, "addressee"), RejectedId = Str(d, "rejected_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "rejected_id", "reply_ack", "message_id"),
+            "ack" => Only(d, new AprsMessageAck { Addressee = Absent(d, "addressee"), AcknowledgedId = Absent(d, "acked_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "acked_id", "reply_ack", "message_id"),
+            "reject" => Only(d, new AprsMessageReject { Addressee = Absent(d, "addressee"), RejectedId = Absent(d, "rejected_id"), ReplyAck = RawStr(d, "reply_ack"), MessageId = OptStr(d, "message_id") }, "addressee", "rejected_id", "reply_ack", "message_id"),
             "bulletin" => Only(d, new AprsBulletin { Addressee = Absent(d, "addressee"), Text = OptStr(d, "text") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "text", "message_id"),
             "nws-bulletin" => Only(d, new AprsNwsBulletin { Addressee = Absent(d, "addressee"), Text = OptStr(d, "text") ?? "", MessageId = OptStr(d, "message_id") }, "addressee", "text", "message_id"),
             "telemetry-names" => Only(d, new AprsTelemetryParameterNames { Addressee = Absent(d, "addressee"), Names = Strings(d["names"]), MessageId = OptStr(d, "message_id") }, "addressee", "names", "message_id"),
@@ -91,7 +91,7 @@ internal static class NeutralReader
             "nmea" => Only(d, new AprsNmeaReport
             {
                 Sentence = Str(d, "sentence"),
-                Position = d["latitude"] is { } lat ? new AprsPosition((double)lat, (double)d["longitude"]!) : null,
+                Position = NmeaPosition(d),
                 FixValid = OptStr(d, "fix") is { } fix ? fix == "valid" : null,
                 CourseDegrees = (double?)d["course_degrees"],
                 SpeedKnots = (double?)d["speed_knots"],
@@ -130,6 +130,29 @@ internal static class NeutralReader
     /// <c>not-a-number</c> whatever else is wrong, which the library's whole numbers cannot hold, so
     /// it is noted for <see cref="StandIns"/> and read as 0.
     /// </summary>
+    /// <summary>
+    /// The position an NMEA record gives. The data holds a position whole, so a record that gives
+    /// only one of latitude and longitude (beside a sentence, which says the other) takes the other
+    /// from the sentence, or from 0 where the sentence has none: whatever it takes, a field given
+    /// that the sentence does not read back as is refused as <c>invalid-nmea</c>, as the rule says.
+    /// </summary>
+    private static AprsPosition? NmeaPosition(JsonObject d)
+    {
+        if (d["latitude"] is null && d["longitude"] is null)
+        {
+            return null;
+        }
+
+        AprsPosition? sentence = null;
+        if (d["sentence"] is { } text)
+        {
+            byte[] info = [(byte)'$', .. System.Text.Encoding.Latin1.GetBytes((string)text!)];
+            sentence = (AprsPacket.Decode(AprsAddress.Parse("N0CALL"), AprsAddress.Parse("APZ001"), [], info).Data as AprsNmeaReport)?.Position;
+        }
+
+        return new AprsPosition((double?)d["latitude"] ?? sentence?.Latitude ?? 0, (double?)d["longitude"] ?? sentence?.Longitude ?? 0);
+    }
+
     private static AprsAgreloDfReport Agrelo(JsonObject d)
     {
         double bearing = (double)d["bearing_degrees"]!;
@@ -154,7 +177,9 @@ internal static class NeutralReader
 
         if (quality != Math.Floor(quality))
         {
-            throw new InvalidOperationException($"quality {quality.ToString(CultureInfo.InvariantCulture)}: the data takes a whole quality");
+            // A quality is a code, never rounded: outside what the field holds.
+            StandIns.Note(AprsRefusalCode.ValueOutOfRange, $"quality {quality.ToString(CultureInfo.InvariantCulture)} is not a whole number");
+            quality = Math.Floor(quality);
         }
 
         return new AprsAgreloDfReport { BearingDegrees = Clamp(Math.Round(bearing, MidpointRounding.AwayFromZero)), Quality = Clamp(quality) };
@@ -163,36 +188,56 @@ internal static class NeutralReader
     }
 
     /// <summary>
-    /// Refuses third-party data nested more than four deep, counted from the top without
-    /// recursion, so it is refused for its header before anything inside it is built (vectors
-    /// encode/third-party-nested-five-deep). <paramref name="data"/> is the data inside one
-    /// third-party packet, or any data at all.
+    /// The refusals a third-party record has before anything in it is built, in the Refusal reasons
+    /// order over the whole record, every depth together: nested past four levels is
+    /// <c>invalid-third-party-header</c> (counted from the top without recursion, so what lies below
+    /// the fourth level is never reached), then undecoded data inside it is <c>not-encodable</c>,
+    /// then the first inner header, at any depth, that cannot be written is
+    /// <c>invalid-third-party-header</c>, ahead of any fault in the data at any depth.
+    /// <paramref name="p"/> is the packet of the outermost third-party packet.
     /// </summary>
-    public static void CheckNesting(JsonNode? data)
+    public static void CheckChain(JsonObject p)
     {
-        int depth = 1;
-        JsonNode? d = data;
-        while (d is JsonObject o && (string?)o["type"] == "third-party")
+        var levels = new List<JsonObject> { p };
+        JsonNode? d = p["data"];
+        while (d is JsonObject o && (string?)o["type"] == "third-party" && o["packet"] is JsonObject next)
         {
-            depth++;
-            d = o["packet"]?["data"];
+            levels.Add(next);
+            if (levels.Count > 4)
+            {
+                throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+            }
+
+            d = next["data"];
         }
 
-        // Undecoded data at the end is not-encodable, which comes first in the order.
-        bool undecoded = d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty";
-        if (depth > 4 && !undecoded)
+        if (d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty")
         {
-            throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+            throw ToolRefusal(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
+        }
+
+        foreach (JsonObject level in levels)
+        {
+            IReadOnlyList<AprsPathEntry> path = [.. Strings(level["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.CreateUnchecked(e[..^1]), true) : new AprsPathEntry(AprsAddress.CreateUnchecked(e)))];
+            if (OptStr(level, "destination") is not { } destination
+                || !Packet.Aprs.Internal.ThirdPartyCodec.HeaderCanBeWritten(AprsAddress.CreateUnchecked(Str(level, "source")), AprsAddress.CreateUnchecked(destination), path))
+            {
+                throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "an inner third-party header cannot be written as given");
+            }
         }
     }
 
     private static AprsThirdPartyTraffic ThirdParty(JsonObject p)
     {
-        CheckNesting(p["data"]);
+        CheckChain(p);
 
-        IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.Parse(e[..^1]), true) : new AprsPathEntry(AprsAddress.Parse(e)));
-        AprsAddress source = AprsAddress.Parse(Str(p, "source"));
-        AprsAddress destination = AprsAddress.Parse(OptStr(p, "destination") ?? throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
+        // The inner header is held as given, whatever it holds: a destination or path entry that is no
+        // address is for the encoder to refuse (invalid-third-party-header), not for this reader.
+        IEnumerable<AprsPathEntry> path = Strings(p["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.CreateUnchecked(e[..^1]), true) : new AprsPathEntry(AprsAddress.CreateUnchecked(e)));
+
+        // An inner source is 1-9 printable ASCII characters, which need not be an address (a space is allowed), so it is held as given.
+        AprsAddress source = AprsAddress.CreateUnchecked(Str(p, "source"));
+        AprsAddress destination = AprsAddress.CreateUnchecked(OptStr(p, "destination") ?? throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "the third-party packet has no destination, which an inner header needs"));
         JsonObject data = p["data"]!.AsObject();
 
         // An empty inner information field is data too: it is written back as it came, empty
@@ -208,9 +253,11 @@ internal static class NeutralReader
             return new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(source, destination, path, []) };
         }
 
-        // A Mic-E report's destination is computed from it; the neutral form's is that one.
+        // A Mic-E report's destination is computed from it. The neutral form's destination must be that
+        // one: written under another, the bytes would not be the report, and the computed one is not the
+        // one given (vectors encode/third-party-inner-mic-e-under-another-destination: not-encodable).
         AprsData inner = Data(data);
-        AprsThirdPartyTraffic traffic = AprsThirdPartyTraffic.Create(source, inner, inner is AprsMicEReport ? null : destination, path);
+        AprsThirdPartyTraffic traffic = AprsThirdPartyTraffic.Create(source, inner, destination, path);
 
         // Diagnostics on the inner packet are part of its data (a tolerated header defect such as
         // several used markers): the packet is the one that reads with them, its header as
@@ -221,6 +268,18 @@ internal static class NeutralReader
             string header = $"{Str(p, "source")}>{traffic.Packet.Destination.Value}{string.Concat(Strings(p["path"]).Select(e => "," + e))}:";
             byte[] line = [.. System.Text.Encoding.UTF8.GetBytes(header), .. traffic.Packet.Information.ToArray()];
             traffic = new AprsThirdPartyTraffic { Packet = AprsPacket.Decode(line, AprsParseOptions.Lenient) };
+
+            // A warning or error the data gives that its written bytes do not read back with has no
+            // form (vectors encode/third-party-inner-warning-the-bytes-do-not-carry): the data
+            // cannot be held as an inner packet, which only decoded bytes give diagnostics to.
+            List<string> found = [.. traffic.Packet.Diagnostics.Where(d => d.Severity != AprsDiagnosticSeverity.Info).Select(d => NeutralJson.Diagnostic(d.Severity, d.Code))];
+            foreach (string given in Strings(p["diagnostics"]).Where(d => !d.StartsWith("info:", StringComparison.Ordinal)))
+            {
+                if (!found.Remove(given))
+                {
+                    throw ToolRefusal(AprsRefusalCode.ValueHasNoForm, $"the inner packet is given the diagnostic {given}, which its written bytes do not read back with");
+                }
+            }
         }
 
         return traffic;
@@ -233,7 +292,7 @@ internal static class NeutralReader
         Only(d, data, [.. ownFields, .. known]);
         return data with
         {
-            Position = new AprsPosition((double)d["latitude"]!, (double)d["longitude"]!, (int?)d["ambiguity"] ?? 0),
+            Position = new AprsPosition((double)d["latitude"]!, (double)d["longitude"]!, Code(d["ambiguity"]) ?? 0),
             Symbol = Symbol(Absent(d, "symbol")),
             IsCompressed = Flag(d, "compressed"),
             CompressionType = d["compression"] is JsonObject ct
@@ -242,37 +301,37 @@ internal static class NeutralReader
             CourseDegrees = (double?)d["course_degrees"],
             SpeedKnots = (double?)d["speed_knots"],
             AltitudeFeet = (double?)d["altitude_feet"],
-            Phg = d["phg"] is JsonObject phg ? new AprsPhg((int)phg["power"]!, (int)phg["height"]!, (int)phg["gain"]!, (int)phg["directivity"]!, (int?)phg["beacons_per_hour"]) : null,
+            Phg = d["phg"] is JsonObject phg ? new AprsPhg(Code(phg["power"])!.Value, Code(phg["height"])!.Value, Code(phg["gain"])!.Value, Code(phg["directivity"])!.Value, Code(phg["beacons_per_hour"])) : null,
             RangeMiles = (double?)d["range_miles"],
-            DfSignalStrength = d["dfs"] is JsonObject dfs ? new AprsDfSignalStrength((int)dfs["strength"]!, (int)dfs["height"]!, (int)dfs["gain"]!, (int)dfs["directivity"]!) : null,
+            DfSignalStrength = d["dfs"] is JsonObject dfs ? new AprsDfSignalStrength(Code(dfs["strength"])!.Value, Code(dfs["height"])!.Value, Code(dfs["gain"])!.Value, Code(dfs["directivity"])!.Value) : null,
             AreaObject = d["area"] is JsonObject a
-                ? new AprsAreaObject(Enum<AprsAreaShape>(Str(a, "shape")), Enum<AprsAreaColor>(Str(a, "color")), (int)a["lat_offset"]!, (int)a["lon_offset"]!, (int?)a["corridor_width_miles"])
+                ? new AprsAreaObject(Enum<AprsAreaShape>(Str(a, "shape")), Enum<AprsAreaColor>(Str(a, "color")), Code(a["lat_offset"])!.Value, Code(a["lon_offset"])!.Value, Code(a["corridor_width_miles"]))
                 : null,
-            DfBearing = d["df_bearing"] is JsonObject b ? new AprsDfBearing((int)b["bearing_degrees"]!, (int)b["number"]!, (int)b["range"]!, (int)b["quality"]!) : null,
+            DfBearing = d["df_bearing"] is JsonObject b ? new AprsDfBearing(Code(b["bearing_degrees"])!.Value, Code(b["number"])!.Value, Code(b["range"])!.Value, Code(b["quality"])!.Value) : null,
             Storm = d["storm"] is JsonObject s
                 ? new AprsStorm
                 {
                     Type = Enum<AprsStormType>(Str(s, "type")),
-                    SustainedWindKnots = Whole(s["sustained_wind_knots"]),
-                    GustKnots = Whole(s["gust_knots"]),
-                    CentralPressureMillibars = Whole(s["central_pressure_mbar"]),
-                    HurricaneWindRadiusNauticalMiles = Whole(s["hurricane_radius_nm"]),
-                    TropicalStormWindRadiusNauticalMiles = Whole(s["tropical_storm_radius_nm"]),
-                    WholeGaleRadiusNauticalMiles = Whole(s["whole_gale_radius_nm"]),
+                    SustainedWindKnots = Code(s["sustained_wind_knots"]),
+                    GustKnots = Code(s["gust_knots"]),
+                    CentralPressureMillibars = Code(s["central_pressure_mbar"]),
+                    HurricaneWindRadiusNauticalMiles = Code(s["hurricane_radius_nm"]),
+                    TropicalStormWindRadiusNauticalMiles = Code(s["tropical_storm_radius_nm"]),
+                    WholeGaleRadiusNauticalMiles = Code(s["whole_gale_radius_nm"]),
                 }
                 : null,
             Dao = d["dao"] is JsonObject dao ? new AprsDao(Str(dao, "datum")[0], Enum<AprsDaoPrecision>(Str(dao, "precision"))) : null,
             Telemetry = d["telemetry"] is JsonObject t
-                ? new AprsCommentTelemetry { Sequence = (int)t["sequence"]!, Analog = [.. t["analog"]!.AsArray().Select(v => (int)v!)], Digital = (byte?)(int?)t["digital"] }
+                ? new AprsCommentTelemetry { Sequence = Code(t["sequence"])!.Value, Analog = [.. t["analog"]!.AsArray().Select(v => Code(v)!.Value)], Digital = (byte?)Code(t["digital"]) }
                 : null,
             Frequency = d["frequency"] is JsonObject f
                 ? new AprsVoiceFrequency
                 {
                     FrequencyMHz = (double)f["mhz"]!,
                     ToneType = OptStr(f, "tone") is { } tone ? Enum<AprsToneType>(tone) : null,
-                    ToneValue = (int?)f["tone_value"],
-                    OffsetKHz = (int?)f["offset_khz"],
-                    Range = (int?)f["range"],
+                    ToneValue = Code(f["tone_value"]),
+                    OffsetKHz = Code(f["offset_khz"]),
+                    Range = Code(f["range"]),
                     RangeInKilometres = Flag(f, "range_km"),
                     Narrow = Flag(f, "narrow"),
                     TenKilohertzResolution = Flag(f, "ten_khz_resolution"),
@@ -293,7 +352,7 @@ internal static class NeutralReader
         RainLastHourInches = (double?)w["rain_1h_in"],
         RainLast24HoursInches = (double?)w["rain_24h_in"],
         RainSinceMidnightInches = (double?)w["rain_midnight_in"],
-        RainRawCounter = Whole(w["rain_raw"]),
+        RainRawCounter = Rounded(w["rain_raw"]),
         HumidityPercent = (double?)w["humidity_percent"],
         PressureMillibars = (double?)w["pressure_mbar"],
         LuminosityWattsPerSquareMetre = (double?)w["luminosity_w_m2"],
@@ -325,21 +384,52 @@ internal static class NeutralReader
     }
 
     /// <summary>
-    /// A number for a field Packet.Aprs holds in whole units (a footprint radius, a storm value, a
-    /// raw rain counter). Neutral data can give one between the steps; it is taken as the encoder
-    /// takes any such value, rounded to the nearest whole unit with halves away from zero (vectors
-    /// ruling F2), and every check on it is then the encoder's own. These fields have no coarser
-    /// step, so this rounds once.
+    /// A number for a field Packet.Aprs holds in whole units or as a code (a PHG or DFS digit, an
+    /// area offset, a DF bearing field, a storm field, a comment telemetry value,
+    /// an ambiguity): never rounded, since rounding is for the step fields the Encoding rule lists.
+    /// The data cannot hold a non-integer there, so it is noted for <see cref="StandIns"/> as
+    /// <c>value-out-of-range</c> and read as the whole number below it; a value past 32 bits is
+    /// clamped, for the encoder to refuse.
     /// </summary>
-    private static int? Whole(JsonNode? node)
+    private static int? Rounded(JsonNode? node)
     {
         if (node is null)
         {
             return null;
         }
 
-        double rounded = Packet.Aprs.Internal.Steps.Nearest((double)node);
-        return rounded is >= int.MinValue and <= int.MaxValue ? (int)rounded : throw new OverflowException($"{node.ToJsonString()} is outside a 32-bit whole number");
+        double value = (double)node;
+        if (!double.IsFinite(value))
+        {
+            StandIns.Note(AprsRefusalCode.NotANumber, "a number that is not a number cannot be held in a whole-number field");
+            return 0;
+        }
+
+        return (int)Math.Clamp(Packet.Aprs.Internal.Steps.Nearest(value), int.MinValue, int.MaxValue);
+    }
+
+    private static int? Code(JsonNode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        double value = (double)node;
+        if (!double.IsFinite(value))
+        {
+            // The data cannot hold it; its value alone decides a refusal (README, Refusal reasons).
+            StandIns.Note(AprsRefusalCode.NotANumber, "a number that is not a number cannot be held in a whole-number field");
+            return 0;
+        }
+
+        if (value != Math.Floor(value))
+        {
+            StandIns.Note(AprsRefusalCode.ValueOutOfRange, $"{node.ToJsonString()} is not a whole number, and this field holds only whole units or a code");
+            value = Math.Floor(value);
+        }
+
+        return (int)Math.Clamp(value, int.MinValue, int.MaxValue);
     }
 
     /// <summary>

@@ -1,3 +1,5 @@
+using Packet.Aprs.Internal;
+
 namespace Packet.Aprs;
 
 /// <summary>
@@ -117,7 +119,7 @@ public sealed class AprsWeatherBuilder : AprsBuilder
 
     /// <summary>Temperature in degrees Celsius, sent to the nearest degree Fahrenheit.</summary>
     public AprsWeatherBuilder TemperatureCelsius(double celsius) =>
-        TemperatureFahrenheit((celsius * 9 / 5) + 32);
+        TemperatureFahrenheit(Units.Scaled(celsius, (celsius * 9 / 5) + 32));
 
     /// <summary>Relative humidity, 1-100 percent.</summary>
     public AprsWeatherBuilder HumidityPercent(double percent)
