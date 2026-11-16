@@ -30,6 +30,20 @@ internal static class InfoEncoder
 
     public static byte[] Encode(AprsData data, bool micEBytesFirst = false, AprsAddress? destination = null)
     {
+        try
+        {
+            return EncodeForms(data, micEBytesFirst, destination);
+        }
+        catch (AprsEncodeException ex) when (InfoWriter.Rank(ex.Code) > InfoWriter.Rank(AprsRefusalCode.NotANumber) && NonFinite.Present(data))
+        {
+            // A number that is not a number is not-a-number wherever it is, in a field the report has no
+            // place for too, ahead of every code that comes after it in the order.
+            throw new AprsEncodeException(AprsRefusalCode.NotANumber, "a value is not a number (NaN or an infinity)", ex);
+        }
+    }
+
+    private static byte[] EncodeForms(AprsData data, bool micEBytesFirst, AprsAddress? destination)
+    {
         // The forms that differ only in what stands before a comment: straight on as the rules
         // choose, then after a '/', then after a space; and for a Mic-E altitude the Mic-E bytes
         // with each of those, then a /A= with each, where a /A= holds the value exactly.

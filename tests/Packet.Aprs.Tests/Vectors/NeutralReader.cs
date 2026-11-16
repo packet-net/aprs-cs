@@ -188,32 +188,48 @@ internal static class NeutralReader
     }
 
     /// <summary>
-    /// Refuses third-party data nested more than four deep, counted from the top without
-    /// recursion, so it is refused for its header before anything inside it is built (vectors
-    /// encode/third-party-nested-five-deep). <paramref name="data"/> is the data inside one
-    /// third-party packet, or any data at all.
+    /// The refusals a third-party record has before anything in it is built, in the Refusal reasons
+    /// order over the whole record, every depth together: nested past four levels is
+    /// <c>invalid-third-party-header</c> (counted from the top without recursion, so what lies below
+    /// the fourth level is never reached), then undecoded data inside it is <c>not-encodable</c>,
+    /// then the first inner header, at any depth, that cannot be written is
+    /// <c>invalid-third-party-header</c>, ahead of any fault in the data at any depth.
+    /// <paramref name="p"/> is the packet of the outermost third-party packet.
     /// </summary>
-    public static void CheckNesting(JsonNode? data)
+    public static void CheckChain(JsonObject p)
     {
-        int depth = 1;
-        JsonNode? d = data;
-        while (d is JsonObject o && (string?)o["type"] == "third-party")
+        var levels = new List<JsonObject> { p };
+        JsonNode? d = p["data"];
+        while (d is JsonObject o && (string?)o["type"] == "third-party" && o["packet"] is JsonObject next)
         {
-            depth++;
-            d = o["packet"]?["data"];
+            levels.Add(next);
+            if (levels.Count > 4)
+            {
+                throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+            }
+
+            d = next["data"];
         }
 
-        // Undecoded data at the end is not-encodable, which comes first in the order.
-        bool undecoded = d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty";
-        if (depth > 4 && !undecoded)
+        if (d is JsonObject last && (string?)last["type"] == "unrecognized" && (string?)last["reason"] != "empty")
         {
-            throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "third-party packets nest at most four deep");
+            throw ToolRefusal(AprsRefusalCode.NotEncodable, "an unrecognized inner packet has nothing to encode");
+        }
+
+        foreach (JsonObject level in levels)
+        {
+            IReadOnlyList<AprsPathEntry> path = [.. Strings(level["path"]).Select(e => e.EndsWith('*') ? new AprsPathEntry(AprsAddress.CreateUnchecked(e[..^1]), true) : new AprsPathEntry(AprsAddress.CreateUnchecked(e)))];
+            if (OptStr(level, "destination") is not { } destination
+                || !Packet.Aprs.Internal.ThirdPartyCodec.HeaderCanBeWritten(AprsAddress.CreateUnchecked(Str(level, "source")), AprsAddress.CreateUnchecked(destination), path))
+            {
+                throw ToolRefusal(AprsRefusalCode.InvalidThirdPartyHeader, "an inner third-party header cannot be written as given");
+            }
         }
     }
 
     private static AprsThirdPartyTraffic ThirdParty(JsonObject p)
     {
-        CheckNesting(p["data"]);
+        CheckChain(p);
 
         // The inner header is held as given, whatever it holds: a destination or path entry that is no
         // address is for the encoder to refuse (invalid-third-party-header), not for this reader.

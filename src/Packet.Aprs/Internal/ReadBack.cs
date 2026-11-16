@@ -265,6 +265,13 @@ internal static class ReadBack
             return AprsRefusalCode.InvalidAddressee;
         }
 
+        if (given is AprsMicEReport { Comment.Length: > 0 } && bad.Exists(k => k is "type_code" or "device_suffix" or "locator"))
+        {
+            // The comment is the only thing no form can write: it reads as the type code, the device
+            // suffix or the locator, which are lifted from the status text.
+            return AprsRefusalCode.TextReadsAsField;
+        }
+
         return bad.Exists(IsFreeText) ? AprsRefusalCode.TextReadsAsField : AprsRefusalCode.DoesNotReadBack;
     }
 
