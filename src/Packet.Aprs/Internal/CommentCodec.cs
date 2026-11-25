@@ -60,11 +60,15 @@ internal static class CommentCodec
 
     /// <summary>
     /// One software-type letter then a 2-4 character unit type, e.g. <c>wRSW</c>, <c>xDvs</c>, <c>tU2k</c>.
-    /// A letter followed only by digits is a malformed weather field (e.g. a 4-digit <c>b0990</c>), not this.
+    /// A letter followed only by digits is a malformed weather field (e.g. a 4-digit <c>b0990</c>), not this,
+    /// and text that starts like a field is text: a letter APRS12c defines followed by a digit, or <c>t</c>
+    /// followed by <c>-</c> and a digit (<c>t2h35</c>, <c>s12a</c>, <c>t-5ab</c>; vectors interpretations.md,
+    /// "Text after the weather fields that starts like a field").
     /// </summary>
     internal static bool IsSoftwareAndUnit(ReadOnlySpan<byte> tail)
     {
-        if (tail.Length is < 3 or > 5 || !(Text.IsUpper(tail[0]) || Text.IsLower(tail[0])) || Text.AllDigits(tail[1..]))
+        if (tail.Length is < 3 or > 5 || !(Text.IsUpper(tail[0]) || Text.IsLower(tail[0])) || Text.AllDigits(tail[1..])
+            || StartsLikeAField(tail))
         {
             return false;
         }
@@ -79,6 +83,11 @@ internal static class CommentCodec
 
         return true;
     }
+
+    /// <summary>A letter APRS12c defines as a weather field followed by a digit, or <c>t</c> followed by <c>-</c> and a digit.</summary>
+    private static bool StartsLikeAField(ReadOnlySpan<byte> tail) =>
+        (tail[0] == (byte)'t' && tail[1] == (byte)'-' && Text.IsDigit(tail[2]))
+        || ("csgtrpPhbLl"u8.Contains(tail[0]) && Text.IsDigit(tail[1]));
 
     /// <summary>
     /// Lifts structured elements out of the comment bytes, in the order that avoids one being
